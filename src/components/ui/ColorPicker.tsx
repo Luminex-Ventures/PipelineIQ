@@ -1,5 +1,67 @@
-import { useState, useRef, useEffect } from 'react';
-import { parseHSL } from '../../lib/colors';
+import { Check } from 'lucide-react';
+import { getColorValue } from '../../lib/colors';
+
+interface ColorDefinition {
+  name: string;
+  value: string;
+}
+
+export const COLOR_SWATCHES: ColorDefinition[] = [
+  { name: 'Snow', value: '#F9FAFB' },
+  { name: 'Pearl', value: '#F3F4F6' },
+  { name: 'Mist', value: '#E5E7EB' },
+  { name: 'Silver Fog', value: '#D1D5DB' },
+  { name: 'Ice Blue', value: '#E8F1FF' },
+  { name: 'Cloud Blue', value: '#D6E7FF' },
+  { name: 'Sky Wash', value: '#C3DBFF' },
+  { name: 'Pale Azure', value: '#AECFFF' },
+  { name: 'Soft Blue', value: '#98C3FF' },
+  { name: 'Bluebell', value: '#87B6F9' },
+  { name: 'Foggy Indigo', value: '#AEB8D9' },
+  { name: 'Lavender Mist', value: '#F2EDFF' },
+  { name: 'Lilac Whisper', value: '#E8E2FF' },
+  { name: 'Soft Violet', value: '#D8D0FF' },
+  { name: 'Periwinkle Light', value: '#C7C3FF' },
+  { name: 'Muted Orchid', value: '#B7B2F2' },
+  { name: 'Barely Purple', value: '#DDD6F6' },
+  { name: 'Blush Tint', value: '#FFE8F3' },
+  { name: 'Pink Dew', value: '#FFD6E8' },
+  { name: 'Rosewater', value: '#F9C8DB' },
+  { name: 'Petal Pink', value: '#F5B8CD' },
+  { name: 'Soft Berry', value: '#E8A7C3' },
+  { name: 'Muted Magenta', value: '#D3A6C9' },
+  { name: 'Rose Mist', value: '#FFE5E5' },
+  { name: 'Pale Coral', value: '#FFD4D4' },
+  { name: 'Soft Clay', value: '#F5B8B8' },
+  { name: 'Muted Red', value: '#EFA9A9' },
+  { name: 'Peach Wash', value: '#FFF1E6' },
+  { name: 'Apricot Mist', value: '#FFE3CC' },
+  { name: 'Soft Tangerine', value: '#FFD1AE' },
+  { name: 'Warm Peach', value: '#F7C39C' },
+  { name: 'Muted Orange', value: '#E7B690' },
+  { name: 'Sunhaze', value: '#FFF8DD' },
+  { name: 'Lemon Tint', value: '#FFF2BB' },
+  { name: 'Buttercream', value: '#FFECA1' },
+  { name: 'Golden Mist', value: '#FFE38C' },
+  { name: 'Muted Amber', value: '#F6D67C' },
+  { name: 'Mint Wash', value: '#E6FFF5' },
+  { name: 'Soft Mint', value: '#CFF9EA' },
+  { name: 'Pale Green', value: '#B7F0D9' },
+  { name: 'Seafoam', value: '#A1E8CC' },
+  { name: 'Soft Teal', value: '#8EDCC0' },
+  { name: 'Muted Green', value: '#7BCDB1' },
+  { name: 'Aqua Mist', value: '#E5FAFF' },
+  { name: 'Arctic Blue', value: '#CDF2FA' },
+  { name: 'Icy Teal', value: '#B5E8F0' },
+  { name: 'Soft Cyan', value: '#A1DEEA' },
+  { name: 'Muted Teal', value: '#8DCFD9' },
+  { name: 'Sandstone', value: '#F7EFE6' },
+  { name: 'Driftwood', value: '#EADFD2' },
+  { name: 'Clay Neutral', value: '#DDCEBF' },
+  { name: 'Soft Taupe', value: '#CFC1B2' }
+];
+
+export const DEFAULT_STATUS_COLOR = COLOR_SWATCHES[0].value;
 
 interface ColorPickerProps {
   value: string | null;
@@ -7,177 +69,55 @@ interface ColorPickerProps {
 }
 
 export function ColorPicker({ value, onChange }: ColorPickerProps) {
-  const [hue, setHue] = useState(220);
-  const [saturation, setSaturation] = useState(70);
-  const [lightness, setLightness] = useState(50);
-  const saturationRef = useRef<HTMLDivElement>(null);
-  const hueRef = useRef<HTMLDivElement>(null);
-  const skipOnChange = useRef(false);
-
-  useEffect(() => {
-    if (!value || !value.startsWith('hsl(')) {
-      return;
-    }
-
-    const parsed = parseHSL(value);
-    if (!parsed) return;
-
-    skipOnChange.current = true;
-    setHue(parsed.h);
-    setSaturation(parsed.s);
-    setLightness(parsed.l);
-  }, [value]);
-
-  useEffect(() => {
-    if (skipOnChange.current) {
-      skipOnChange.current = false;
-      return;
-    }
-
-    const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    onChange(color);
-  }, [hue, saturation, lightness, onChange]);
-
-  const handleSaturationClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!saturationRef.current) return;
-    const rect = saturationRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const y = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
-
-    const newSaturation = Math.round((x / rect.width) * 100);
-    const newLightness = Math.round(100 - (y / rect.height) * 100);
-
-    setSaturation(newSaturation);
-    setLightness(newLightness);
-  };
-
-  const handleHueClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!hueRef.current) return;
-    const rect = hueRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const newHue = Math.round((x / rect.width) * 360);
-    setHue(newHue);
-  };
-
-  const currentColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  const resolvedColor = value ? getColorValue(value) : DEFAULT_STATUS_COLOR;
+  const normalizedResolved = resolvedColor.toLowerCase();
+  const selectedDefinition = COLOR_SWATCHES.find(
+    (color) => color.value.toLowerCase() === normalizedResolved
+  );
 
   return (
     <div className="space-y-4">
-      {/* Color Preview */}
-      <div className="flex items-center gap-3">
-        <div
-          className="w-16 h-16 rounded-xl shadow-sm border-2 border-white ring-1 ring-gray-200/60"
-          style={{ backgroundColor: currentColor }}
-        />
-        <div className="flex-1">
-          <div className="text-sm font-medium text-gray-900 mb-1">Selected Color</div>
-          <div className="text-xs font-mono text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">
-            {currentColor}
-          </div>
-        </div>
-      </div>
-
-      {/* Saturation/Lightness Picker */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-2">
-          Saturation & Lightness
-        </label>
-        <div
-          ref={saturationRef}
-          onClick={handleSaturationClick}
-          className="relative w-full h-40 rounded-xl cursor-crosshair shadow-sm border border-gray-200/60 overflow-hidden"
-          style={{
-            background: `
-              linear-gradient(to top, black, transparent),
-              linear-gradient(to right, white, hsl(${hue}, 100%, 50%))
-            `
-          }}
-        >
-          <div
-            className="absolute w-5 h-5 border-2 border-white rounded-full shadow-lg pointer-events-none"
-            style={{
-              left: `${saturation}%`,
-              top: `${100 - lightness}%`,
-              transform: 'translate(-50%, -50%)',
-              boxShadow: '0 0 0 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.3)'
-            }}
-          >
-            <div
-              className="w-full h-full rounded-full"
-              style={{ backgroundColor: currentColor }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Hue Slider */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-2">
-          Hue
-        </label>
-        <div
-          ref={hueRef}
-          onClick={handleHueClick}
-          className="relative w-full h-8 rounded-lg cursor-pointer shadow-sm border border-gray-200/60 overflow-hidden"
-          style={{
-            background: 'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
-          }}
-        >
-          <div
-            className="absolute top-0 bottom-0 w-1 bg-white shadow-lg pointer-events-none"
-            style={{
-              left: `${(hue / 360) * 100}%`,
-              boxShadow: '0 0 0 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.3)'
-            }}
+      <div className="flex items-center gap-3 rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-inner">
+        <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-white/40 shadow">
+          <span
+            className="absolute inset-0 rounded-2xl"
+            style={{ backgroundColor: resolvedColor }}
           />
+          <Check className="relative h-5 w-5 text-white drop-shadow" strokeWidth={2.5} />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+            Selected color
+          </span>
+          <span className="text-xs text-gray-500">
+            {selectedDefinition ? 'From palette' : 'Custom'}
+          </span>
         </div>
       </div>
 
-      {/* Preset Colors */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-2">
-          Quick Presets
-        </label>
-        <div className="grid grid-cols-8 gap-2">
-          {[
-            { h: 220, s: 70, l: 50, label: 'Blue' },
-            { h: 190, s: 65, l: 48, label: 'Cyan' },
-            { h: 165, s: 60, l: 45, label: 'Teal' },
-            { h: 145, s: 65, l: 45, label: 'Green' },
-            { h: 80, s: 60, l: 50, label: 'Lime' },
-            { h: 45, s: 100, l: 50, label: 'Yellow' },
-            { h: 25, s: 95, l: 55, label: 'Orange' },
-            { h: 5, s: 75, l: 55, label: 'Red' },
-            { h: 340, s: 70, l: 55, label: 'Pink' },
-            { h: 280, s: 65, l: 55, label: 'Purple' },
-            { h: 260, s: 60, l: 55, label: 'Violet' },
-            { h: 240, s: 65, l: 55, label: 'Indigo' },
-            { h: 200, s: 20, l: 50, label: 'Slate' },
-            { h: 0, s: 0, l: 50, label: 'Gray' },
-            { h: 30, s: 40, l: 45, label: 'Brown' },
-            { h: 0, s: 0, l: 25, label: 'Dark' },
-          ].map((preset) => {
-            const presetColor = `hsl(${preset.h}, ${preset.s}%, ${preset.l}%)`;
-            const isSelected = hue === preset.h && saturation === preset.s && lightness === preset.l;
-
-            return (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => {
-                  setHue(preset.h);
-                  setSaturation(preset.s);
-                  setLightness(preset.l);
-                }}
-                className={`w-8 h-8 rounded-lg transition-all hover:scale-110 ${
-                  isSelected ? 'ring-2 ring-offset-2 ring-[rgb(0,122,255)]' : ''
-                }`}
-                style={{ backgroundColor: presetColor }}
-                title={preset.label}
-              />
-            );
-          })}
-        </div>
+      <div className="grid grid-cols-6 gap-3 sm:grid-cols-8">
+        {COLOR_SWATCHES.map((color) => {
+          const isSelected = color.value.toLowerCase() === normalizedResolved;
+          return (
+            <button
+              key={color.value}
+              type="button"
+              onClick={() => onChange(color.value)}
+              className={`relative h-10 w-10 rounded-2xl border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40 ${
+                isSelected
+                  ? 'border-[var(--app-accent)] shadow-[0_8px_18px_rgba(15,23,42,0.15)]'
+                  : 'border-white/70 shadow-inner hover:border-gray-300'
+              }`}
+              style={{ backgroundColor: color.value }}
+              aria-label={`${color.name} color`}
+            >
+              {isSelected && (
+                <Check className="absolute inset-0 m-auto h-4 w-4 text-white drop-shadow" strokeWidth={2.5} />
+              )}
+              <span className="sr-only">{color.name}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

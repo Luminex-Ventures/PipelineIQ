@@ -5,7 +5,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
 import TemplateSelectionModal from '../components/TemplateSelectionModal';
-import { ColorPicker } from '../components/ui/ColorPicker';
+import { ColorPicker, DEFAULT_STATUS_COLOR } from '../components/ui/ColorPicker';
 import { getColorByName } from '../lib/colors';
 import type { Database } from '../lib/database.types';
 
@@ -91,7 +91,7 @@ export default function PipelineSettings() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStatus, setEditingStatus] = useState<PipelineStatus | null>(null);
-  const [formData, setFormData] = useState({ name: '', color: 'gray' });
+  const [formData, setFormData] = useState({ name: '', color: DEFAULT_STATUS_COLOR });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -144,7 +144,7 @@ export default function PipelineSettings() {
 
       setShowAddModal(false);
       setEditingStatus(null);
-      setFormData({ name: '', color: 'gray' });
+      setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
     } catch (err) {
       console.error('Error saving status:', err);
       setError(err instanceof Error ? err.message : 'Failed to save status');
@@ -168,7 +168,7 @@ export default function PipelineSettings() {
 
   const handleEdit = (status: PipelineStatus) => {
     setEditingStatus(status);
-    setFormData({ name: status.name, color: status.color || 'gray' });
+    setFormData({ name: status.name, color: status.color || DEFAULT_STATUS_COLOR });
     setShowAddModal(true);
   };
 
@@ -209,7 +209,7 @@ export default function PipelineSettings() {
           <button
             onClick={() => {
               setEditingStatus(null);
-              setFormData({ name: '', color: 'gray' });
+                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
               setShowAddModal(true);
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center space-x-2 transition text-sm"
@@ -273,7 +273,7 @@ export default function PipelineSettings() {
                 onClick={() => {
                   setShowAddModal(false);
                   setEditingStatus(null);
-                  setFormData({ name: '', color: 'gray' });
+                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
                   setError(null);
                 }}
                 className="text-gray-400 hover:text-gray-600 transition"
@@ -312,7 +312,7 @@ export default function PipelineSettings() {
                 onClick={() => {
                   setShowAddModal(false);
                   setEditingStatus(null);
-                  setFormData({ name: '', color: 'gray' });
+                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
                   setError(null);
                 }}
                 disabled={saving}
