@@ -10,7 +10,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_var(--app-bg-start),_var(--app-bg-mid)_45%,_var(--app-bg-end))] text-[var(--app-text-primary)] overflow-x-hidden">
       <AppHeader />
-      <div className="relative mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 pb-10 pt-6 lg:flex-row lg:px-8">
+      <div className="relative mx-auto flex w-full flex-col gap-6 px-4 pb-10 pt-6 lg:flex-row lg:px-8">
         <div className="lg:w-64 lg:flex-shrink-0">
           <SidebarNav />
         </div>

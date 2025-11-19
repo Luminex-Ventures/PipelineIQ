@@ -104,7 +104,7 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/30 bg-white/75 backdrop-blur-2xl shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
-      <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 w-full items-center gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/')}
