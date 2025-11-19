@@ -52,8 +52,35 @@ export function normalizeRgbInput(input: string): string | null {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+function parseHexColor(hexString: string): { r: number; g: number; b: number } | null {
+  if (!hexString || !hexString.startsWith('#')) return null;
+  const normalized = hexString.trim();
+  const match = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return null;
+
+  let value = match[1];
+  if (value.length === 3) {
+    value = value
+      .split('')
+      .map((char) => char + char)
+      .join('');
+  }
+
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+
+  return { r, g, b };
+}
+
 export function getTextColor(colorValue: string | null | undefined): string {
   if (!colorValue) return '#ffffff';
+
+  const hex = parseHexColor(colorValue);
+  if (hex) {
+    const luminance = (0.2126 * hex.r + 0.7152 * hex.g + 0.0722 * hex.b) / 255;
+    return luminance > 0.6 ? '#000000' : '#ffffff';
+  }
 
   const hsl = parseHSL(colorValue);
   if (hsl) {
@@ -73,6 +100,11 @@ export function getColorValue(colorValue: string | null | undefined): string {
   if (!colorValue) return 'hsl(220, 70%, 50%)';
 
   const lowered = colorValue.toLowerCase();
+  const hexMatch = colorValue.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    return hexMatch[0];
+  }
+
   if (lowered.startsWith('hsl(') || lowered.startsWith('rgb(')) {
     return colorValue;
   }

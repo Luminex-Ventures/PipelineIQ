@@ -5,8 +5,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { usePipelineStatuses } from '../../hooks/usePipelineStatuses';
 import TemplateSelectionModal from '../../components/TemplateSelectionModal';
-import { ColorPicker } from '../../components/ui/ColorPicker';
-import { getColorByName, getColorValue, normalizeRgbInput } from '../../lib/colors';
+import { ColorPicker, DEFAULT_STATUS_COLOR } from '../../components/ui/ColorPicker';
+import { getColorByName, getColorValue } from '../../lib/colors';
 import type { Database } from '../../lib/database.types';
 
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
@@ -14,8 +14,6 @@ type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 interface PipelineStatusesSettingsProps {
   canEdit?: boolean;
 }
-
-const DEFAULT_PICKER_COLOR = 'hsl(220, 70%, 50%)';
 
 function SortableStatusItem({ status, onEdit, onDelete }: {
   status: PipelineStatus;
@@ -115,11 +113,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStatus, setEditingStatus] = useState<PipelineStatus | null>(null);
   const [statusName, setStatusName] = useState('');
-  const [pickerColor, setPickerColor] = useState(DEFAULT_PICKER_COLOR);
-  const [colorMode, setColorMode] = useState<'picker' | 'rgb'>('picker');
-  const [rgbInput, setRgbInput] = useState('');
-  const [rgbPreview, setRgbPreview] = useState<string | null>(null);
-  const [rgbValidationError, setRgbValidationError] = useState<string | null>(null);
+  const [selectedColor, setSelectedColor] = useState(DEFAULT_STATUS_COLOR);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -157,28 +151,17 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
       return;
     }
 
-    let colorToSave = pickerColor;
-    if (colorMode === 'rgb') {
-      const normalized = normalizeRgbInput(rgbInput);
-      if (!normalized) {
-        setRgbValidationError('Enter RGB values between 0 and 255 (e.g., 0,122,255)');
-        return;
-      }
-      colorToSave = normalized;
-    }
-
     setSaving(true);
     setError(null);
-    setRgbValidationError(null);
 
     try {
       if (editingStatus) {
         await updateStatus(editingStatus.id, {
           name: statusName.trim(),
-          color: colorToSave
+          color: selectedColor
         });
       } else {
-        await addStatus(statusName.trim(), colorToSave);
+        await addStatus(statusName.trim(), selectedColor);
       }
 
       resetFormAndClose();
@@ -190,33 +173,11 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
     }
   };
 
-  const handleRgbInputChange = (value: string) => {
-    setRgbInput(value);
-    if (!value.trim()) {
-      setRgbPreview(null);
-      setRgbValidationError(null);
-      return;
-    }
-
-    const normalized = normalizeRgbInput(value);
-    if (normalized) {
-      setRgbPreview(normalized);
-      setRgbValidationError(null);
-    } else {
-      setRgbPreview(null);
-      setRgbValidationError('Enter RGB values between 0 and 255 (e.g., 74,144,226)');
-    }
-  };
-
   const resetFormAndClose = () => {
     setShowAddModal(false);
     setEditingStatus(null);
     setStatusName('');
-    setPickerColor(DEFAULT_PICKER_COLOR);
-    setColorMode('picker');
-    setRgbInput('');
-    setRgbPreview(null);
-    setRgbValidationError(null);
+    setSelectedColor(DEFAULT_STATUS_COLOR);
     setError(null);
   };
 
@@ -236,20 +197,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
   const handleEdit = (status: PipelineStatus) => {
     setEditingStatus(status);
     setStatusName(status.name);
-
-    if (status.color && status.color.toLowerCase().startsWith('rgb(')) {
-      setColorMode('rgb');
-      setRgbInput(status.color);
-      setRgbPreview(status.color);
-      setRgbValidationError(null);
-    } else {
-      setColorMode('picker');
-      setPickerColor(getColorValue(status.color) || DEFAULT_PICKER_COLOR);
-      setRgbInput('');
-      setRgbPreview(null);
-      setRgbValidationError(null);
-    }
-
+    setSelectedColor(getColorValue(status.color) || DEFAULT_STATUS_COLOR);
     setShowAddModal(true);
   };
 
@@ -297,11 +245,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
             <button
               onClick={() => {
                 setStatusName('');
-                setPickerColor(DEFAULT_PICKER_COLOR);
-                setColorMode('picker');
-                setRgbInput('');
-                setRgbPreview(null);
-                setRgbValidationError(null);
+                setSelectedColor(DEFAULT_STATUS_COLOR);
                 setShowAddModal(true);
               }}
               className="hig-btn-primary"
@@ -403,65 +347,10 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
                 <label className="block text-sm font-medium text-gray-900 mb-3">
                   Color
                 </label>
-
-                <div className="inline-flex rounded-lg border border-gray-200/60 p-0.5 mb-4 gap-1 bg-gray-50/80">
-                  {[
-                    { id: 'picker', label: 'Color Picker' },
-                    { id: 'rgb', label: 'Custom RGB' }
-                  ].map((mode) => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => {
-                        setColorMode(mode.id as 'picker' | 'rgb');
-                        if (mode.id === 'picker') {
-                          setRgbValidationError(null);
-                        }
-                      }}
-                      className={`px-3 py-1.5 text-sm rounded-md transition ${
-                        colorMode === mode.id
-                          ? 'bg-white text-gray-900 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-900'
-                      }`}
-                    >
-                      {mode.label}
-                    </button>
-                  ))}
-                </div>
-
-                {colorMode === 'picker' ? (
-                  <ColorPicker
-                    value={pickerColor}
-                    onChange={setPickerColor}
-                  />
-                ) : (
-                  <div className="space-y-3">
-                    <input
-                      type="text"
-                      value={rgbInput}
-                      onChange={(e) => handleRgbInputChange(e.target.value)}
-                      placeholder="rgb(0, 122, 255) or 0,122,255"
-                      className="hig-input"
-                    />
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-12 h-12 rounded-xl border border-gray-200/60"
-                        style={{ backgroundColor: rgbPreview || '#f5f5f5' }}
-                      />
-                      <div className="flex flex-col text-xs font-mono text-gray-600">
-                        <span className="uppercase tracking-wide text-gray-500">Preview</span>
-                        <span>{rgbPreview || 'N/A'}</span>
-                      </div>
-                    </div>
-                    {rgbValidationError ? (
-                      <p className="text-sm text-red-600">{rgbValidationError}</p>
-                    ) : (
-                      <p className="text-xs text-gray-500">
-                        Provide values between 0 and 255. Example: <span className="font-mono">74, 144, 226</span>
-                      </p>
-                    )}
-                  </div>
-                )}
+                <ColorPicker
+                  value={selectedColor}
+                  onChange={setSelectedColor}
+                />
               </div>
             </div>
 
