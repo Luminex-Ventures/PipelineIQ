@@ -4,12 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node ./node_modules/vite/bin/vite.js",
-    "build": "node ./node_modules/vite/bin/vite.js build",
+    "dev": "vite",
+    "build": "vite build",
     "lint": "eslint .",
-    "preview": "node ./node_modules/vite/bin/vite.js preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "postinstall": "node scripts/fixViteBin.cjs"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
