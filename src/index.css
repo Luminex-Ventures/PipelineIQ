@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --app-bg-start: #f4f7ff;
+    --app-bg-mid: #fbfcff;
+    --app-bg-end: #ffffff;
+    --app-surface: #ffffff;
+    --app-surface-muted: #f6f8ff;
+    --app-border: rgba(15, 23, 42, 0.08);
+    --app-border-strong: rgba(15, 23, 42, 0.12);
+    --app-text-primary: #0f172a;
+    --app-text-secondary: #475569;
+    --app-text-tertiary: #94a3b8;
+    --app-accent: #007aff;
+    --app-accent-strong: #0a84ff;
+    --app-radius: 1.25rem;
+    --app-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.08);
+    --app-shadow-diffused: 0 25px 80px rgba(15, 23, 42, 0.08);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: radial-gradient(circle at top, var(--app-bg-start), var(--app-bg-mid) 45%, var(--app-bg-end));
+    color: var(--app-text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  .app-surface {
+    @apply rounded-[var(--app-radius)] border border-[var(--app-border)] bg-white/90 shadow-[0_6px_30px_rgba(15,23,42,0.06)];
+  }
+
+  .app-toolbar {
+    @apply rounded-2xl border border-white/40 bg-white/70 backdrop-blur-xl shadow-[0_1px_2px_rgba(15,23,42,0.12)];
+  }
+
+  .app-pill {
+    @apply inline-flex items-center rounded-full border border-[var(--app-border)] bg-white px-3 py-1 text-xs font-medium text-gray-600;
+  }
+
+  .hig-card {
+    @apply bg-white rounded-xl border border-gray-200/60 shadow-sm;
+  }
+
+  .hig-card-hover {
+    @apply hig-card hover:shadow-md hover:border-gray-300/60 transition-all duration-200;
+  }
+
+  .hig-btn-primary {
+    @apply bg-[rgb(0,122,255)] hover:bg-[rgb(0,106,224)] active:bg-[rgb(0,92,200)] text-white font-medium px-5 py-2 rounded-lg transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
+  }
+
+  .hig-btn-secondary {
+    @apply bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-900 font-medium px-5 py-2 rounded-lg border border-gray-300 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
+  }
+
+  .hig-btn-text {
+    @apply text-[rgb(0,122,255)] hover:text-[rgb(0,106,224)] active:text-[rgb(0,92,200)] font-medium px-3 py-2 rounded-lg hover:bg-gray-100/50 transition-colors duration-150 text-[15px] min-h-[44px] inline-flex items-center justify-center;
+  }
+
+  .hig-input {
+    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[rgb(0,122,255)]/20 focus:border-[rgb(0,122,255)] transition-all duration-150 min-h-[44px];
+  }
+
+  .hig-label {
+    @apply block text-sm font-medium text-gray-700 mb-2;
+  }
+
+  .hig-text-display {
+    @apply text-[28px] font-semibold tracking-tight text-gray-900;
+  }
+
+  .hig-text-heading {
+    @apply text-xl font-semibold text-gray-900;
+  }
+
+  .hig-text-body {
+    @apply text-[15px] text-gray-900;
+  }
+
+  .hig-text-caption {
+    @apply text-[13px] text-gray-500;
+  }
+
+  .hig-badge {
+    @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .hig-badge-success {
+    @apply hig-badge bg-green-100 text-green-800;
+  }
+
+  .hig-badge-warning {
+    @apply hig-badge bg-orange-100 text-orange-800;
+  }
+
+  .hig-badge-danger {
+    @apply hig-badge bg-red-100 text-red-800;
+  }
+
+  .hig-badge-neutral {
+    @apply hig-badge bg-gray-100 text-gray-700;
+  }
+
+  .hig-divider {
+    @apply border-t border-gray-200/60;
+  }
+}
+
+@layer utilities {
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.45s ease forwards;
+  }
+}

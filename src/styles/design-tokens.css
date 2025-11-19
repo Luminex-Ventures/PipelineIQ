@@ -1,0 +1,68 @@
+@layer base {
+  :root {
+    /* Apple-inspired color system */
+    --color-app-bg: 246 246 246;
+    --color-elevated: 255 255 255;
+    --color-elevated-hover: 250 250 250;
+
+    --color-border-subtle: 229 229 229;
+    --color-border-medium: 209 209 209;
+
+    --color-text-primary: 28 28 30;
+    --color-text-secondary: 60 60 67;
+    --color-text-muted: 142 142 147;
+
+    --color-accent-primary: 0 122 255;
+    --color-accent-hover: 0 106 224;
+    --color-accent-active: 0 92 200;
+
+    --color-success: 52 199 89;
+    --color-warning: 255 149 0;
+    --color-danger: 255 59 48;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 2px 8px 0 rgb(0 0 0 / 0.08);
+    --shadow-lg: 0 8px 24px 0 rgb(0 0 0 / 0.12);
+
+    /* Spacing scale (8pt grid) */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+    --space-16: 4rem;
+
+    /* Border radius */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+  }
+}
+
+@layer utilities {
+  .text-display {
+    @apply text-3xl font-semibold tracking-tight text-gray-900;
+  }
+
+  .text-heading {
+    @apply text-lg font-semibold text-gray-900;
+  }
+
+  .text-body {
+    @apply text-[15px] text-gray-900;
+  }
+
+  .text-caption {
+    @apply text-[13px] text-gray-500;
+  }
+
+  .text-label {
+    @apply text-sm font-medium text-gray-700;
+  }
+}
