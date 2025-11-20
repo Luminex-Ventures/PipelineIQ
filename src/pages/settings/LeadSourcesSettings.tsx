@@ -673,7 +673,7 @@ function LeadSourceCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`rounded-3xl border border-gray-200/70 bg-white/95 p-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)] transition ${
+      className={`rounded-[28px] border border-gray-200/70 bg-white/95 p-3.5 shadow-[0_12px_30px_rgba(15,23,42,0.06)] transition ${
         isDragging
           ? 'ring-2 ring-[var(--app-accent)]/40 shadow-[0_18px_45px_rgba(15,23,42,0.15)]'
           : 'hover:border-gray-300/80 hover:shadow-[0_20px_50px_rgba(15,23,42,0.08)]'
@@ -696,9 +696,13 @@ function LeadSourceCard({
         )}
         <div className="flex-1 space-y-3">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-gray-400">Lead Source</p>
-              <h3 className="text-lg font-semibold text-gray-900">{source.name}</h3>
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-gray-900">{source.name}</h3>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span className="font-medium text-gray-800">{categoryLabel}</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+                <span>{isPartnership ? 'Partner split first' : 'Standard split'}</span>
+              </div>
             </div>
             {canEdit ? (
               <div className="flex items-center gap-1">
@@ -723,13 +727,13 @@ function LeadSourceCard({
           </div>
           <div className="flex flex-wrap gap-2">
             <span
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${categoryBadgeClass}`}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${categoryBadgeClass}`}
             >
               <Tag className="h-3 w-3" strokeWidth={2} />
               {categoryLabel}
             </span>
             <span
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
                 isPartnership
                   ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/8 text-[var(--app-accent)]'
                   : 'border-gray-200/80 bg-gray-50 text-gray-600'
@@ -742,22 +746,21 @@ function LeadSourceCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <LeadSourceStat label="Broker split" value={brokerSplit} />
-        {isPartnership ? <LeadSourceStat label="Partner share" value={partnerSplit!} /> : <LeadSourceStat label="Structure" value="Standard" />}
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
+        <span className="inline-flex items-center gap-1 rounded-2xl border border-gray-100 bg-gray-50/80 px-2.5 py-1 font-semibold text-gray-900">
+          Broker split <span className="text-gray-700">{brokerSplit}</span>
+        </span>
+        {isPartnership && partnerSplit && (
+          <span className="inline-flex items-center gap-1 rounded-2xl border border-gray-100 bg-gray-50/80 px-2.5 py-1 font-semibold text-gray-900">
+            Partner <span className="text-gray-700">{partnerSplit}</span>
+          </span>
+        )}
+        {source.partnership_notes && (
+          <span className="line-clamp-1 text-xs text-gray-500">
+            {source.partnership_notes}
+          </span>
+        )}
       </div>
-
-      {isPartnership && (
-        <p className="mt-3 rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2 text-xs text-gray-600">
-          Partner receives {partnerSplit}. Brokerage split applies on the remaining commission.
-        </p>
-      )}
-
-      {source.partnership_notes && (
-        <p className="mt-3 rounded-2xl border border-[var(--app-accent)]/20 bg-[var(--app-accent)]/5 px-3 py-2 text-xs text-gray-700">
-          {source.partnership_notes}
-        </p>
-      )}
     </div>
   );
 }
