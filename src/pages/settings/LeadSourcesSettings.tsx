@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Loader2, X, Tag, AlertCircle, Handshake, Sparkles } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search } from 'lucide-react';
+import { DndContext, DragEndEvent, DragOverlay, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 type PayoutStructure = 'standard' | 'partnership';
 
@@ -9,6 +12,7 @@ interface LeadSource {
   id: string;
   name: string;
   category: string | null;
+  sort_order: number;
   brokerage_split_rate: number;
   payout_structure: PayoutStructure;
   partnership_split_rate: number | null;
@@ -17,7 +21,6 @@ interface LeadSource {
 
 interface LeadSourceFormState {
   name: string;
-  category: string;
   brokerage_split_rate: number;
   payout_structure: PayoutStructure;
   partnership_split_rate: number;
@@ -26,7 +29,6 @@ interface LeadSourceFormState {
 
 const createDefaultFormState = (): LeadSourceFormState => ({
   name: '',
-  category: '',
   brokerage_split_rate: 20,
   payout_structure: 'standard',
   partnership_split_rate: 35,
@@ -44,8 +46,11 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingSource, setEditingSource] = useState<LeadSource | null>(null);
+  const [activeSource, setActiveSource] = useState<LeadSource | null>(null);
   const [formData, setFormData] = useState<LeadSourceFormState>(createDefaultFormState());
   const [error, setError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<'all' | PayoutStructure>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadSources();
@@ -54,15 +59,57 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
 
   const loadSources = async () => {
     if (!user) return;
+    setLoading(true);
 
-    const { data } = await supabase
-      .from('lead_sources')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('name');
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('lead_sources')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('name', { ascending: true });
 
-    if (data) setSources(data);
-    setLoading(false);
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      if (!data) {
+        setSources([]);
+        setLoading(false);
+        return;
+      }
+
+      const ordered = [...data].sort((a, b) => {
+        if (a.sort_order === b.sort_order) {
+          return a.name.localeCompare(b.name);
+        }
+        return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+      });
+
+      const needsNormalization = ordered.some((source, index) => source.sort_order !== index + 1);
+      if (needsNormalization) {
+        const normalized = ordered.map((source, index) => ({
+          ...source,
+          sort_order: index + 1
+        }));
+        setSources(normalized);
+        await Promise.all(
+          normalized.map((source, index) =>
+            supabase
+              .from('lead_sources')
+              .update({ sort_order: index + 1 })
+              .eq('id', source.id)
+          )
+        );
+      } else {
+        setSources(ordered);
+      }
+    } catch (err) {
+      console.error('Error loading lead sources:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load lead sources');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -78,7 +125,6 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     try {
       const payload = {
         name: formData.name,
-        category: formData.category || null,
         brokerage_split_rate: formData.brokerage_split_rate / 100,
         payout_structure: formData.payout_structure,
         partnership_split_rate: formData.payout_structure === 'partnership' ? formData.partnership_split_rate / 100 : null,
@@ -93,10 +139,12 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
 
         if (updateError) throw updateError;
       } else {
+        const maxSort = sources.reduce((max, src) => Math.max(max, src.sort_order ?? 0), 0);
         const { error: insertError } = await supabase
           .from('lead_sources')
           .insert({
             user_id: user.id,
+            sort_order: maxSort + 1,
             ...payload
           });
 
@@ -120,7 +168,6 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     setEditingSource(source);
     setFormData({
       name: source.name,
-      category: source.category || '',
       brokerage_split_rate: source.brokerage_split_rate * 100,
       payout_structure: source.payout_structure,
       partnership_split_rate: (source.partnership_split_rate ?? 0.35) * 100,
@@ -151,16 +198,6 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     }
   };
 
-  const categories = [
-    { value: 'online', label: 'Online' },
-    { value: 'referral', label: 'Referral' },
-    { value: 'event', label: 'Event' },
-    { value: 'farming', label: 'Farming' },
-    { value: 'advertising', label: 'Advertising' },
-    { value: 'direct', label: 'Direct' },
-    { value: 'other', label: 'Other' }
-  ];
-
   const payoutOptions: { value: PayoutStructure; title: string; description: string }[] = [
     {
       value: 'standard',
@@ -174,17 +211,71 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     }
   ];
 
-  const getCategoryColor = (category: string | null) => {
-    const colors: Record<string, string> = {
-      online: 'bg-blue-50 text-blue-700 border-blue-200/60',
-      referral: 'bg-green-50 text-green-700 border-green-200/60',
-      event: 'bg-purple-50 text-purple-700 border-purple-200/60',
-      farming: 'bg-orange-50 text-orange-700 border-orange-200/60',
-      advertising: 'bg-pink-50 text-pink-700 border-pink-200/60',
-      direct: 'bg-cyan-50 text-cyan-700 border-cyan-200/60',
-      other: 'bg-gray-50 text-gray-700 border-gray-200/60'
-    };
-    return colors[category || 'other'] || colors.other;
+  const typeFilterOptions: { value: 'all' | PayoutStructure; label: string }[] = [
+    { value: 'all', label: 'All sources' },
+    { value: 'standard', label: 'Standard' },
+    { value: 'partnership', label: 'Partnership' }
+  ];
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 3
+      }
+    })
+  );
+
+  const filteredSources = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return sources.filter(source => {
+      const matchesType = typeFilter === 'all' || source.payout_structure === typeFilter;
+      const matchesQuery =
+        !query ||
+        [source.name, source.partnership_notes || ''].some(field =>
+          field.toLowerCase().includes(query)
+        );
+      return matchesType && matchesQuery;
+    });
+  }, [sources, searchQuery, typeFilter]);
+
+  const canReorder = canEdit && typeFilter === 'all' && searchQuery.trim() === '';
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveSource(null);
+    if (!canReorder) return;
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = sources.findIndex(source => source.id === active.id);
+    const newIndex = sources.findIndex(source => source.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(sources, oldIndex, newIndex);
+    const normalized = reordered.map((source, index) => ({
+      ...source,
+      sort_order: index + 1
+    }));
+    setSources(normalized);
+
+    const originalOrderMap = new Map(sources.map(source => [source.id, source.sort_order]));
+    const updates = normalized.filter((source) => source.sort_order !== originalOrderMap.get(source.id));
+
+    try {
+      if (updates.length > 0) {
+        await Promise.all(
+          updates.map((source) =>
+            supabase
+              .from('lead_sources')
+              .update({ sort_order: source.sort_order })
+              .eq('id', source.id)
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error reordering lead sources:', err);
+      setError('Unable to save lead source order. Please try again.');
+      loadSources();
+    }
   };
 
   if (loading) {
@@ -196,49 +287,85 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
   }
 
   return (
-    <div>
-      <div className="mb-6">
-        <h2 className="hig-text-heading mb-2">Lead Sources</h2>
-        <p className="text-sm text-gray-600">
-          Track where your leads come from and manage commission splits
-        </p>
-        {!canEdit && (
-          <p className="text-xs text-gray-500 mt-1">
-            You can review workspace lead sources. Only admins can make edits.
-          </p>
-        )}
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="hig-text-heading mb-1">Lead Sources</h2>
+            <p className="text-sm text-gray-600">
+              Track partner programs, portals, and referral channels.
+            </p>
+            {!canEdit && (
+              <p className="text-xs text-gray-400 mt-1">
+                You can review workspace lead sources. Only admins can make edits.
+              </p>
+            )}
+          </div>
+          {canEdit && (
+            <button
+              onClick={() => {
+                setShowModal(true);
+                setEditingSource(null);
+                setFormData(createDefaultFormState());
+                setError(null);
+              }}
+              className="hig-btn-primary self-start"
+            >
+              <Plus className="w-4 h-4" strokeWidth={2} />
+              <span>Add Lead Source</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-3 p-4 rounded-xl bg-red-50 text-red-700 border border-red-200/60">
+        <div className="flex items-center gap-3 rounded-2xl border border-red-200/70 bg-red-50 px-4 py-3 text-red-700">
           <AlertCircle className="w-5 h-5 flex-shrink-0" strokeWidth={2} />
           <span className="text-sm font-medium">{error}</span>
         </div>
       )}
 
-      {canEdit && (
-        <div className="mb-6">
-          <button
-            onClick={() => {
-              setShowModal(true);
-              setEditingSource(null);
-              setFormData(createDefaultFormState());
-              setError(null);
-            }}
-            className="hig-btn-primary"
-          >
-            <Plus className="w-4 h-4" strokeWidth={2} />
-            <span>Add Lead Source</span>
-          </button>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search lead sources"
+            className="w-full rounded-2xl border border-gray-200/70 bg-white/90 py-2 pl-9 pr-3 text-sm text-gray-900 shadow-inner focus:border-[var(--app-accent)]/50 focus:ring-2 focus:ring-[var(--app-accent)]/20"
+          />
         </div>
+        <div className="inline-flex flex-wrap gap-2 rounded-2xl border border-gray-200/70 bg-white/80 p-1.5 shadow-inner">
+          {typeFilterOptions.map(option => {
+            const active = typeFilter === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setTypeFilter(option.value)}
+                className={`rounded-xl px-3 py-1.5 text-sm font-medium transition ${
+                  active ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {canEdit && (
+        <p className="text-xs text-gray-400">
+          Drag handles appear when viewing all sources without filters so you can reorder tiles.
+        </p>
       )}
 
       {sources.length === 0 ? (
-        <div className="bg-gray-50 rounded-xl p-12 text-center border border-gray-200/60">
-          <Tag className="w-12 h-12 text-gray-400 mx-auto mb-4" strokeWidth={1.5} />
-          <p className="text-gray-600 mb-4">No lead sources configured yet</p>
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50/80 p-10 text-center">
+          <Tag className="mx-auto mb-4 h-10 w-10 text-gray-400" strokeWidth={1.5} />
+          <p className="text-gray-600 mb-2 font-medium">No lead sources configured</p>
           <p className="text-sm text-gray-500 mb-6">
-            Add your first lead source to start tracking where your deals come from
+            Add your first lead source to start tracking where your deals originate.
           </p>
           {canEdit ? (
             <button
@@ -254,103 +381,47 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
               <span>Add Lead Source</span>
             </button>
           ) : (
-            <p className="text-sm text-gray-500">
-              Ask an admin to add lead sources for your workspace.
-            </p>
+            <p className="text-xs text-gray-500">Ask a workspace admin to configure lead sources.</p>
           )}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sources.map(source => {
-            const isPartnership = source.payout_structure === 'partnership';
-            const partnerRate = Math.round(((source.partnership_split_rate ?? 0) * 100) * 10) / 10;
-
-            return (
-              <div
-                key={source.id}
-                className="bg-white border border-gray-200/60 rounded-2xl p-5 hover:shadow-sm hover:border-gray-300 transition-all space-y-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <h3 className="font-medium text-gray-900 mb-2">{source.name}</h3>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {source.category && (
-                        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border ${getCategoryColor(source.category)}`}>
-                          <Tag className="w-3 h-3" strokeWidth={2} />
-                          {categories.find(c => c.value === source.category)?.label || source.category}
-                        </span>
-                      )}
-                      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${
-                        isPartnership
-                          ? 'border-[rgb(0,122,255)]/30 text-[rgb(0,122,255)] bg-[rgb(0,122,255)]/5'
-                          : 'border-gray-200 text-gray-600 bg-gray-50'
-                      }`}>
-                        {isPartnership ? <Handshake className="w-3 h-3" strokeWidth={2} /> : <Sparkles className="w-3 h-3" strokeWidth={2} />}
-                        {isPartnership ? 'Partnership' : 'Standard Split'}
-                      </span>
-                    </div>
-                  </div>
-                {canEdit ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleEdit(source)}
-                      className="p-1.5 text-gray-600 hover:text-[rgb(0,122,255)] hover:bg-blue-50 rounded-lg transition"
-                      title="Edit"
-                    >
-                      <Pencil className="w-4 h-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(source.id)}
-                      className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" strokeWidth={2} />
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-[11px] uppercase tracking-wide text-gray-400">View only</span>
-                )}
-              </div>
-
-                <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Brokerage Split</span>
-                    <span className="font-semibold text-gray-900">{(source.brokerage_split_rate * 100).toFixed(1)}%</span>
-                  </div>
-                  {isPartnership && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Partner Program</span>
-                      <span className="font-semibold text-gray-900">{partnerRate.toFixed(1)}%</span>
-                    </div>
-                  )}
-                  <div className="pt-3 border-t border-gray-200/70">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Payout Flow</p>
-                    <ol className="space-y-2 text-sm text-gray-700">
-                      {isPartnership && (
-                        <li className="flex items-center gap-2">
-                          <span className="inline-flex w-6 h-6 items-center justify-center rounded-full bg-[rgb(0,122,255)]/10 text-[rgb(0,122,255)] text-xs font-semibold">1</span>
-                          Pay partner first ({partnerRate.toFixed(1)}% of gross commission)
-                        </li>
-                      )}
-                      <li className="flex items-center gap-2">
-                        <span className="inline-flex w-6 h-6 items-center justify-center rounded-full bg-[rgb(0,122,255)]/10 text-[rgb(0,122,255)] text-xs font-semibold">
-                          {isPartnership ? '2' : '1'}
-                        </span>
-                        Split remainder with brokerage ({(source.brokerage_split_rate * 100).toFixed(1)}% to broker)
-                      </li>
-                    </ol>
-                  </div>
-                </div>
-
-                {isPartnership && source.partnership_notes && (
-                  <div className="text-xs text-gray-500 bg-[rgb(0,122,255)]/5 border border-[rgb(0,122,255)]/10 rounded-xl p-3">
-                    {source.partnership_notes}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      ) : filteredSources.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200/70 bg-white/80 p-10 text-center text-sm text-gray-500">
+          No sources match your filters.
         </div>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={(event) => {
+            const match = sources.find(source => source.id === event.active.id);
+            setActiveSource(match || null);
+          }}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveSource(null)}
+        >
+          <SortableContext items={filteredSources.map(source => source.id)} strategy={rectSortingStrategy}>
+            <div
+              className="grid w-full gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
+            >
+              {filteredSources.map(source => (
+                <LeadSourceCard
+                  key={source.id}
+                  source={source}
+                  canEdit={canEdit}
+                  disableDrag={!canReorder}
+                  onEdit={() => handleEdit(source)}
+                  onDelete={() => handleDelete(source.id)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+          <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
+            {activeSource ? (
+              <LeadSourcePreview source={activeSource} />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {canEdit && showModal && (
@@ -550,6 +621,153 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface LeadSourceCardProps {
+  source: LeadSource;
+  canEdit: boolean;
+  disableDrag: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function LeadSourceCard({
+  source,
+  canEdit,
+  disableDrag,
+  onEdit,
+  onDelete
+}: LeadSourceCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: source.id,
+    disabled: disableDrag
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition ?? 'transform 200ms ease'
+  };
+
+  const isPartnership = source.payout_structure === 'partnership';
+  const brokerSplit = `${(source.brokerage_split_rate * 100).toFixed(1)}%`;
+  const partnerSplit = isPartnership ? `${((source.partnership_split_rate ?? 0) * 100).toFixed(1)}%` : null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`w-full rounded-[24px] border border-gray-200/80 bg-white/95 p-4 shadow-[0_14px_40px_rgba(15,23,42,0.08)] transition ${
+        isDragging
+          ? 'ring-2 ring-[var(--app-accent)]/40 shadow-[0_20px_50px_rgba(15,23,42,0.15)]'
+          : 'hover:border-gray-300/80 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          {canEdit && (
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              disabled={disableDrag}
+              className={`rounded-full border border-gray-200/70 bg-white/80 p-2 text-gray-400 transition ${
+                disableDrag ? 'cursor-not-allowed opacity-40' : 'cursor-grab hover:text-gray-700 active:cursor-grabbing'
+              }`}
+              aria-label="Drag to reorder lead source"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          )}
+          <div>
+            <div className="flex items-center gap-1 text-[11px] font-semibold tracking-[0.35em] text-gray-500">
+              {isPartnership ? (
+                <Handshake className="h-3 w-3 text-[var(--app-accent)]" strokeWidth={2} />
+              ) : (
+                <Sparkles className="h-3 w-3 text-gray-500" strokeWidth={2} />
+              )}
+              <span className={isPartnership ? 'text-[var(--app-accent)]' : ''}>
+                {isPartnership ? 'PARTNERSHIP' : 'STANDARD'}
+              </span>
+            </div>
+            <h3 className="mt-1 text-base font-semibold text-gray-900">{source.name}</h3>
+          </div>
+        </div>
+        {canEdit ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onEdit}
+              className="rounded-xl p-1.5 text-gray-600 transition hover:bg-blue-50 hover:text-[var(--app-accent)]"
+              title="Edit lead source"
+            >
+              <Pencil className="h-4 w-4" strokeWidth={2} />
+            </button>
+            <button
+              onClick={onDelete}
+              className="rounded-xl p-1.5 text-gray-600 transition hover:bg-red-50 hover:text-red-600"
+              title="Delete lead source"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
+        ) : (
+          <span className="text-[11px] uppercase tracking-[0.35em] text-gray-400">View only</span>
+        )}
+      </div>
+
+      <div className="mt-4 rounded-[20px] border border-gray-100 bg-gray-50/80 px-3 py-3 text-sm">
+        {isPartnership && partnerSplit && (
+          <div className="mb-2 flex items-center justify-between text-gray-600">
+            <span>Partner share</span>
+            <span className="font-semibold text-gray-900">{partnerSplit}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-gray-600">
+          <span>Broker split</span>
+          <span className="font-semibold text-gray-900">{brokerSplit}</span>
+        </div>
+      </div>
+
+      {source.partnership_notes && (
+        <p className="mt-3 rounded-[18px] border border-gray-100 bg-white/80 px-3 py-2 text-[12px] text-gray-600 shadow-inner line-clamp-2">
+          {source.partnership_notes}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LeadSourcePreview({ source }: { source: LeadSource }) {
+  const isPartnership = source.payout_structure === 'partnership';
+  const brokerSplit = `${(source.brokerage_split_rate * 100).toFixed(1)}%`;
+  const partnerSplit = isPartnership ? `${((source.partnership_split_rate ?? 0) * 100).toFixed(1)}%` : null;
+
+  return (
+    <div className="w-full rounded-[24px] border border-gray-200/80 bg-white/95 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.15)]">
+      <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.35em] text-gray-500">
+        {isPartnership ? (
+          <Handshake className="h-3.5 w-3.5 text-[var(--app-accent)]" strokeWidth={2} />
+        ) : (
+          <Sparkles className="h-3.5 w-3.5 text-gray-500" strokeWidth={2} />
+        )}
+        <span className={isPartnership ? 'text-[var(--app-accent)]' : ''}>
+          {isPartnership ? 'PARTNERSHIP' : 'STANDARD'}
+        </span>
+      </div>
+      <h3 className="mt-2 text-base font-semibold text-gray-900">{source.name}</h3>
+      <div className="mt-4 rounded-[20px] border border-gray-100 bg-gray-50/80 px-3 py-3 text-sm">
+        {isPartnership && partnerSplit && (
+          <div className="mb-2 flex items-center justify-between text-gray-600">
+            <span>Partner share</span>
+            <span className="font-semibold text-gray-900">{partnerSplit}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-gray-600">
+          <span>Broker split</span>
+          <span className="font-semibold text-gray-900">{brokerSplit}</span>
+        </div>
+      </div>
     </div>
   );
 }

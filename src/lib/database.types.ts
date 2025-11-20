@@ -20,6 +20,7 @@ export interface Database {
           user_id: string;
           name: string;
           category: string | null;
+          sort_order: number;
           brokerage_split_rate: number;
           payout_structure: 'standard' | 'partnership';
           partnership_split_rate: number | null;
@@ -32,6 +33,7 @@ export interface Database {
           user_id: string;
           name: string;
           category?: string | null;
+          sort_order?: number;
           brokerage_split_rate?: number;
           payout_structure?: 'standard' | 'partnership';
           partnership_split_rate?: number | null;
@@ -44,6 +46,7 @@ export interface Database {
           user_id?: string;
           name?: string;
           category?: string | null;
+          sort_order?: number;
           brokerage_split_rate?: number;
           payout_structure?: 'standard' | 'partnership';
           partnership_split_rate?: number | null;
