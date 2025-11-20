@@ -13,7 +13,7 @@ const aiNavItems = [
 ];
 
 const settingsNavItems = [
-  { icon: Settings, label: 'Workspace Settings', path: '/workspace-settings' },
+  { icon: Settings, label: 'Settings', path: '/workspace-settings' },
 ];
 
 export function SidebarNav() {
@@ -22,7 +22,7 @@ export function SidebarNav() {
 
   const renderNavSection = (title: string, items: typeof mainNavItems) => (
     <div>
-      <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+      <p className="px-3 pb-2 text-[12px] font-semibold uppercase tracking-[0.35em] text-gray-400">
         {title}
       </p>
       <div className="space-y-1">
@@ -34,20 +34,20 @@ export function SidebarNav() {
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
-              className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-2.5 text-left text-sm font-medium transition ${
+              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold transition ${
                 isActive
                   ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] shadow-[inset_0_0_0_1px_rgba(10,132,255,0.2)]'
                   : 'text-gray-600 hover:bg-white/70 hover:text-gray-900'
               }`}
             >
               <span
-                className={`flex h-9 w-9 items-center justify-center rounded-2xl border text-gray-700 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-2xl border text-gray-700 ${
                   isActive
                     ? 'border-[rgba(10,132,255,0.3)] bg-white/80'
                     : 'border-white/60 bg-white/90'
                 }`}
               >
-                <Icon className="h-4 w-4" strokeWidth={2} />
+                <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
               </span>
               <span>{item.label}</span>
             </button>
