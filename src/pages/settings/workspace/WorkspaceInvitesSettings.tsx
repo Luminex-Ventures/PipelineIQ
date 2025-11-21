@@ -83,14 +83,15 @@ export default function WorkspaceInvitesSettings() {
   const pendingInvites = invites.filter((invite) => invite.status === 'pending');
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <div>
+        <h2 className="hig-text-heading mb-2">Invitations</h2>
+        <p className="text-sm text-gray-600">
+          Invite teammates by email and manage pending invitations. Links stay valid for 14 days.
+        </p>
+      </div>
+
       <form onSubmit={handleInvite} className="rounded-2xl border border-gray-200/70 bg-white/80 p-5 space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Invite someone new</h2>
-          <p className="text-sm text-gray-500">
-            Invitations are valid for 14 days and automatically fill in the correct role and workspace.
-          </p>
-        </div>
         {feedback && (
           <div
             className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm ${

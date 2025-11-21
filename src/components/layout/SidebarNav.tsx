@@ -58,17 +58,17 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
               onClick={() => navigate(item.path)}
               aria-label={item.label}
               title={item.label}
-              className={`flex w-full items-center rounded-2xl py-3 text-[15px] font-semibold transition ${layoutClasses} ${
+              className={`group flex w-full items-center rounded-2xl border border-transparent py-3 text-[15px] font-semibold transition-all duration-200 ${layoutClasses} ${
                 isActive
-                  ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] shadow-[inset_0_0_0_1px_rgba(10,132,255,0.2)]'
-                  : 'text-gray-600 hover:bg-white/70 hover:text-gray-900'
-              }`}
+                  ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] shadow-[inset_0_0_0_1px_rgba(10,132,255,0.2)] border-[rgba(10,132,255,0.2)]'
+                  : 'text-gray-600 hover:-translate-y-[1px] hover:border-[rgba(10,132,255,0.25)] hover:bg-[rgba(10,132,255,0.06)] hover:text-[var(--app-accent)] hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)]'
+              } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(10,132,255,0.35)]`}
             >
               <span
-                className={`flex h-10 w-10 items-center justify-center rounded-2xl border text-gray-700 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-2xl border ${
                   isActive
-                    ? 'border-[rgba(10,132,255,0.3)] bg-white/80'
-                    : 'border-white/60 bg-white/90'
+                    ? 'border-[rgba(10,132,255,0.3)] bg-white/80 text-[var(--app-accent)]'
+                    : 'border-white/60 bg-white/90 text-gray-700 group-hover:border-[rgba(10,132,255,0.25)] group-hover:bg-white group-hover:text-[var(--app-accent)]'
                 }`}
               >
                 <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
@@ -100,15 +100,15 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
             aria-pressed={!isCollapsed}
             aria-expanded={!isCollapsed}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className={`flex w-full items-center rounded-2xl py-3 text-[15px] font-semibold transition ${
+            className={`group flex w-full items-center rounded-2xl py-3 text-[15px] font-semibold transition ${
               isCollapsed ? 'justify-center px-2' : 'gap-3 px-4 text-left'
-            } text-gray-700 hover:bg-white/70 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]`}
+            } text-gray-700 hover:bg-white/70 hover:text-[var(--app-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]`}
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/95 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.5)]">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/95 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.5)] transition-colors group-hover:border-[rgba(10,132,255,0.3)] group-hover:text-[var(--app-accent)]">
               {isCollapsed ? (
-                <ChevronRight className="h-5 w-5 transition" />
+                <ChevronRight className="h-5 w-5 transition group-hover:text-[var(--app-accent)]" />
               ) : (
-                <ChevronLeft className="h-5 w-5 transition" />
+                <ChevronLeft className="h-5 w-5 transition group-hover:text-[var(--app-accent)]" />
               )}
             </span>
             {!isCollapsed && <span className="whitespace-nowrap">Hide</span>}

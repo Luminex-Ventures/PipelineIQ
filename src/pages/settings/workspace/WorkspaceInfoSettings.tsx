@@ -53,9 +53,9 @@ export default function WorkspaceInfoSettings({ canEdit }: WorkspaceInfoSettings
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
-        <h2 className="hig-text-heading mb-2">Workspace Info</h2>
+        <h2 className="hig-text-heading mb-2">Company Info</h2>
         <p className="text-sm text-gray-600">
-          Identity, locale, and defaults shared across your workspace.
+          Company identity, locale, and defaults shared with your agents and teams.
         </p>
         {!canEdit && (
           <p className="text-xs text-gray-500 mt-1">
@@ -66,26 +66,14 @@ export default function WorkspaceInfoSettings({ canEdit }: WorkspaceInfoSettings
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="hig-label">Workspace Name</label>
+          <label className="hig-label">Company Name</label>
           <input
             type="text"
             value={form.name}
             onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
             className="hig-input"
             disabled={!canEdit}
-            placeholder="Northern Virginia Team"
-          />
-        </div>
-
-        <div>
-          <label className="hig-label">Company / Team</label>
-          <input
-            type="text"
-            value={form.company_name}
-            onChange={(e) => setForm((prev) => ({ ...prev, company_name: e.target.value }))}
-            className="hig-input"
-            disabled={!canEdit}
-            placeholder="Luminex Ventures Realestate Group"
+            placeholder="Luminex Realty Group"
           />
         </div>
 
