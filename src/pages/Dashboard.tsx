@@ -263,6 +263,7 @@ export default function Dashboard() {
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
   const [availableStages, setAvailableStages] = useState<StageOption[]>([]);
+  const [availableStatuses, setAvailableStatuses] = useState<DealRow['status'][]>([]);
   const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<DealRow['status'][]>([]);
@@ -374,6 +375,11 @@ export default function Dashboard() {
     }
   };
 
+  useEffect(() => {
+    if (!availableStatuses.length) return;
+    setSelectedStatuses((current) => current.filter((status) => availableStatuses.includes(status)));
+  }, [availableStatuses]);
+
   const handlePipelineFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(event.target.selectedOptions).map((option) => option.value);
     setSelectedPipelineStages(values);
@@ -425,10 +431,10 @@ export default function Dashboard() {
   }, [user]);
 
   useEffect(() => {
-    if (!availableAgents.length) return;
-    loadFilterContext(availableAgents.map((agent) => agent.id));
+    if (!selectedAgentIds.length) return;
+    loadFilterContext(selectedAgentIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableAgents]);
+  }, [selectedAgentIds]);
 
   useEffect(() => {
     if (!loading && stats.ytdGCI > 0) {
@@ -497,6 +503,7 @@ export default function Dashboard() {
 
     const leadMap = new Map<string, { id: string; name: string }>();
     const stageMap = new Map<string, StageOption>();
+    const statusSet = new Set<DealRow['status']>();
 
     (data || []).forEach((deal: any) => {
       if (deal.lead_sources?.id) {
@@ -514,6 +521,10 @@ export default function Dashboard() {
           sortOrder: deal.pipeline_statuses.sort_order
         });
       }
+
+      if (deal.status) {
+        statusSet.add(deal.status as DealRow['status']);
+      }
     });
 
     setAvailableLeadSources(Array.from(leadMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
@@ -527,6 +538,13 @@ export default function Dashboard() {
         return orderA - orderB;
       })
     );
+    const fallbackStatuses = Object.keys(STATUS_LABELS) as DealRow['status'][];
+    const sortedStatuses = Array.from(statusSet).sort((a, b) => {
+      const labelA = STATUS_LABELS[a] ?? a;
+      const labelB = STATUS_LABELS[b] ?? b;
+      return labelA.localeCompare(labelB);
+    });
+    setAvailableStatuses(sortedStatuses.length ? sortedStatuses : fallbackStatuses);
   };
 
   const loadDashboardData = async () => {
@@ -1661,9 +1679,9 @@ export default function Dashboard() {
                 onChange={handleStatusFilterChange}
                 className="hig-input min-h-[56px] mt-2"
               >
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {availableStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_LABELS[status] ?? status.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>

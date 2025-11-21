@@ -88,6 +88,7 @@ export default function Analytics() {
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
   const [availableStages, setAvailableStages] = useState<StageOption[]>([]);
+  const [availableStatuses, setAvailableStatuses] = useState<DealStatus[]>([]);
   const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<DealStatus[]>([]);
@@ -158,6 +159,11 @@ export default function Analytics() {
     setSelectedStatuses(values);
   };
 
+  useEffect(() => {
+    if (!availableStatuses.length) return;
+    setSelectedStatuses((current) => current.filter((status) => availableStatuses.includes(status)));
+  }, [availableStatuses]);
+
   const withUserScope = (query: any, userIds: string[]) => {
     if (!userIds.length) {
       return query;
@@ -197,6 +203,7 @@ export default function Analytics() {
       .from('deals')
       .select(`
         id,
+        status,
         lead_source_id,
         lead_sources (id, name),
         pipeline_status_id,
@@ -215,6 +222,7 @@ export default function Analytics() {
 
     const leadMap = new Map<string, { id: string; name: string }>();
     const stageMap = new Map<string, StageOption>();
+    const statusSet = new Set<DealStatus>();
 
     (data || []).forEach((deal: any) => {
       if (deal.lead_sources?.id) {
@@ -230,6 +238,10 @@ export default function Analytics() {
           sortOrder: deal.pipeline_statuses.sort_order
         });
       }
+
+      if (deal.status) {
+        statusSet.add(deal.status as DealStatus);
+      }
     });
 
     setAvailableLeadSources(Array.from(leadMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
@@ -243,6 +255,13 @@ export default function Analytics() {
         return orderA - orderB;
       })
     );
+    const fallbackStatuses = Object.keys(STATUS_LABELS) as DealStatus[];
+    const sortedStatuses = Array.from(statusSet).sort((a, b) => {
+      const labelA = STATUS_LABELS[a] ?? a;
+      const labelB = STATUS_LABELS[b] ?? b;
+      return labelA.localeCompare(labelB);
+    });
+    setAvailableStatuses(sortedStatuses.length ? sortedStatuses : fallbackStatuses);
   };
 
 type DateParts = {
@@ -342,11 +361,10 @@ const parseDateValue = (value?: string | null): DateParts | null => {
   }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, statusFilterKey]);
 
   useEffect(() => {
-    if (!availableAgents.length) return;
-    const ids = availableAgents.map((agent) => agent.id);
-    loadFilterContext(ids, selectedYear);
+    if (!selectedAgentIds.length) return;
+    loadFilterContext(selectedAgentIds, selectedYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableAgents, selectedYear]);
+  }, [selectedAgentIds, selectedYear]);
 
   const loadAnalytics = async () => {
     if (!user || !selectedAgentIds.length) return;
@@ -791,9 +809,9 @@ const parseDateValue = (value?: string | null): DateParts | null => {
                 onChange={handleStatusFilterChange}
                 className="hig-input min-h-[56px] mt-2"
               >
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {availableStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_LABELS[status] ?? status.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>

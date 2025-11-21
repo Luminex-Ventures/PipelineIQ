@@ -35,14 +35,17 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
   const navigate = useNavigate();
 
   const renderNavSection = (title: string, items: typeof mainNavItems) => (
-    <div>
-      <p
-        className={`px-3 pb-2 text-[12px] font-semibold uppercase tracking-[0.35em] text-gray-400 ${
-          isCollapsed ? 'sr-only' : ''
-        }`}
+    <div className="space-y-2">
+      <div
+        className={`flex items-center gap-3 px-2 ${isCollapsed ? 'justify-center' : 'justify-start'}`}
       >
-        {title}
-      </p>
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)]" aria-hidden />
+        {!isCollapsed && (
+          <span className="text-[12px] font-semibold uppercase tracking-[0.28em] text-gray-500">
+            {title}
+          </span>
+        )}
+      </div>
       <div className="space-y-1">
         {items.map((item) => {
           const Icon = item.icon;
@@ -84,27 +87,33 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
         isCollapsed ? 'p-3' : 'p-4'
       }`}
     >
-      <div className={`mb-6 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
-        {!isCollapsed && (
-          <p className="text-[13px] font-semibold uppercase tracking-[0.35em] text-gray-500">Navigation</p>
-        )}
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-pressed={!isCollapsed}
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? 'Expand sidebar navigation' : 'Collapse sidebar navigation'}
-          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/90 text-gray-700 transition hover:text-[var(--app-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
-        >
-          {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-        </button>
-      </div>
       <div className="space-y-6">
         {renderNavSection('Primary', mainNavItems)}
         {renderNavSection('Intelligence', aiNavItems)}
-      </div>
-      <div className="mt-6 border-t border-[var(--app-border)] pt-4">
-        {renderNavSection('Workspace', settingsNavItems)}
+        <div className={`pt-4 ${isCollapsed ? '' : 'border-t border-[var(--app-border)]'}`}>
+          {renderNavSection('Workspace', settingsNavItems)}
+        </div>
+        <div className={`pt-4 ${isCollapsed ? '' : 'border-t border-[var(--app-border)]'}`}>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-pressed={!isCollapsed}
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`flex w-full items-center rounded-2xl py-3 text-[15px] font-semibold transition ${
+              isCollapsed ? 'justify-center px-2' : 'gap-3 px-4 text-left'
+            } text-gray-700 hover:bg-white/70 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]`}
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/95 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.5)]">
+              {isCollapsed ? (
+                <ChevronRight className="h-5 w-5 transition" />
+              ) : (
+                <ChevronLeft className="h-5 w-5 transition" />
+              )}
+            </span>
+            {!isCollapsed && <span className="whitespace-nowrap">Hide</span>}
+          </button>
+        </div>
       </div>
     </nav>
   );
