@@ -14,8 +14,8 @@ import {
 } from 'recharts';
 import { TrendingUp, DollarSign, Target } from 'lucide-react';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
-import type { DealStatus } from '../lib/database.types';
-import { STATUS_LABELS } from '../constants/statusLabels';
+import type { Database } from '../lib/database.types';
+type DealRow = Database['public']['Tables']['deals']['Row'];
 
 interface YearlyStats {
   closedDeals: number;
@@ -65,6 +65,14 @@ interface StageOption {
   sortOrder?: number | null;
 }
 
+const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
+  buyer: 'Buyer',
+  seller: 'Seller',
+  buyer_and_seller: 'Buyer & Seller',
+  renter: 'Renter',
+  landlord: 'Landlord'
+};
+
 export default function Analytics() {
   const { user, roleInfo } = useAuth();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -84,14 +92,15 @@ export default function Analytics() {
     useState<ClosingThisMonthStats>({ count: 0, gci: 0 });
   const [gciGoal, setGciGoal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
   const [availableStages, setAvailableStages] = useState<StageOption[]>([]);
-  const [availableStatuses, setAvailableStatuses] = useState<DealStatus[]>([]);
+  const [availableDealTypes, setAvailableDealTypes] = useState<DealRow['deal_type'][]>([]);
   const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
-  const [selectedStatuses, setSelectedStatuses] = useState<DealStatus[]>([]);
+  const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
   const agentScopeKey = useMemo(
     () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
     [selectedAgentIds]
@@ -104,9 +113,9 @@ export default function Analytics() {
     () => (selectedPipelineStages.length ? [...selectedPipelineStages].sort().join('|') : ''),
     [selectedPipelineStages]
   );
-  const statusFilterKey = useMemo(
-    () => (selectedStatuses.length ? [...selectedStatuses].sort().join('|') : ''),
-    [selectedStatuses]
+  const dealTypeFilterKey = useMemo(
+    () => (selectedDealTypes.length ? [...selectedDealTypes].sort().join('|') : ''),
+    [selectedDealTypes]
   );
   const isAllAgentsSelected =
     selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
@@ -152,17 +161,17 @@ export default function Analytics() {
     setSelectedLeadSources(values);
   };
 
-  const handleStatusFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleDealTypeFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(event.target.selectedOptions).map(
-      (option) => option.value as DealStatus
+      (option) => option.value as DealRow['deal_type']
     );
-    setSelectedStatuses(values);
+    setSelectedDealTypes(values);
   };
 
   useEffect(() => {
-    if (!availableStatuses.length) return;
-    setSelectedStatuses((current) => current.filter((status) => availableStatuses.includes(status)));
-  }, [availableStatuses]);
+    if (!availableDealTypes.length) return;
+    setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
+  }, [availableDealTypes]);
 
   const withUserScope = (query: any, userIds: string[]) => {
     if (!userIds.length) {
@@ -185,8 +194,8 @@ export default function Analytics() {
         query = query.in('pipeline_status_id', stages);
       }
     }
-    if (selectedStatuses.length) {
-      query = query.in('status', selectedStatuses);
+    if (selectedDealTypes.length) {
+      query = query.in('deal_type', selectedDealTypes);
     }
     return query;
   };
@@ -203,7 +212,7 @@ export default function Analytics() {
       .from('deals')
       .select(`
         id,
-        status,
+        deal_type,
         lead_source_id,
         lead_sources (id, name),
         pipeline_status_id,
@@ -222,7 +231,7 @@ export default function Analytics() {
 
     const leadMap = new Map<string, { id: string; name: string }>();
     const stageMap = new Map<string, StageOption>();
-    const statusSet = new Set<DealStatus>();
+    const dealTypeSet = new Set<DealRow['deal_type']>();
 
     (data || []).forEach((deal: any) => {
       if (deal.lead_sources?.id) {
@@ -239,8 +248,8 @@ export default function Analytics() {
         });
       }
 
-      if (deal.status) {
-        statusSet.add(deal.status as DealStatus);
+      if (deal.deal_type) {
+        dealTypeSet.add(deal.deal_type as DealRow['deal_type']);
       }
     });
 
@@ -255,13 +264,14 @@ export default function Analytics() {
         return orderA - orderB;
       })
     );
-    const fallbackStatuses = Object.keys(STATUS_LABELS) as DealStatus[];
-    const sortedStatuses = Array.from(statusSet).sort((a, b) => {
-      const labelA = STATUS_LABELS[a] ?? a;
-      const labelB = STATUS_LABELS[b] ?? b;
+    const sortedDealTypes = Array.from(dealTypeSet).sort((a, b) => {
+      const labelA = DEAL_TYPE_LABELS[a as DealRow['deal_type']] ?? a;
+      const labelB = DEAL_TYPE_LABELS[b as DealRow['deal_type']] ?? b;
       return labelA.localeCompare(labelB);
     });
-    setAvailableStatuses(sortedStatuses.length ? sortedStatuses : fallbackStatuses);
+    setAvailableDealTypes(
+      sortedDealTypes.length ? sortedDealTypes : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][])
+    );
   };
 
 type DateParts = {
@@ -358,7 +368,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
     if (!user || !agentScopeKey) return;
     loadAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, statusFilterKey]);
+  }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey]);
 
   useEffect(() => {
     if (!selectedAgentIds.length) return;
@@ -369,7 +379,12 @@ const parseDateValue = (value?: string | null): DateParts | null => {
   const loadAnalytics = async () => {
     if (!user || !selectedAgentIds.length) return;
 
-    setLoading(true);
+    const isInitialLoad = loading;
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     const startOfYear = new Date(selectedYear, 0, 1).toISOString();
     const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59).toISOString();
@@ -572,7 +587,10 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       setLeadSourceStats([]);
     }
 
-    setLoading(false);
+    if (isInitialLoad) {
+      setLoading(false);
+    }
+    setRefreshing(false);
   };
 
   const formatCurrency = (amount: number) => {
@@ -701,6 +719,12 @@ const parseDateValue = (value?: string | null): DateParts | null => {
             </p>
             <p className="text-sm text-gray-500">{timeframeDescription}</p>
           </div>
+          {refreshing && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+              Updating…
+            </div>
+          )}
           <SegmentedControl
             options={yearOptions}
             value={String(selectedYear)}
@@ -792,12 +816,12 @@ const parseDateValue = (value?: string | null): DateParts | null => {
             </div>
             <div>
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Status</p>
-                {selectedStatuses.length > 0 && (
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
+                {selectedDealTypes.length > 0 && (
                   <button
                     type="button"
                     className="text-xs text-[var(--app-accent)]"
-                    onClick={() => setSelectedStatuses([])}
+                    onClick={() => setSelectedDealTypes([])}
                   >
                     Clear
                   </button>
@@ -805,13 +829,13 @@ const parseDateValue = (value?: string | null): DateParts | null => {
               </div>
               <select
                 multiple
-                value={selectedStatuses}
-                onChange={handleStatusFilterChange}
+                value={selectedDealTypes}
+                onChange={handleDealTypeFilterChange}
                 className="hig-input min-h-[56px] mt-2"
               >
-                {availableStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {STATUS_LABELS[status] ?? status.replace(/_/g, ' ')}
+                {availableDealTypes.map((dealType) => (
+                  <option key={dealType} value={dealType}>
+                    {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>

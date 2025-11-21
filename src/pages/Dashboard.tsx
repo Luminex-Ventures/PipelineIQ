@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -114,6 +114,9 @@ const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   renter: 'Renter',
   landlord: 'Landlord'
 };
+
+const INSIGHTS_REFRESH_MS = 30 * 60 * 1000;
+const GREETING_CHECK_INTERVAL_MS = 60 * 1000;
 
 const DEFAULT_WIDGETS = [
   'luma-insights',
@@ -254,8 +257,15 @@ export default function Dashboard() {
   const [upcomingDeals, setUpcomingDeals] = useState<Deal[]>([]);
   const [stalledDeals, setStalledDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
+  const [lockedAiInsights, setLockedAiInsights] = useState<string[] | null>(null);
+  const [lockedGeneratedInsights, setLockedGeneratedInsights] = useState<string[] | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const insightsLockedRef = useRef(false);
+  const [lastInsightsUpdatedAt, setLastInsightsUpdatedAt] = useState<number>(0);
+  const [greetingText, setGreetingText] = useState<string>('');
+  const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [dealTypeStats, setDealTypeStats] = useState<DealTypeBreakdown[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGETS]);
   const [activeWidget, setActiveWidget] = useState<string | null>(null);
@@ -263,10 +273,10 @@ export default function Dashboard() {
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
   const [availableStages, setAvailableStages] = useState<StageOption[]>([]);
-  const [availableStatuses, setAvailableStatuses] = useState<DealRow['status'][]>([]);
+  const [availableDealTypes, setAvailableDealTypes] = useState<DealRow['deal_type'][]>([]);
   const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
-  const [selectedStatuses, setSelectedStatuses] = useState<DealRow['status'][]>([]);
+  const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
   const [dateRangePreset, setDateRangePreset] = useState<DateRange>('ytd');
   const range = useMemo(() => getDateRange(dateRangePreset), [dateRangePreset]);
 
@@ -338,9 +348,9 @@ export default function Dashboard() {
     () => (selectedPipelineStages.length ? [...selectedPipelineStages].sort().join('|') : ''),
     [selectedPipelineStages]
   );
-  const statusFilterKey = useMemo(
-    () => (selectedStatuses.length ? [...selectedStatuses].sort().join('|') : ''),
-    [selectedStatuses]
+  const dealTypeFilterKey = useMemo(
+    () => (selectedDealTypes.length ? [...selectedDealTypes].sort().join('|') : ''),
+    [selectedDealTypes]
   );
   const isAllAgentsSelected = selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
   const scopeDescription = useMemo(() => {
@@ -376,9 +386,9 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (!availableStatuses.length) return;
-    setSelectedStatuses((current) => current.filter((status) => availableStatuses.includes(status)));
-  }, [availableStatuses]);
+    if (!availableDealTypes.length) return;
+    setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
+  }, [availableDealTypes]);
 
   const handlePipelineFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(event.target.selectedOptions).map((option) => option.value);
@@ -390,11 +400,11 @@ export default function Dashboard() {
     setSelectedLeadSources(values);
   };
 
-  const handleStatusFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleDealTypeFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(event.target.selectedOptions).map(
-      (option) => option.value as DealRow['status']
+      (option) => option.value as DealRow['deal_type']
     );
-    setSelectedStatuses(values);
+    setSelectedDealTypes(values);
   };
   const canShowFilterPanel = (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
 
@@ -422,7 +432,7 @@ export default function Dashboard() {
     if (!user || !agentScopeKey) return;
     loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, agentScopeKey, leadFilterKey, stageFilterKey, statusFilterKey, dateRangePreset]);
+  }, [user?.id, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, dateRangePreset]);
 
   useEffect(() => {
     if (!user) return;
@@ -437,11 +447,39 @@ export default function Dashboard() {
   }, [selectedAgentIds]);
 
   useEffect(() => {
-    if (!loading && stats.ytdGCI > 0) {
-      loadAIInsights();
-    }
+    if (loading) return;
+    if (insightsLockedRef.current) return;
+    loadAIInsights();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, stats, pipelineHealth, leadSourceData, monthlyData]);
+  }, [loading, lastInsightsUpdatedAt]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const updateGreeting = () => {
+      const now = Date.now();
+      const isStale =
+        lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS || !greetingText;
+      if (isStale) {
+        setGreetingText(getGreeting(user.user_metadata?.name));
+        setLastInsightsUpdatedAt(now);
+      }
+    };
+
+    updateGreeting();
+
+    if (greetingTimerRef.current) {
+      clearInterval(greetingTimerRef.current);
+    }
+    greetingTimerRef.current = setInterval(updateGreeting, GREETING_CHECK_INTERVAL_MS);
+
+    return () => {
+      if (greetingTimerRef.current) {
+        clearInterval(greetingTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_metadata?.name]);
 
   const withUserScope = (query: any, userIds: string[]) => {
     if (!userIds.length) {
@@ -469,8 +507,8 @@ export default function Dashboard() {
       }
     }
 
-    if (selectedStatuses.length) {
-      query = query.in('status', selectedStatuses);
+    if (selectedDealTypes.length) {
+      query = query.in('deal_type', selectedDealTypes);
     }
 
     return query;
@@ -484,7 +522,7 @@ export default function Dashboard() {
       .select(`
         id,
         user_id,
-        status,
+        deal_type,
         lead_source_id,
         lead_sources (id, name),
         pipeline_status_id,
@@ -503,7 +541,7 @@ export default function Dashboard() {
 
     const leadMap = new Map<string, { id: string; name: string }>();
     const stageMap = new Map<string, StageOption>();
-    const statusSet = new Set<DealRow['status']>();
+    const dealTypeSet = new Set<DealRow['deal_type']>();
 
     (data || []).forEach((deal: any) => {
       if (deal.lead_sources?.id) {
@@ -522,8 +560,8 @@ export default function Dashboard() {
         });
       }
 
-      if (deal.status) {
-        statusSet.add(deal.status as DealRow['status']);
+      if (deal.deal_type) {
+        dealTypeSet.add(deal.deal_type as DealRow['deal_type']);
       }
     });
 
@@ -538,19 +576,23 @@ export default function Dashboard() {
         return orderA - orderB;
       })
     );
-    const fallbackStatuses = Object.keys(STATUS_LABELS) as DealRow['status'][];
-    const sortedStatuses = Array.from(statusSet).sort((a, b) => {
-      const labelA = STATUS_LABELS[a] ?? a;
-      const labelB = STATUS_LABELS[b] ?? b;
+    const sortedDealTypes = Array.from(dealTypeSet).sort((a, b) => {
+      const labelA = DEAL_TYPE_LABELS[a] ?? a;
+      const labelB = DEAL_TYPE_LABELS[b] ?? b;
       return labelA.localeCompare(labelB);
     });
-    setAvailableStatuses(sortedStatuses.length ? sortedStatuses : fallbackStatuses);
+    setAvailableDealTypes(sortedDealTypes.length ? sortedDealTypes : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]));
   };
 
   const loadDashboardData = async () => {
     if (!user || !selectedAgentIds.length) return;
 
-    setLoading(true);
+    const isInitialLoad = loading;
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     const startDate = range.start.toISOString();
     const endDate = range.end.toISOString();
@@ -567,11 +609,16 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Error loading dashboard data', err);
     } finally {
-      setLoading(false);
+      if (isInitialLoad) {
+        setLoading(false);
+      }
+      setRefreshing(false);
     }
   };
 
   const loadAIInsights = async () => {
+    if (insightsLockedRef.current) return;
+
     if (!user) return;
 
     setInsightsLoading(true);
@@ -611,7 +658,12 @@ export default function Dashboard() {
       }
 
       const data = await response.json();
-      setAiInsights(data.insights || []);
+      const insights = data.insights || [];
+      setAiInsights(insights);
+      if (!lockedAiInsights && insights.length) {
+        setLockedAiInsights(insights);
+        insightsLockedRef.current = true;
+      }
     } catch (error) {
       console.error('Error loading AI insights:', error);
     } finally {
@@ -1085,6 +1137,21 @@ export default function Dashboard() {
     return insights;
   }, [stats, pipelineHealth, leadSourceData, monthlyData, upcomingDeals, projectedGCI]);
 
+  useEffect(() => {
+    if (loading) return;
+    const now = Date.now();
+    const isStale =
+      lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS;
+
+    if (!isStale && lockedGeneratedInsights) return;
+
+    setLockedGeneratedInsights(generateInsights);
+    setLastInsightsUpdatedAt(now);
+    setLockedAiInsights(null);
+    insightsLockedRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generateInsights, loading, lastInsightsUpdatedAt]);
+
   // Widget render functions
   const renderWidget = (widgetId: string) => {
     switch (widgetId) {
@@ -1122,9 +1189,9 @@ export default function Dashboard() {
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
             )}
           </div>
-          {aiInsights.length > 0 ? (
+          {(lockedAiInsights || aiInsights).length > 0 ? (
             <div className="space-y-3">
-              {aiInsights.slice(0, 3).map((insight, index) => (
+              {(lockedAiInsights || aiInsights).slice(0, 3).map((insight, index) => (
                 <div key={index} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
                   <p className="text-[15px] text-gray-700 leading-relaxed">{insight}</p>
@@ -1133,7 +1200,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {generateInsights.slice(0, 3).map((insight, index) => (
+              {(lockedGeneratedInsights || generateInsights).slice(0, 3).map((insight, index) => (
                 <div key={index} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
                   <p className="text-[15px] text-gray-700 leading-relaxed">{insight}</p>
@@ -1548,13 +1615,19 @@ export default function Dashboard() {
               {getTodayFormatted()}
             </p>
             <h1 className="text-3xl font-semibold text-gray-900 mt-1">
-              {getGreeting(user?.user_metadata?.name)}
+              {greetingText || getGreeting(user?.user_metadata?.name)}
             </h1>
             <p className="text-sm text-gray-600 mt-2">
               {stats.closingThisMonth} deal{stats.closingThisMonth === 1 ? '' : 's'} closing soon ·{' '}
               {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
             </p>
           </div>
+          {refreshing && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto">
+              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+              Updating…
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
@@ -1662,12 +1735,12 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Status</p>
-                {selectedStatuses.length > 0 && (
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
+                {selectedDealTypes.length > 0 && (
                   <button
                     type="button"
                     className="text-xs text-[var(--app-accent)]"
-                    onClick={() => setSelectedStatuses([])}
+                    onClick={() => setSelectedDealTypes([])}
                   >
                     Clear
                   </button>
@@ -1675,13 +1748,13 @@ export default function Dashboard() {
               </div>
               <select
                 multiple
-                value={selectedStatuses}
-                onChange={handleStatusFilterChange}
+                value={selectedDealTypes}
+                onChange={handleDealTypeFilterChange}
                 className="hig-input min-h-[56px] mt-2"
               >
-                {availableStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {STATUS_LABELS[status] ?? status.replace(/_/g, ' ')}
+                {availableDealTypes.map((dealType) => (
+                  <option key={dealType} value={dealType}>
+                    {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>
