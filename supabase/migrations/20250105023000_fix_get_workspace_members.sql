@@ -1,19 +1,22 @@
--- Fix ambiguous column references in get_workspace_members
-create or replace function public.get_workspace_members(p_workspace_id uuid)
-returns table (
+-- Replace get_workspace_members so column types/order match exactly
+DROP FUNCTION IF EXISTS public.get_workspace_members(uuid);
+DROP FUNCTION IF EXISTS get_workspace_members(uuid);
+
+CREATE OR REPLACE FUNCTION public.get_workspace_members(p_workspace_id uuid)
+RETURNS TABLE (
   user_id uuid,
   email text,
   full_name text,
-  global_role global_role,
-  team_role team_role,
+  global_role text,
+  team_role text,
   team_id uuid,
   is_active boolean,
   last_sign_in_at timestamptz
 )
-language plpgsql
-security definer
-set search_path = public, auth
-as $$
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
 declare
   viewer record;
 begin
@@ -35,10 +38,10 @@ begin
   return query
     select
       us.user_id,
-      au.email,
-      coalesce(au.raw_user_meta_data->>'name', au.email) as full_name,
-      us.global_role,
-      ut.role as team_role,
+      au.email::text,
+      coalesce(au.raw_user_meta_data->>'name', au.email)::text as full_name,
+      us.global_role::text,
+      ut.role::text,
       ut.team_id,
       coalesce(us.is_active, true) as is_active,
       au.last_sign_in_at
@@ -50,5 +53,5 @@ begin
 end;
 $$;
 
-revoke all on function public.get_workspace_members(uuid) from public;
-grant execute on function public.get_workspace_members(uuid) to authenticated;
+REVOKE ALL ON FUNCTION public.get_workspace_members(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_workspace_members(uuid) TO authenticated;
