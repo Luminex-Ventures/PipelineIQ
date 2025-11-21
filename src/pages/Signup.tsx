@@ -1,18 +1,120 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import { getRoleLabel } from '../lib/rbac';
+import type { GlobalRole } from '../lib/database.types';
+import { useSearchParams } from 'react-router-dom';
 
-export default function Signup({ onToggle }: { onToggle: () => void }) {
+interface InvitePreview {
+  email: string;
+  intended_role: GlobalRole;
+  workspace_name: string | null;
+  expires_at: string;
+  status: 'pending' | 'accepted' | 'canceled' | 'expired';
+}
+
+interface SignupProps {
+  onToggle: () => void;
+  presetToken?: string;
+}
+
+export default function Signup({ onToggle, presetToken }: SignupProps) {
   const { signUp } = useAuth();
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState('');
+  const [inviteToken, setInviteToken] = useState(
+    presetToken || searchParams.get('invite') || ''
+  );
+  const [inviteDetails, setInviteDetails] = useState<InvitePreview | null>(null);
+  const [inviteMessage, setInviteMessage] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [validatingInvite, setValidatingInvite] = useState(false);
+
+  useEffect(() => {
+    if (presetToken && presetToken !== inviteToken) {
+      setInviteToken(presetToken);
+    }
+  }, [presetToken]);
+
+  const canSubmit = inviteDetails && !validatingInvite && !loading;
+
+  const fetchInvite = async (token: string) => {
+    if (!token) {
+      setInviteDetails(null);
+      setInviteMessage('');
+      setEmail('');
+      return;
+    }
+
+    setValidatingInvite(true);
+    setInviteMessage('');
+    setInviteDetails(null);
+    setError('');
+
+    const { data, error } = await supabase.rpc('get_invite_preview', {
+      invite_token: token
+    });
+
+    if (error) {
+      setInviteMessage('Unable to validate invite. Please check the code or contact your admin.');
+      setValidatingInvite(false);
+      return;
+    }
+
+    const record = Array.isArray(data) ? data[0] : data;
+
+    if (!record) {
+      setInviteMessage('No invitation found for this code.');
+      setValidatingInvite(false);
+      return;
+    }
+
+    if (record.status !== 'pending') {
+      setInviteMessage('This invitation has already been used or canceled.');
+      setValidatingInvite(false);
+      return;
+    }
+
+    const expiresAt = new Date(record.expires_at);
+    if (expiresAt.getTime() < Date.now()) {
+      setInviteMessage('This invitation has expired. Please ask your admin to resend.');
+      setValidatingInvite(false);
+      return;
+    }
+
+    setInviteDetails(record as InvitePreview);
+    setEmail(record.email);
+    setInviteMessage('');
+    setValidatingInvite(false);
+  };
+
+  useEffect(() => {
+    const debounce = setTimeout(() => {
+      if (inviteToken && inviteToken.length >= 6) {
+        fetchInvite(inviteToken.trim());
+      } else {
+        setInviteDetails(null);
+        setEmail('');
+      }
+    }, 300);
+
+    return () => clearTimeout(debounce);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    if (!inviteDetails || !inviteToken) {
+      setError('A valid invite code is required to join the workspace.');
+      setLoading(false);
+      return;
+    }
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters');
@@ -20,7 +122,7 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
       return;
     }
 
-    const { error } = await signUp(email, password, name);
+    const { error } = await signUp(email, password, name, inviteToken.trim());
 
     if (error) {
       setError(error.message);
@@ -29,6 +131,11 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
     setLoading(false);
   };
 
+  const inviteWorkspaceLabel = useMemo(() => {
+    if (!inviteDetails) return '';
+    return inviteDetails.workspace_name || 'Workspace';
+  }, [inviteDetails]);
+
   return (
     <div className="min-h-screen bg-[rgb(var(--color-app-bg))] flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -36,10 +143,10 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
           <img src="/PipelineIQ.png" alt="PipelineIQ" className="h-16" />
         </div>
         <h2 className="text-center text-2xl font-semibold text-gray-900 mb-2">
-          Create your account
+          Accept your invitation
         </h2>
         <p className="text-center hig-text-caption">
-          Get started with PipelineIQ today.
+          PipelineIQ access is invite-only. Paste the invite code from your email to continue.
         </p>
       </div>
 
@@ -49,6 +156,59 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
             {error && (
               <div className="bg-red-50 border border-red-200/60 text-red-700 px-4 py-3 rounded-xl text-sm">
                 {error}
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="invite" className="hig-label flex items-center justify-between">
+                Invitation code
+                {presetToken && (
+                  <span className="text-[11px] text-gray-500">Autofilled from your link</span>
+                )}
+              </label>
+              <input
+                id="invite"
+                type="text"
+                required
+                value={inviteToken}
+                onChange={(e) => setInviteToken(e.target.value)}
+                className="hig-input uppercase tracking-[0.3em]"
+                placeholder="Paste your invite code"
+              />
+              {inviteMessage && (
+                <p className="text-xs text-red-600 mt-1">{inviteMessage}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="hig-label">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  readOnly
+                  className="hig-input bg-gray-50 text-gray-600"
+                  placeholder="Invite required"
+                />
+              </div>
+              <div>
+                <label className="hig-label">Role</label>
+                <input
+                  type="text"
+                  value={inviteDetails ? getRoleLabel(inviteDetails.intended_role) : ''}
+                  readOnly
+                  className="hig-input bg-gray-50 text-gray-600"
+                  placeholder="Invite required"
+                />
+              </div>
+            </div>
+
+            {inviteDetails && (
+              <div className="rounded-2xl border border-gray-200/70 bg-gray-50/70 px-4 py-3 text-sm text-gray-600">
+                Joining <span className="font-semibold text-gray-900">{inviteWorkspaceLabel}</span> as{' '}
+                <span className="font-semibold text-gray-900">
+                  {getRoleLabel(inviteDetails.intended_role)}
+                </span>
               </div>
             )}
 
@@ -64,21 +224,7 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
                 onChange={(e) => setName(e.target.value)}
                 className="hig-input"
                 placeholder="John Doe"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="email" className="hig-label">
-                Email address
-              </label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="hig-input"
-                placeholder="you@example.com"
+                disabled={!inviteDetails}
               />
             </div>
 
@@ -94,15 +240,16 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
                 onChange={(e) => setPassword(e.target.value)}
                 className="hig-input"
                 placeholder="At least 6 characters"
+                disabled={!inviteDetails}
               />
             </div>
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={!canSubmit}
               className="hig-btn-primary w-full"
             >
-              {loading ? 'Creating account...' : 'Create account'}
+              {loading ? 'Creating account...' : 'Join workspace'}
             </button>
           </form>
 
@@ -123,8 +270,11 @@ export default function Signup({ onToggle }: { onToggle: () => void }) {
                 onClick={onToggle}
                 className="hig-btn-secondary w-full"
               >
-                Sign in
+                Back to sign in
               </button>
+              <p className="mt-3 text-center text-xs text-gray-500">
+                Don’t have an invite? Contact an admin in your workspace.
+              </p>
             </div>
           </div>
         </div>

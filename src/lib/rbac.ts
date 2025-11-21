@@ -7,6 +7,7 @@ export interface UserRoleInfo {
   teamId: string | null;
   teamRole: 'agent' | 'team_lead' | null;
   workspaceId: string | null;
+  isActive: boolean;
 }
 
 export async function getUserRoleInfo(userId: string): Promise<UserRoleInfo | null> {
@@ -29,7 +30,8 @@ export async function getUserRoleInfo(userId: string): Promise<UserRoleInfo | nu
     globalRole: settings.global_role,
     teamId: teamData?.team_id || null,
     teamRole: teamData?.role || null,
-    workspaceId: settings.workspace_id || null
+    workspaceId: settings.workspace_id || null,
+    isActive: settings.is_active ?? true
   };
 }
 
@@ -90,4 +92,17 @@ export function getRoleLabel(role?: GlobalRole): string {
     default:
       return 'Agent';
   }
+}
+
+export function canInviteAgents(roleInfo?: UserRoleInfo | null): boolean {
+  if (!roleInfo) return false;
+  return ['admin', 'sales_manager', 'team_lead'].includes(roleInfo.globalRole);
+}
+
+export function canInviteElevatedRoles(roleInfo?: UserRoleInfo | null): boolean {
+  return roleInfo?.globalRole === 'admin';
+}
+
+export function canManageWorkspaceMembers(roleInfo?: UserRoleInfo | null): boolean {
+  return roleInfo?.globalRole === 'admin';
 }

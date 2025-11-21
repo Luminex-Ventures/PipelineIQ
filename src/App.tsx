@@ -12,9 +12,10 @@ import WorkspaceSettings from './pages/WorkspaceSettings';
 import PersonalSettings from './pages/PersonalSettings';
 import ContractScribeComingSoon from './pages/ContractScribeComingSoon';
 import { useState } from 'react';
+import AcceptInvite from './pages/AcceptInvite';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, roleInfo, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -26,6 +27,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (roleInfo && roleInfo.isActive === false) {
+    return (
+      <div className="min-h-screen bg-[rgb(var(--color-app-bg))] flex items-center justify-center px-4">
+        <div className="max-w-md rounded-2xl border border-[var(--app-border)] bg-white/90 p-6 text-center shadow-xl space-y-3">
+          <p className="text-lg font-semibold text-gray-900">Account deactivated</p>
+          <p className="text-sm text-gray-600">
+            Your PipelineIQ access has been suspended. Please reach out to an administrator if you believe this is a mistake.
+          </p>
+          <button
+            onClick={signOut}
+            className="hig-btn-secondary mx-auto"
+          >
+            Back to login
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return <AppShell>{children}</AppShell>;
@@ -78,6 +98,14 @@ export default function App() {
               <ProtectedRoute>
                 <Dashboard />
               </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invite/:token"
+            element={
+              <AuthRoute>
+                <AcceptInvite />
+              </AuthRoute>
             }
           />
           <Route

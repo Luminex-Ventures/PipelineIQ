@@ -214,6 +214,7 @@ export interface Database {
           default_brokerage_split_rate: number;
           global_role: GlobalRole;
           workspace_id: string | null;
+          is_active: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -225,6 +226,7 @@ export interface Database {
           default_brokerage_split_rate?: number;
           global_role?: GlobalRole;
           workspace_id?: string | null;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -236,6 +238,7 @@ export interface Database {
           default_brokerage_split_rate?: number;
           global_role?: GlobalRole;
           workspace_id?: string | null;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -387,6 +390,50 @@ export interface Database {
           sort_order?: number;
           color?: string | null;
           is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      workspace_invitations: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          team_id: string | null;
+          email: string;
+          intended_role: GlobalRole;
+          invited_by: string | null;
+          token: string;
+          status: 'pending' | 'accepted' | 'canceled' | 'expired';
+          expires_at: string;
+          accepted_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          team_id?: string | null;
+          email: string;
+          intended_role?: GlobalRole;
+          invited_by?: string | null;
+          token?: string;
+          status?: 'pending' | 'accepted' | 'canceled' | 'expired';
+          expires_at?: string;
+          accepted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          team_id?: string | null;
+          email?: string;
+          intended_role?: GlobalRole;
+          invited_by?: string | null;
+          token?: string;
+          status?: 'pending' | 'accepted' | 'canceled' | 'expired';
+          expires_at?: string;
+          accepted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

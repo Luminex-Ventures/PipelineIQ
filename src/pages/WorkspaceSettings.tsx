@@ -4,32 +4,66 @@ import {
   List,
   Tag,
   PlugZap,
-  Layers
+  Layers,
+  Users,
+  Mail
 } from 'lucide-react';
 import PipelineStatusesSettings from './settings/PipelineStatusesSettings';
 import LeadSourcesSettings from './settings/LeadSourcesSettings';
 import WorkspaceInfoSettings from './settings/workspace/WorkspaceInfoSettings';
 import IntegrationsSettings from './settings/workspace/IntegrationsSettings';
 import WorkspaceConfigurationSettings from './settings/workspace/WorkspaceConfigurationSettings';
+import WorkspaceMembersSettings from './settings/workspace/WorkspaceMembersSettings';
+import WorkspaceInvitesSettings from './settings/workspace/WorkspaceInvitesSettings';
 import { useAuth } from '../contexts/AuthContext';
-import { getRoleLabel, isAdmin } from '../lib/rbac';
-import { useState } from 'react';
+import { canInviteAgents, canManageWorkspaceMembers, getRoleLabel, isAdmin } from '../lib/rbac';
+import { useMemo, useState } from 'react';
 
-const workspaceSections = [
+const baseSections = [
   { id: 'workspace.info' as const, label: 'Workspace Info', description: 'Identity, locale, and defaults', icon: Building },
   { id: 'workspace.pipeline-statuses' as const, label: 'Pipeline Statuses', description: 'Shared stage definitions', icon: List },
   { id: 'workspace.lead-sources' as const, label: 'Lead Sources', description: 'Partner & portal sources', icon: Tag },
   { id: 'workspace.integrations' as const, label: 'Integrations', description: 'CRM & email connections', icon: PlugZap },
   { id: 'workspace.configuration' as const, label: 'Shared Configuration', description: 'Templates & custom fields', icon: Layers }
-];
+] as const;
 
-type WorkspaceSectionId = typeof workspaceSections[number]['id'];
+type WorkspaceSectionId =
+  | 'workspace.info'
+  | 'workspace.pipeline-statuses'
+  | 'workspace.lead-sources'
+  | 'workspace.integrations'
+  | 'workspace.configuration'
+  | 'workspace.members'
+  | 'workspace.invites';
 
 export default function WorkspaceSettings() {
   const { user, roleInfo } = useAuth();
   const roleLabel = getRoleLabel(roleInfo?.globalRole);
   const canEditWorkspace = isAdmin(roleInfo);
+  const canManageMembers = canManageWorkspaceMembers(roleInfo);
+  const canInvite = canInviteAgents(roleInfo);
   const [activeSection, setActiveSection] = useState<WorkspaceSectionId>('workspace.info');
+
+  const workspaceSections = useMemo(() => {
+    const sections = [...baseSections];
+    if (canManageMembers) {
+      sections.push({
+        id: 'workspace.members' as const,
+        label: 'Members',
+        description: 'Roles, status, and access',
+        icon: Users
+      });
+    }
+    if (canInvite) {
+      sections.push({
+        id: 'workspace.invites' as const,
+        label: 'Invitations',
+        description: 'Pending & sent invites',
+        icon: Mail
+      });
+    }
+    return sections;
+  }, [canManageMembers, canInvite]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -41,6 +75,10 @@ export default function WorkspaceSettings() {
         return <LeadSourcesSettings canEdit={canEditWorkspace} />;
       case 'workspace.integrations':
         return <IntegrationsSettings canEdit={canEditWorkspace} />;
+      case 'workspace.members':
+        return <WorkspaceMembersSettings />;
+      case 'workspace.invites':
+        return <WorkspaceInvitesSettings />;
       case 'workspace.configuration':
       default:
         return <WorkspaceConfigurationSettings canEdit={canEditWorkspace} />;
