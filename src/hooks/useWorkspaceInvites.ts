@@ -15,6 +15,19 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const sendInviteEmail = async (inviteId: string) => {
+    try {
+      const { error: fnError } = await supabase.functions.invoke('send-invite-email', {
+        body: { inviteId, origin: typeof window !== 'undefined' ? window.location.origin : undefined },
+      });
+      if (fnError) {
+        console.error('Invite email dispatch failed', fnError);
+      }
+    } catch (err) {
+      console.error('Invite email dispatch failed', err);
+    }
+  };
+
   const fetchInvites = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true);
@@ -43,13 +56,18 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
   const createInvite = useCallback(
     async ({ email, intendedRole, teamId }: CreateInvitePayload) => {
       if (!workspaceId) return { error: new Error('Workspace is required') };
-      const { error } = await supabase.from('workspace_invitations').insert({
-        email,
-        intended_role: intendedRole,
-        workspace_id: workspaceId,
-        team_id: teamId ?? null,
-      });
-      if (!error) {
+      const { data, error } = await supabase
+        .from('workspace_invitations')
+        .insert({
+          email,
+          intended_role: intendedRole,
+          workspace_id: workspaceId,
+          team_id: teamId ?? null,
+        })
+        .select('*')
+        .single();
+      if (!error && data) {
+        await sendInviteEmail(data.id);
         await fetchInvites();
       }
       return { error };
@@ -73,14 +91,17 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
 
   const resendInvite = useCallback(
     async (inviteId: string) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('workspace_invitations')
         .update({
           status: 'pending',
           expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
         })
-        .eq('id', inviteId);
-      if (!error) {
+        .eq('id', inviteId)
+        .select('*')
+        .single();
+      if (!error && data) {
+        await sendInviteEmail(data.id);
         await fetchInvites();
       }
       return { error };
