@@ -24,6 +24,7 @@ export default function WorkspaceInvitesSettings() {
   const [selectedRole, setSelectedRole] = useState<GlobalRole>('agent');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(roleInfo?.teamId || null);
   const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const userTeamName = teams.find((team) => team.team_id === roleInfo?.teamId)?.name;
 
   const availableRoles = canInviteElevated ? roleOptions : roleOptions.filter((r) => r.value === 'agent');
@@ -39,14 +40,30 @@ export default function WorkspaceInvitesSettings() {
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
+    if (!workspaceId) {
+      setFeedback({
+        type: 'error',
+        text: 'Workspace is required before sending invites. Please refresh or contact an admin.',
+      });
+      return;
+    }
     setSubmitting(true);
-    await createInvite({
+    setFeedback(null);
+    const { error } = await createInvite({
       email: email.trim().toLowerCase(),
       intendedRole: selectedRole,
       teamId: selectedRole === 'agent' ? (selectedTeamId || roleInfo?.teamId || null) : selectedTeamId,
     });
     setSubmitting(false);
+    if (error) {
+      setFeedback({ type: 'error', text: error.message || 'Unable to send invite. Please try again.' });
+      return;
+    }
     setEmail('');
+    setFeedback({
+      type: 'success',
+      text: `Invitation sent to ${email.trim().toLowerCase()}. Share the link or let them check their inbox.`,
+    });
   };
 
   useEffect(() => {
@@ -72,6 +89,17 @@ export default function WorkspaceInvitesSettings() {
             Invitations are valid for 14 days and automatically fill in the correct role and workspace.
           </p>
         </div>
+        {feedback && (
+          <div
+            className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm ${
+              feedback.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-red-200 bg-red-50 text-red-700'
+            }`}
+          >
+            {feedback.text}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="hig-label">Email</label>
