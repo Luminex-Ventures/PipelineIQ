@@ -6,7 +6,8 @@ import {
   PlugZap,
   Layers,
   Users,
-  Mail
+  Mail,
+  FolderTree
 } from 'lucide-react';
 import PipelineStatusesSettings from './settings/PipelineStatusesSettings';
 import LeadSourcesSettings from './settings/LeadSourcesSettings';
@@ -15,8 +16,9 @@ import IntegrationsSettings from './settings/workspace/IntegrationsSettings';
 import WorkspaceConfigurationSettings from './settings/workspace/WorkspaceConfigurationSettings';
 import WorkspaceMembersSettings from './settings/workspace/WorkspaceMembersSettings';
 import WorkspaceInvitesSettings from './settings/workspace/WorkspaceInvitesSettings';
+import WorkspaceTeamsSettings from './settings/workspace/WorkspaceTeamsSettings';
 import { useAuth } from '../contexts/AuthContext';
-import { canInviteAgents, canManageWorkspaceMembers, getRoleLabel, isAdmin } from '../lib/rbac';
+import { canInviteAgents, canManageTeams, canManageWorkspaceMembers, getRoleLabel, isAdmin } from '../lib/rbac';
 import { useMemo, useState } from 'react';
 
 const baseSections = [
@@ -33,6 +35,7 @@ type WorkspaceSectionId =
   | 'workspace.lead-sources'
   | 'workspace.integrations'
   | 'workspace.configuration'
+  | 'workspace.teams'
   | 'workspace.members'
   | 'workspace.invites';
 
@@ -42,10 +45,19 @@ export default function WorkspaceSettings() {
   const canEditWorkspace = isAdmin(roleInfo);
   const canManageMembers = canManageWorkspaceMembers(roleInfo);
   const canInvite = canInviteAgents(roleInfo);
+  const canEditTeams = canManageTeams(roleInfo);
   const [activeSection, setActiveSection] = useState<WorkspaceSectionId>('workspace.info');
 
   const workspaceSections = useMemo(() => {
     const sections = [...baseSections];
+    if (canEditTeams) {
+      sections.push({
+        id: 'workspace.teams' as const,
+        label: 'Teams',
+        description: 'Create teams for routing',
+        icon: FolderTree
+      });
+    }
     if (canManageMembers) {
       sections.push({
         id: 'workspace.members' as const,
@@ -75,6 +87,8 @@ export default function WorkspaceSettings() {
         return <LeadSourcesSettings canEdit={canEditWorkspace} />;
       case 'workspace.integrations':
         return <IntegrationsSettings canEdit={canEditWorkspace} />;
+      case 'workspace.teams':
+        return <WorkspaceTeamsSettings />;
       case 'workspace.members':
         return <WorkspaceMembersSettings />;
       case 'workspace.invites':

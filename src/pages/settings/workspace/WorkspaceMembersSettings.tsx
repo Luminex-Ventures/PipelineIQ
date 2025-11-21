@@ -4,6 +4,7 @@ import { canManageWorkspaceMembers, getRoleLabel } from '../../../lib/rbac';
 import type { GlobalRole } from '../../../lib/database.types';
 import { Loader2, Power, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useWorkspaceTeams } from '../../../hooks/useWorkspaceTeams';
 
 const ROLE_SEQUENCE: GlobalRole[] = ['admin', 'sales_manager', 'team_lead', 'agent'];
 
@@ -12,7 +13,8 @@ export default function WorkspaceMembersSettings() {
   const workspaceId = roleInfo?.workspaceId || null;
   const canManage = canManageWorkspaceMembers(roleInfo);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const { members, loading, error, changeRole, deactivate, reactivate } = useWorkspaceMembers(workspaceId);
+  const { members, loading, error, changeRole, deactivate, reactivate, updateTeam } = useWorkspaceMembers(workspaceId);
+  const { teams, loading: teamsLoading } = useWorkspaceTeams(workspaceId);
 
   const adminCount = useMemo(
     () => members.filter((member) => member.global_role === 'admin' && member.is_active).length,
@@ -34,6 +36,12 @@ export default function WorkspaceMembersSettings() {
   const handleReactivate = async (memberId: string) => {
     setPendingAction(`reactivate-${memberId}`);
     await reactivate(memberId);
+    setPendingAction(null);
+  };
+
+  const handleTeamChange = async (memberId: string, teamId: string | null) => {
+    setPendingAction(`team-${memberId}`);
+    await updateTeam(memberId, teamId);
     setPendingAction(null);
   };
 
@@ -65,6 +73,12 @@ export default function WorkspaceMembersSettings() {
             {error}
           </div>
         )}
+        {!error && teamsLoading && (
+          <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-gray-200/70 bg-white px-3 py-1 text-xs text-gray-600">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading teams…
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-gray-200/70">
@@ -76,6 +90,9 @@ export default function WorkspaceMembersSettings() {
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
                 Role
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
+                Team
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
                 Status
@@ -121,6 +138,21 @@ export default function WorkspaceMembersSettings() {
                         You can’t change your own role from this screen.
                       </p>
                     )}
+                  </td>
+                  <td className="px-4 py-4">
+                    <select
+                      className="hig-input text-sm"
+                      value={member.team_id || ''}
+                      disabled={!isActive || disableControls || teamsLoading}
+                      onChange={(e) => handleTeamChange(member.user_id, e.target.value || null)}
+                    >
+                      <option value="">No team</option>
+                      {teams.map((team) => (
+                        <option key={team.team_id} value={team.team_id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-4 py-4">
                     <span

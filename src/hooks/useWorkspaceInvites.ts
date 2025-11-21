@@ -37,6 +37,7 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
       .from('workspace_invitations')
       .select('*')
       .eq('workspace_id', workspaceId)
+      .eq('status', 'pending')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -52,6 +53,25 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
   useEffect(() => {
     fetchInvites();
   }, [fetchInvites]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+
+    const channel = supabase
+      .channel(`workspace-invitations-${workspaceId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'workspace_invitations', filter: `workspace_id=eq.${workspaceId}` },
+        () => {
+          fetchInvites();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [workspaceId, fetchInvites]);
 
   const createInvite = useCallback(
     async ({ email, intendedRole, teamId }: CreateInvitePayload) => {

@@ -80,6 +80,8 @@ export default function WorkspaceInvitesSettings() {
     );
   }
 
+  const pendingInvites = invites.filter((invite) => invite.status === 'pending');
+
   return (
     <div className="space-y-8">
       <form onSubmit={handleInvite} className="rounded-2xl border border-gray-200/70 bg-white/80 p-5 space-y-4">
@@ -179,11 +181,11 @@ export default function WorkspaceInvitesSettings() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading invitations…
           </div>
-        ) : invites.length === 0 ? (
+        ) : pendingInvites.length === 0 ? (
           <p className="text-sm text-gray-500">No active invitations.</p>
         ) : (
           <div className="space-y-4">
-            {invites.map((invite) => {
+            {pendingInvites.map((invite) => {
               const isExpired = invite.status === 'pending' && new Date(invite.expires_at).getTime() < Date.now();
               const effectiveStatus = isExpired ? 'expired' : invite.status;
               return (
