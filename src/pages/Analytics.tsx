@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -14,6 +14,8 @@ import {
 } from 'recharts';
 import { TrendingUp, DollarSign, Target } from 'lucide-react';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
+import type { DealStatus } from '../lib/database.types';
+import { STATUS_LABELS } from '../constants/statusLabels';
 
 interface YearlyStats {
   closedDeals: number;
@@ -45,8 +47,26 @@ interface ClosingThisMonthStats {
   gci: number;
 }
 
+interface AccessibleAgentRow {
+  user_id: string;
+  display_name: string | null;
+  email: string | null;
+}
+
+interface AgentOption {
+  id: string;
+  label: string;
+  email: string;
+}
+
+interface StageOption {
+  id: string;
+  label: string;
+  sortOrder?: number | null;
+}
+
 export default function Analytics() {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [yearlyStats, setYearlyStats] = useState<YearlyStats>({
     closedDeals: 0,
@@ -64,6 +84,166 @@ export default function Analytics() {
     useState<ClosingThisMonthStats>({ count: 0, gci: 0 });
   const [gciGoal, setGciGoal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
+  const [availableStages, setAvailableStages] = useState<StageOption[]>([]);
+  const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
+  const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<DealStatus[]>([]);
+  const agentScopeKey = useMemo(
+    () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
+    [selectedAgentIds]
+  );
+  const leadFilterKey = useMemo(
+    () => (selectedLeadSources.length ? [...selectedLeadSources].sort().join('|') : ''),
+    [selectedLeadSources]
+  );
+  const stageFilterKey = useMemo(
+    () => (selectedPipelineStages.length ? [...selectedPipelineStages].sort().join('|') : ''),
+    [selectedPipelineStages]
+  );
+  const statusFilterKey = useMemo(
+    () => (selectedStatuses.length ? [...selectedStatuses].sort().join('|') : ''),
+    [selectedStatuses]
+  );
+  const isAllAgentsSelected =
+    selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
+  const scopeDescription = useMemo(() => {
+    if (!selectedAgentIds.length) return 'No agents selected';
+    if (isAllAgentsSelected) return 'All agents';
+    if (selectedAgentIds.length === 1) {
+      const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
+      return agent?.label || 'Agent';
+    }
+    return `${selectedAgentIds.length} agents`;
+  }, [isAllAgentsSelected, selectedAgentIds, availableAgents]);
+
+  const toggleAgentSelection = (agentId: string) => {
+    setSelectedAgentIds((current) => {
+      if (current.includes(agentId)) {
+        const next = current.filter((id) => id !== agentId);
+        return next.length ? next : current;
+      }
+      return [...current, agentId];
+    });
+  };
+
+  const selectAllAgents = () => {
+    if (availableAgents.length) {
+      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
+    }
+  };
+
+  const selectMyData = () => {
+    if (user) {
+      setSelectedAgentIds([user.id]);
+    }
+  };
+
+  const handlePipelineFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+    setSelectedPipelineStages(values);
+  };
+
+  const handleLeadSourceFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+    setSelectedLeadSources(values);
+  };
+
+  const handleStatusFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map(
+      (option) => option.value as DealStatus
+    );
+    setSelectedStatuses(values);
+  };
+
+  const withUserScope = (query: any, userIds: string[]) => {
+    if (!userIds.length) {
+      return query;
+    }
+    if (userIds.length === 1) {
+      return query.eq('user_id', userIds[0]);
+    }
+    return query.in('user_id', userIds);
+  };
+
+  const applyDealFilters = (query: any, userIds: string[]) => {
+    query = withUserScope(query, userIds);
+    if (selectedLeadSources.length) {
+      query = query.in('lead_source_id', selectedLeadSources);
+    }
+    if (selectedPipelineStages.length) {
+      const stages = selectedPipelineStages.filter(Boolean);
+      if (stages.length) {
+        query = query.in('pipeline_status_id', stages);
+      }
+    }
+    if (selectedStatuses.length) {
+      query = query.in('status', selectedStatuses);
+    }
+    return query;
+  };
+
+  const canShowFilterPanel =
+    (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
+
+  const loadFilterContext = async (agentIds: string[], year: number) => {
+    if (!agentIds.length) return;
+    const startOfYearISO = new Date(year, 0, 1).toISOString();
+    const endOfYearISO = new Date(year, 11, 31, 23, 59, 59).toISOString();
+
+    let contextQuery = supabase
+      .from('deals')
+      .select(`
+        id,
+        lead_source_id,
+        lead_sources (id, name),
+        pipeline_status_id,
+        pipeline_statuses (id, name, sort_order)
+      `)
+      .gte('created_at', startOfYearISO)
+      .lte('created_at', endOfYearISO);
+
+    contextQuery = withUserScope(contextQuery, agentIds);
+
+    const { data, error } = await contextQuery;
+    if (error) {
+      console.error('Unable to load analytics filter context', error);
+      return;
+    }
+
+    const leadMap = new Map<string, { id: string; name: string }>();
+    const stageMap = new Map<string, StageOption>();
+
+    (data || []).forEach((deal: any) => {
+      if (deal.lead_sources?.id) {
+        leadMap.set(deal.lead_sources.id, {
+          id: deal.lead_sources.id,
+          name: deal.lead_sources.name || 'Unknown'
+        });
+      }
+      if (deal.pipeline_statuses?.id) {
+        stageMap.set(deal.pipeline_statuses.id, {
+          id: deal.pipeline_statuses.id,
+          label: deal.pipeline_statuses.name,
+          sortOrder: deal.pipeline_statuses.sort_order
+        });
+      }
+    });
+
+    setAvailableLeadSources(Array.from(leadMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
+    setAvailableStages(
+      Array.from(stageMap.values()).sort((a, b) => {
+        const orderA = a.sortOrder ?? 999;
+        const orderB = b.sortOrder ?? 999;
+        if (orderA === orderB) {
+          return a.label.localeCompare(b.label);
+        }
+        return orderA - orderB;
+      })
+    );
+  };
 
 type DateParts = {
   year: number;
@@ -115,12 +295,61 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 };
 
   useEffect(() => {
+    if (!user) return;
+
+    const bootstrapAgents = async () => {
+      const fallback: AgentOption = {
+        id: user.id,
+        label: user.user_metadata?.name || user.email || 'You',
+        email: user.email || ''
+      };
+
+      if (!roleInfo || roleInfo.globalRole === 'agent') {
+        setAvailableAgents([fallback]);
+        setSelectedAgentIds([user.id]);
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('get_accessible_agents');
+      if (error || !data) {
+        console.error('Unable to load accessible agents', error);
+        setAvailableAgents([fallback]);
+        setSelectedAgentIds([user.id]);
+        return;
+      }
+
+      const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
+        id: agent.user_id,
+        label: agent.display_name || agent.email || 'Agent',
+        email: agent.email || ''
+      }));
+
+      const unique = normalized.filter(
+        (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
+      );
+
+      setAvailableAgents(unique);
+      setSelectedAgentIds(unique.map((agent) => agent.id));
+    };
+
+    bootstrapAgents();
+  }, [user, roleInfo?.globalRole, roleInfo?.teamId]);
+
+  useEffect(() => {
+    if (!user || !agentScopeKey) return;
     loadAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selectedYear]);
+  }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, statusFilterKey]);
+
+  useEffect(() => {
+    if (!availableAgents.length) return;
+    const ids = availableAgents.map((agent) => agent.id);
+    loadFilterContext(ids, selectedYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableAgents, selectedYear]);
 
   const loadAnalytics = async () => {
-    if (!user) return;
+    if (!user || !selectedAgentIds.length) return;
 
     setLoading(true);
 
@@ -135,28 +364,34 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
     if (settings) setGciGoal(settings.annual_gci_goal || 0);
 
-    const { data: closedDeals } = await supabase
+    let closedQuery = supabase
       .from('deals')
       .select(
         `
         *,
-        lead_sources (name)
+        lead_sources (name),
+        pipeline_statuses (id, name, sort_order)
       `
       )
-      .eq('user_id', user.id)
       .eq('status', 'closed');
+    closedQuery = applyDealFilters(closedQuery, selectedAgentIds);
 
-    const { data: allDeals } = await supabase
+    const { data: closedDeals } = await closedQuery;
+
+    let allDealsQuery = supabase
       .from('deals')
       .select(
         `
         *,
-        lead_sources (name)
+        lead_sources (name),
+        pipeline_statuses (id, name, sort_order)
       `
       )
-      .eq('user_id', user.id)
       .gte('created_at', startOfYear)
       .lte('created_at', endOfYear);
+    allDealsQuery = applyDealFilters(allDealsQuery, selectedAgentIds);
+
+    const { data: allDeals } = await allDealsQuery;
 
     if (closedDeals) {
       const monthNames = [
@@ -456,6 +691,142 @@ const parseDateValue = (value?: string | null): DateParts | null => {
           />
         </div>
       </section>
+      {canShowFilterPanel && (
+        <section className={`${surfaceClass} p-5 space-y-4`}>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Scope</p>
+              <p className="text-sm text-gray-700">{scopeDescription}</p>
+            </div>
+          </div>
+          {availableAgents.length > 1 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400 mb-2">Agents</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllAgents}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                    isAllAgentsSelected
+                      ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] border-transparent'
+                      : 'border-gray-200 text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  All Agents
+                </button>
+                {user && (
+                  <button
+                    type="button"
+                    onClick={selectMyData}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                      selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'border-gray-200 text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Focus on me
+                  </button>
+                )}
+                {availableAgents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => toggleAgentSelection(agent.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                      selectedAgentIds.includes(agent.id)
+                        ? 'bg-white text-gray-900 border-gray-900/10 shadow-sm'
+                        : 'border-gray-200 text-gray-600 hover:text-gray-900'
+                    }`}
+                    title={agent.email}
+                  >
+                    {agent.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Pipeline Stage</p>
+                {selectedPipelineStages.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--app-accent)]"
+                    onClick={() => setSelectedPipelineStages([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <select
+                multiple
+                value={selectedPipelineStages}
+                onChange={handlePipelineFilterChange}
+                className="hig-input min-h-[56px] mt-2"
+              >
+                {availableStages.map((stage) => (
+                  <option key={stage.id} value={stage.id}>
+                    {stage.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Status</p>
+                {selectedStatuses.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--app-accent)]"
+                    onClick={() => setSelectedStatuses([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <select
+                multiple
+                value={selectedStatuses}
+                onChange={handleStatusFilterChange}
+                className="hig-input min-h-[56px] mt-2"
+              >
+                {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Lead Source</p>
+                {selectedLeadSources.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--app-accent)]"
+                    onClick={() => setSelectedLeadSources([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <select
+                multiple
+                value={selectedLeadSources}
+                onChange={handleLeadSourceFilterChange}
+                className="hig-input min-h-[56px] mt-2"
+              >
+                {availableLeadSources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
