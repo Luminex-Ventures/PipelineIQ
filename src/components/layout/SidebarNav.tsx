@@ -1,4 +1,13 @@
-import { LayoutDashboard, Trello, CheckSquare, Sparkles, Settings, BarChart3 } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Trello,
+  CheckSquare,
+  Sparkles,
+  Settings,
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const mainNavItems = [
@@ -16,40 +25,55 @@ const settingsNavItems = [
   { icon: Settings, label: 'Settings', path: '/workspace-settings' },
 ];
 
-export function SidebarNav() {
+interface SidebarNavProps {
+  isCollapsed: boolean;
+  onToggle: () => void;
+}
+
+export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
   const renderNavSection = (title: string, items: typeof mainNavItems) => (
-    <div>
-      <p className="px-3 pb-2 text-[12px] font-semibold uppercase tracking-[0.35em] text-gray-400">
-        {title}
-      </p>
+    <div className="space-y-2">
+      <div
+        className={`flex items-center gap-3 px-2 ${isCollapsed ? 'justify-center' : 'justify-start'}`}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)]" aria-hidden />
+        {!isCollapsed && (
+          <span className="text-[12px] font-semibold uppercase tracking-[0.28em] text-gray-500">
+            {title}
+          </span>
+        )}
+      </div>
       <div className="space-y-1">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
+          const layoutClasses = isCollapsed ? 'justify-center px-2' : 'gap-3 px-4 text-left';
 
           return (
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
-              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold transition ${
+              aria-label={item.label}
+              title={item.label}
+              className={`group flex w-full items-center rounded-2xl border border-transparent py-3 text-[15px] font-semibold transition-all duration-200 ${layoutClasses} ${
                 isActive
-                  ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] shadow-[inset_0_0_0_1px_rgba(10,132,255,0.2)]'
-                  : 'text-gray-600 hover:bg-white/70 hover:text-gray-900'
-              }`}
+                  ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] shadow-[inset_0_0_0_1px_rgba(10,132,255,0.2)] border-[rgba(10,132,255,0.2)]'
+                  : 'text-gray-600 hover:-translate-y-[1px] hover:border-[rgba(10,132,255,0.25)] hover:bg-[rgba(10,132,255,0.06)] hover:text-[var(--app-accent)] hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)]'
+              } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(10,132,255,0.35)]`}
             >
               <span
-                className={`flex h-10 w-10 items-center justify-center rounded-2xl border text-gray-700 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-2xl border ${
                   isActive
-                    ? 'border-[rgba(10,132,255,0.3)] bg-white/80'
-                    : 'border-white/60 bg-white/90'
+                    ? 'border-[rgba(10,132,255,0.3)] bg-white/80 text-[var(--app-accent)]'
+                    : 'border-white/60 bg-white/90 text-gray-700 group-hover:border-[rgba(10,132,255,0.25)] group-hover:bg-white group-hover:text-[var(--app-accent)]'
                 }`}
               >
                 <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
               </span>
-              <span>{item.label}</span>
+              {!isCollapsed && <span className="whitespace-nowrap">{item.label}</span>}
             </button>
           );
         })}
@@ -58,13 +82,38 @@ export function SidebarNav() {
   );
 
   return (
-    <nav className="sticky top-24 rounded-[var(--app-radius)] border border-[var(--app-border)] bg-white/80 p-4 shadow-[0_15px_40px_rgba(15,23,42,0.12)]">
+    <nav
+      className={`sticky top-24 rounded-[var(--app-radius)] border border-[var(--app-border)] bg-white/80 shadow-[0_15px_40px_rgba(15,23,42,0.12)] transition-all duration-300 ${
+        isCollapsed ? 'p-3' : 'p-4'
+      }`}
+    >
       <div className="space-y-6">
         {renderNavSection('Primary', mainNavItems)}
         {renderNavSection('Intelligence', aiNavItems)}
-      </div>
-      <div className="mt-6 border-t border-[var(--app-border)] pt-4">
-        {renderNavSection('Workspace', settingsNavItems)}
+        <div className={`pt-4 ${isCollapsed ? '' : 'border-t border-[var(--app-border)]'}`}>
+          {renderNavSection('Workspace', settingsNavItems)}
+        </div>
+        <div className={`pt-4 ${isCollapsed ? '' : 'border-t border-[var(--app-border)]'}`}>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-pressed={!isCollapsed}
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`group flex w-full items-center rounded-2xl py-3 text-[15px] font-semibold transition ${
+              isCollapsed ? 'justify-center px-2' : 'gap-3 px-4 text-left'
+            } text-gray-700 hover:bg-white/70 hover:text-[var(--app-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]`}
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/95 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.5)] transition-colors group-hover:border-[rgba(10,132,255,0.3)] group-hover:text-[var(--app-accent)]">
+              {isCollapsed ? (
+                <ChevronRight className="h-5 w-5 transition group-hover:text-[var(--app-accent)]" />
+              ) : (
+                <ChevronLeft className="h-5 w-5 transition group-hover:text-[var(--app-accent)]" />
+              )}
+            </span>
+            {!isCollapsed && <span className="whitespace-nowrap">Hide</span>}
+          </button>
+        </div>
       </div>
     </nav>
   );

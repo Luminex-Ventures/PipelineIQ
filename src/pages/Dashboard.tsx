@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -17,7 +17,8 @@ import {
   getDateRange,
   calculateGCI,
   isStalled,
-  getDaysInStage
+  getDaysInStage,
+  type DateRange
 } from '../lib/dashboard-utils';
 import { getColorValue } from '../lib/colors';
 import {
@@ -32,6 +33,8 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import type { Database } from '../lib/database.types';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { STATUS_LABELS } from '../constants/statusLabels';
 
 type DealRow = Database['public']['Tables']['deals']['Row'];
 type LeadSourceRow = Database['public']['Tables']['lead_sources']['Row'];
@@ -79,6 +82,25 @@ interface DealTypeBreakdown {
   statusCounts: Record<DealRow['status'], number>;
 }
 
+interface AccessibleAgentRow {
+  user_id: string;
+  display_name: string | null;
+  email: string | null;
+}
+
+interface AgentOption {
+  id: string;
+  label: string;
+  email: string;
+}
+
+interface StageOption {
+  id: string;
+  label: string;
+  color?: string | null;
+  sortOrder?: number | null;
+}
+
 // This file uses DB status values, not UI labels
 const ACTIVE_CLOSING_STATUSES = ['under_contract', 'pending'] as const;
 const NON_ACTIVE_STATUSES = ['closed', 'dead'] as const;
@@ -93,16 +115,8 @@ const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   landlord: 'Landlord'
 };
 
-const STATUS_LABELS: Record<DealRow['status'], string> = {
-  new_lead: 'New Lead',
-  contacted: 'Contacted',
-  showing_scheduled: 'Showing Scheduled',
-  offer_submitted: 'Offer Submitted',
-  under_contract: 'Under Contract',
-  pending: 'Pending',
-  closed: 'Closed',
-  dead: 'Lost'
-};
+const INSIGHTS_REFRESH_MS = 30 * 60 * 1000;
+const GREETING_CHECK_INTERVAL_MS = 60 * 1000;
 
 const DEFAULT_WIDGETS = [
   'luma-insights',
@@ -227,7 +241,7 @@ function SortableWidget({ id, children }: SortableWidgetProps) {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
 
   const [stats, setStats] = useState<DashboardStats>({
     ytdGCI: 0,
@@ -243,13 +257,28 @@ export default function Dashboard() {
   const [upcomingDeals, setUpcomingDeals] = useState<Deal[]>([]);
   const [stalledDeals, setStalledDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
+  const [lockedAiInsights, setLockedAiInsights] = useState<string[] | null>(null);
+  const [lockedGeneratedInsights, setLockedGeneratedInsights] = useState<string[] | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const insightsLockedRef = useRef(false);
+  const [lastInsightsUpdatedAt, setLastInsightsUpdatedAt] = useState<number>(0);
+  const [greetingText, setGreetingText] = useState<string>('');
+  const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [dealTypeStats, setDealTypeStats] = useState<DealTypeBreakdown[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGETS]);
   const [activeWidget, setActiveWidget] = useState<string | null>(null);
-
-  const range = getDateRange('ytd');
+  const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
+  const [availableStages, setAvailableStages] = useState<StageOption[]>([]);
+  const [availableDealTypes, setAvailableDealTypes] = useState<DealRow['deal_type'][]>([]);
+  const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
+  const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
+  const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
+  const [dateRangePreset, setDateRangePreset] = useState<DateRange>('ytd');
+  const range = useMemo(() => getDateRange(dateRangePreset), [dateRangePreset]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -258,8 +287,127 @@ export default function Dashboard() {
       },
     })
   );
+  const timeRangeOptions: { value: DateRange; label: string }[] = [
+    { value: 'this_month', label: 'MTD' },
+    { value: 'last_30_days', label: '30D' },
+    { value: 'this_quarter', label: 'QTD' },
+    { value: 'ytd', label: 'YTD' }
+  ];
+
+  useEffect(() => {
+    if (!user) return;
+
+    const bootstrapAgents = async () => {
+      const fallback: AgentOption = {
+        id: user.id,
+        label: user.user_metadata?.name || user.email || 'You',
+        email: user.email || ''
+      };
+
+      if (!roleInfo || roleInfo.globalRole === 'agent') {
+        setAvailableAgents([fallback]);
+        setSelectedAgentIds([user.id]);
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('get_accessible_agents');
+      if (error || !data) {
+        console.error('Unable to load accessible agents', error);
+        setAvailableAgents([fallback]);
+        setSelectedAgentIds([user.id]);
+        return;
+      }
+
+      const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
+        id: agent.user_id,
+        label: agent.display_name || agent.email || 'Agent',
+        email: agent.email || ''
+      }));
+
+      const unique = normalized.filter(
+        (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
+      );
+
+      setAvailableAgents(unique);
+      setSelectedAgentIds(unique.map((agent) => agent.id));
+    };
+
+    bootstrapAgents();
+  }, [user, roleInfo?.globalRole, roleInfo?.teamId]);
 
   // Derived metrics (memoized)
+  const agentScopeKey = useMemo(
+    () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
+    [selectedAgentIds]
+  );
+  const leadFilterKey = useMemo(
+    () => (selectedLeadSources.length ? [...selectedLeadSources].sort().join('|') : ''),
+    [selectedLeadSources]
+  );
+  const stageFilterKey = useMemo(
+    () => (selectedPipelineStages.length ? [...selectedPipelineStages].sort().join('|') : ''),
+    [selectedPipelineStages]
+  );
+  const dealTypeFilterKey = useMemo(
+    () => (selectedDealTypes.length ? [...selectedDealTypes].sort().join('|') : ''),
+    [selectedDealTypes]
+  );
+  const isAllAgentsSelected = selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
+  const scopeDescription = useMemo(() => {
+    if (!selectedAgentIds.length) return 'No agents selected';
+    if (isAllAgentsSelected) return 'All agents';
+    if (selectedAgentIds.length === 1) {
+      const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
+      return agent?.label || 'Single agent';
+    }
+    return `${selectedAgentIds.length} agents`;
+  }, [isAllAgentsSelected, selectedAgentIds, availableAgents]);
+
+  const toggleAgentSelection = (agentId: string) => {
+    setSelectedAgentIds((current) => {
+      if (current.includes(agentId)) {
+        const next = current.filter((id) => id !== agentId);
+        return next.length ? next : current;
+      }
+      return [...current, agentId];
+    });
+  };
+
+  const selectAllAgents = () => {
+    if (availableAgents.length) {
+      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
+    }
+  };
+
+  const selectMyData = () => {
+    if (user) {
+      setSelectedAgentIds([user.id]);
+    }
+  };
+
+  useEffect(() => {
+    if (!availableDealTypes.length) return;
+    setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
+  }, [availableDealTypes]);
+
+  const handlePipelineFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+    setSelectedPipelineStages(values);
+  };
+
+  const handleLeadSourceFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+    setSelectedLeadSources(values);
+  };
+
+  const handleDealTypeFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map(
+      (option) => option.value as DealRow['deal_type']
+    );
+    setSelectedDealTypes(values);
+  };
+  const canShowFilterPanel = (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
+
   const totalActiveDeals = useMemo(
     () => pipelineHealth.reduce((sum, s) => sum + s.count, 0),
     [pipelineHealth]
@@ -281,44 +429,196 @@ export default function Dashboard() {
   );
 
   useEffect(() => {
+    if (!user || !agentScopeKey) return;
     loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, dateRangePreset]);
+
+  useEffect(() => {
+    if (!user) return;
     loadWidgetLayout();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   useEffect(() => {
-    if (!loading && stats.ytdGCI > 0) {
-      loadAIInsights();
-    }
+    if (!selectedAgentIds.length) return;
+    loadFilterContext(selectedAgentIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, stats, pipelineHealth, leadSourceData, monthlyData]);
+  }, [selectedAgentIds]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (insightsLockedRef.current) return;
+    loadAIInsights();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, lastInsightsUpdatedAt]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const updateGreeting = () => {
+      const now = Date.now();
+      const isStale =
+        lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS || !greetingText;
+      if (isStale) {
+        setGreetingText(getGreeting(user.user_metadata?.name));
+        setLastInsightsUpdatedAt(now);
+      }
+    };
+
+    updateGreeting();
+
+    if (greetingTimerRef.current) {
+      clearInterval(greetingTimerRef.current);
+    }
+    greetingTimerRef.current = setInterval(updateGreeting, GREETING_CHECK_INTERVAL_MS);
+
+    return () => {
+      if (greetingTimerRef.current) {
+        clearInterval(greetingTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_metadata?.name]);
+
+  const withUserScope = (query: any, userIds: string[]) => {
+    if (!userIds.length) {
+      return query;
+    }
+
+    if (userIds.length === 1) {
+      return query.eq('user_id', userIds[0]);
+    }
+
+    return query.in('user_id', userIds);
+  };
+
+  const applyDealFilters = (query: any, userIds: string[]) => {
+    query = withUserScope(query, userIds);
+
+    if (selectedLeadSources.length) {
+      query = query.in('lead_source_id', selectedLeadSources);
+    }
+
+    if (selectedPipelineStages.length) {
+      const filteredStages = selectedPipelineStages.filter(Boolean);
+      if (filteredStages.length) {
+        query = query.in('pipeline_status_id', filteredStages);
+      }
+    }
+
+    if (selectedDealTypes.length) {
+      query = query.in('deal_type', selectedDealTypes);
+    }
+
+    return query;
+  };
+
+  const loadFilterContext = async (agentIds: string[]) => {
+    if (!agentIds.length) return;
+
+    let contextQuery = supabase
+      .from('deals')
+      .select(`
+        id,
+        user_id,
+        deal_type,
+        lead_source_id,
+        lead_sources (id, name),
+        pipeline_status_id,
+        pipeline_statuses (id, name, color, sort_order)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    contextQuery = withUserScope(contextQuery, agentIds);
+
+    const { data, error } = await contextQuery;
+    if (error) {
+      console.error('Unable to load filter context', error);
+      return;
+    }
+
+    const leadMap = new Map<string, { id: string; name: string }>();
+    const stageMap = new Map<string, StageOption>();
+    const dealTypeSet = new Set<DealRow['deal_type']>();
+
+    (data || []).forEach((deal: any) => {
+      if (deal.lead_sources?.id) {
+        leadMap.set(deal.lead_sources.id, {
+          id: deal.lead_sources.id,
+          name: deal.lead_sources.name || 'Unknown'
+        });
+      }
+
+      if (deal.pipeline_statuses?.id) {
+        stageMap.set(deal.pipeline_statuses.id, {
+          id: deal.pipeline_statuses.id,
+          label: deal.pipeline_statuses.name,
+          color: deal.pipeline_statuses.color,
+          sortOrder: deal.pipeline_statuses.sort_order
+        });
+      }
+
+      if (deal.deal_type) {
+        dealTypeSet.add(deal.deal_type as DealRow['deal_type']);
+      }
+    });
+
+    setAvailableLeadSources(Array.from(leadMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
+    setAvailableStages(
+      Array.from(stageMap.values()).sort((a, b) => {
+        const orderA = a.sortOrder ?? 999;
+        const orderB = b.sortOrder ?? 999;
+        if (orderA === orderB) {
+          return a.label.localeCompare(b.label);
+        }
+        return orderA - orderB;
+      })
+    );
+    const sortedDealTypes = Array.from(dealTypeSet).sort((a, b) => {
+      const labelA = DEAL_TYPE_LABELS[a] ?? a;
+      const labelB = DEAL_TYPE_LABELS[b] ?? b;
+      return labelA.localeCompare(labelB);
+    });
+    setAvailableDealTypes(sortedDealTypes.length ? sortedDealTypes : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]));
+  };
 
   const loadDashboardData = async () => {
-    if (!user) return;
-    const userId = user.id;
+    if (!user || !selectedAgentIds.length) return;
 
-    setLoading(true);
+    const isInitialLoad = loading;
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     const startDate = range.start.toISOString();
     const endDate = range.end.toISOString();
 
     try {
       await Promise.all([
-        loadStats(userId, startDate, endDate),
-        loadPipelineHealth(userId),
-        loadMonthlyTrends(userId),
-        loadLeadSourcePerformance(userId, startDate, endDate),
-        loadUpcomingDeals(userId),
-        loadStalledDeals(userId)
+        loadStats(selectedAgentIds, startDate, endDate),
+        loadPipelineHealth(selectedAgentIds),
+        loadMonthlyTrends(selectedAgentIds),
+        loadLeadSourcePerformance(selectedAgentIds, startDate, endDate),
+        loadUpcomingDeals(selectedAgentIds),
+        loadStalledDeals(selectedAgentIds)
       ]);
     } catch (err) {
       console.error('Error loading dashboard data', err);
     } finally {
-      setLoading(false);
+      if (isInitialLoad) {
+        setLoading(false);
+      }
+      setRefreshing(false);
     }
   };
 
   const loadAIInsights = async () => {
+    if (insightsLockedRef.current) return;
+
     if (!user) return;
 
     setInsightsLoading(true);
@@ -358,7 +658,12 @@ export default function Dashboard() {
       }
 
       const data = await response.json();
-      setAiInsights(data.insights || []);
+      const insights = data.insights || [];
+      setAiInsights(insights);
+      if (!lockedAiInsights && insights.length) {
+        setLockedAiInsights(insights);
+        insightsLockedRef.current = true;
+      }
     } catch (error) {
       console.error('Error loading AI insights:', error);
     } finally {
@@ -366,28 +671,32 @@ export default function Dashboard() {
     }
   };
 
-  const loadStats = async (userId: string, startDate: string, endDate: string) => {
+  const loadStats = async (userIds: string[], startDate: string, endDate: string) => {
     // Closed deals for this range (based on closed_at) drive GCI and volume
     const closeDateFilter = buildCloseDateFilter(startDate, endDate);
 
-    const { data: closedDealsData, error: closedError } = await supabase
+    let closedQuery = supabase
       .from('deals')
       .select('*')
-      .eq('user_id', userId)
       .eq('status', 'closed')
       .or(closeDateFilter);
+    closedQuery = applyDealFilters(closedQuery, userIds);
+
+    const { data: closedDealsData, error: closedError } = await closedQuery;
 
     if (closedError) {
       console.error('loadStats closedDeals error', closedError);
     }
 
     // All deals created in this range used as "leads" for conversion rate
-    const { data: allDeals, error: allDealsError } = await supabase
+    let allDealsQuery = supabase
       .from('deals')
       .select('*')
-      .eq('user_id', userId)
       .gte('created_at', startDate)
       .lte('created_at', endDate);
+    allDealsQuery = applyDealFilters(allDealsQuery, userIds);
+
+    const { data: allDeals, error: allDealsError } = await allDealsQuery;
 
     if (allDealsError) {
       console.error('loadStats allDeals error', allDealsError);
@@ -399,13 +708,15 @@ export default function Dashboard() {
     const startOfMonth = new Date(currentYear, currentMonth, 1).toISOString();
     const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59).toISOString();
 
-    const { data: closingThisMonth, error: ctError } = await supabase
+    let closingQuery = supabase
       .from('deals')
       .select('id')
-      .eq('user_id', userId)
       .in('status', ACTIVE_CLOSING_STATUSES)
       .gte('close_date', startOfMonth)
       .lte('close_date', endOfMonth);
+    closingQuery = applyDealFilters(closingQuery, userIds);
+
+    const { data: closingThisMonth, error: ctError } = await closingQuery;
 
     if (ctError) {
       console.error('loadStats closingThisMonth error', ctError);
@@ -439,53 +750,89 @@ export default function Dashboard() {
     });
   };
 
-  const loadPipelineHealth = async (userId: string) => {
-    const { data: statuses, error: statusesError } = await supabase
-      .from('pipeline_statuses')
-      .select('*')
-      .eq('user_id', userId)
-      .order('sort_order');
-
-    if (statusesError) {
-      console.error('loadPipelineHealth statuses error', statusesError);
-      return;
-    }
-
-    const { data: deals, error: dealsError } = await supabase
+  const loadPipelineHealth = async (userIds: string[]) => {
+    let dealsQuery = supabase
       .from('deals')
-      .select('*')
-      .eq('user_id', userId)
+      .select(`
+        *,
+        pipeline_statuses (id, name, color, sort_order),
+        lead_sources (id, name)
+      `)
       .not('status', 'in', `(${NON_ACTIVE_STATUSES.join(',')})`);
+
+    dealsQuery = applyDealFilters(dealsQuery, userIds);
+
+    const { data: deals, error: dealsError } = await dealsQuery;
 
     if (dealsError) {
       console.error('loadPipelineHealth deals error', dealsError);
       return;
     }
 
-    if (!statuses || !deals) {
+    if (!deals) {
       setPipelineHealth([]);
       setDealTypeStats([]);
       return;
     }
 
-    const summary: PipelineStatusSummary[] = statuses.map(status => {
-      const statusDeals = deals.filter(d => d.pipeline_status_id === status.id);
-      const expectedGCI = statusDeals.reduce((sum, deal) => sum + calculateGCI(deal), 0);
-      const stalledCount = statusDeals.filter(d => isStalled(d.stage_entered_at, 30)).length;
+    type StageAccumulator = {
+      id: string;
+      name: string;
+      color: string | null;
+      sortOrder: number | null;
+      count: number;
+      expectedGCI: number;
+      stalledCount: number;
+    };
 
-      return {
-        id: status.id,
-        name: status.name,
-        color: status.color,
-        count: statusDeals.length,
-        expectedGCI,
-        stalledCount
+    const stageMap = new Map<string, StageAccumulator>();
+
+    deals.forEach((deal) => {
+      const stageId = deal.pipeline_statuses?.id || deal.pipeline_status_id || `status:${deal.status}`;
+      const stageName = deal.pipeline_statuses?.name || STATUS_LABELS[deal.status] || deal.status;
+      const stageColor = deal.pipeline_statuses?.color || null;
+      const sortOrder = deal.pipeline_statuses?.sort_order ?? null;
+      const existing = stageMap.get(stageId) || {
+        id: stageId,
+        name: stageName,
+        color: stageColor,
+        sortOrder,
+        count: 0,
+        expectedGCI: 0,
+        stalledCount: 0
       };
+      existing.count += 1;
+      existing.expectedGCI += calculateGCI(deal);
+      if (isStalled(deal.stage_entered_at, 30)) {
+        existing.stalledCount += 1;
+      }
+      stageMap.set(stageId, existing);
     });
+
+    const sortedStages = Array.from(stageMap.values()).sort((a, b) => {
+      const orderA = a.sortOrder ?? 999;
+      const orderB = b.sortOrder ?? 999;
+      if (orderA === orderB) {
+        return a.name.localeCompare(b.name);
+      }
+      return orderA - orderB;
+    });
+
+    const summary: PipelineStatusSummary[] = sortedStages.map((stage) => ({
+      id: stage.id,
+      name: stage.name,
+      color: stage.color,
+      count: stage.count,
+      expectedGCI: stage.expectedGCI,
+      stalledCount: stage.stalledCount
+    }));
 
     setPipelineHealth(summary);
 
-    const typeMap = new Map<DealRow['deal_type'], { count: number; gci: number; statusCounts: Record<DealRow['status'], number> }>();
+    const typeMap = new Map<
+      DealRow['deal_type'],
+      { count: number; gci: number; statusCounts: Record<DealRow['status'], number> }
+    >();
 
     deals.forEach((deal) => {
       const existing = typeMap.get(deal.deal_type) ?? { count: 0, gci: 0, statusCounts: {} };
@@ -510,14 +857,18 @@ export default function Dashboard() {
     setDealTypeStats(breakdown);
   };
 
-  const loadMonthlyTrends = async (userId: string) => {
-    const currentYear = new Date().getFullYear();
+  const loadMonthlyTrends = async (userIds: string[]) => {
+    const closeDateFilter = buildCloseDateFilter(range.start.toISOString(), range.end.toISOString());
 
-    const { data: deals, error } = await supabase
+    let dealsQuery = supabase
       .from('deals')
       .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'closed');
+      .eq('status', 'closed')
+      .or(closeDateFilter);
+
+    dealsQuery = applyDealFilters(dealsQuery, userIds);
+
+    const { data: deals, error } = await dealsQuery;
 
     if (error) {
       console.error('loadMonthlyTrends error', error);
@@ -553,15 +904,18 @@ export default function Dashboard() {
     );
   };
 
-  const loadLeadSourcePerformance = async (userId: string, startDate: string, endDate: string) => {
+  const loadLeadSourcePerformance = async (userIds: string[], startDate: string, endDate: string) => {
     const closeDateFilter = buildCloseDateFilter(startDate, endDate);
 
-    const { data, error } = await supabase
+    let leadSourceQuery = supabase
       .from('deals')
       .select('*, lead_sources(*)')
-      .eq('user_id', userId)
       .eq('status', 'closed')
       .or(closeDateFilter);
+
+    leadSourceQuery = applyDealFilters(leadSourceQuery, userIds);
+
+    const { data, error } = await leadSourceQuery;
 
     if (error) {
       console.error('loadLeadSourcePerformance error', error);
@@ -599,20 +953,23 @@ export default function Dashboard() {
     setLeadSourceData(result);
   };
 
-  const loadUpcomingDeals = async (userId: string) => {
+  const loadUpcomingDeals = async (userIds: string[]) => {
     const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
 
-    const { data, error } = await supabase
+    let upcomingQuery = supabase
       .from('deals')
       .select('*')
-      .eq('user_id', userId)
       .in('status', ACTIVE_CLOSING_STATUSES)
       .gte('close_date', now.toISOString())
       .lte('close_date', thirtyDaysFromNow.toISOString())
       .order('close_date', { ascending: true })
       .limit(5);
+
+    upcomingQuery = applyDealFilters(upcomingQuery, userIds);
+
+    const { data, error } = await upcomingQuery;
 
     if (error) {
       console.error('loadUpcomingDeals error', error);
@@ -623,14 +980,17 @@ export default function Dashboard() {
     setUpcomingDeals((data || []) as Deal[]);
   };
 
-  const loadStalledDeals = async (userId: string) => {
-    const { data, error } = await supabase
+  const loadStalledDeals = async (userIds: string[]) => {
+    let stalledQuery = supabase
       .from('deals')
       .select('*')
-      .eq('user_id', userId)
       .neq('status', 'closed')
       .neq('status', 'dead')
       .order('stage_entered_at', { ascending: true });
+
+    stalledQuery = applyDealFilters(stalledQuery, userIds);
+
+    const { data, error } = await stalledQuery;
 
     if (error) {
       console.error('loadStalledDeals error', error);
@@ -777,6 +1137,21 @@ export default function Dashboard() {
     return insights;
   }, [stats, pipelineHealth, leadSourceData, monthlyData, upcomingDeals, projectedGCI]);
 
+  useEffect(() => {
+    if (loading) return;
+    const now = Date.now();
+    const isStale =
+      lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS;
+
+    if (!isStale && lockedGeneratedInsights) return;
+
+    setLockedGeneratedInsights(generateInsights);
+    setLastInsightsUpdatedAt(now);
+    setLockedAiInsights(null);
+    insightsLockedRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generateInsights, loading, lastInsightsUpdatedAt]);
+
   // Widget render functions
   const renderWidget = (widgetId: string) => {
     switch (widgetId) {
@@ -814,9 +1189,9 @@ export default function Dashboard() {
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
             )}
           </div>
-          {aiInsights.length > 0 ? (
+          {(lockedAiInsights || aiInsights).length > 0 ? (
             <div className="space-y-3">
-              {aiInsights.slice(0, 3).map((insight, index) => (
+              {(lockedAiInsights || aiInsights).slice(0, 3).map((insight, index) => (
                 <div key={index} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
                   <p className="text-[15px] text-gray-700 leading-relaxed">{insight}</p>
@@ -825,7 +1200,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {generateInsights.slice(0, 3).map((insight, index) => (
+              {(lockedGeneratedInsights || generateInsights).slice(0, 3).map((insight, index) => (
                 <div key={index} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
                   <p className="text-[15px] text-gray-700 leading-relaxed">{insight}</p>
@@ -1240,13 +1615,19 @@ export default function Dashboard() {
               {getTodayFormatted()}
             </p>
             <h1 className="text-3xl font-semibold text-gray-900 mt-1">
-              {getGreeting(user?.user_metadata?.name)}
+              {greetingText || getGreeting(user?.user_metadata?.name)}
             </h1>
             <p className="text-sm text-gray-600 mt-2">
               {stats.closingThisMonth} deal{stats.closingThisMonth === 1 ? '' : 's'} closing soon ·{' '}
               {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
             </p>
           </div>
+          {refreshing && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto">
+              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+              Updating…
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
@@ -1266,6 +1647,147 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      {canShowFilterPanel && (
+        <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_6px_30px_rgba(15,23,42,0.08)] p-4 space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Scope</p>
+              <p className="text-sm text-gray-700">{scopeDescription}</p>
+            </div>
+            <SegmentedControl
+              options={timeRangeOptions}
+              value={dateRangePreset}
+              onChange={(value) => setDateRangePreset(value as DateRange)}
+            />
+          </div>
+          {availableAgents.length > 1 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400 mb-2">Agents</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllAgents}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                    isAllAgentsSelected
+                      ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] border-transparent'
+                      : 'border-gray-200 text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  All Agents
+                </button>
+                {user && (
+                  <button
+                    type="button"
+                    onClick={selectMyData}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                      selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'border-gray-200 text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Focus on me
+                  </button>
+                )}
+                {availableAgents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => toggleAgentSelection(agent.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                      selectedAgentIds.includes(agent.id)
+                        ? 'bg-white text-gray-900 border-gray-900/10 shadow-sm'
+                        : 'border-gray-200 text-gray-600 hover:text-gray-900'
+                    }`}
+                    title={agent.email}
+                  >
+                    {agent.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Pipeline Stage</p>
+                {selectedPipelineStages.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--app-accent)]"
+                    onClick={() => setSelectedPipelineStages([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <select
+                multiple
+                value={selectedPipelineStages}
+                onChange={handlePipelineFilterChange}
+                className="hig-input min-h-[56px] mt-2"
+              >
+                {availableStages.map((stage) => (
+                  <option key={stage.id} value={stage.id}>
+                    {stage.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
+                {selectedDealTypes.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--app-accent)]"
+                    onClick={() => setSelectedDealTypes([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <select
+                multiple
+                value={selectedDealTypes}
+                onChange={handleDealTypeFilterChange}
+                className="hig-input min-h-[56px] mt-2"
+              >
+                {availableDealTypes.map((dealType) => (
+                  <option key={dealType} value={dealType}>
+                    {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Lead Source</p>
+                {selectedLeadSources.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--app-accent)]"
+                    onClick={() => setSelectedLeadSources([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <select
+                multiple
+                value={selectedLeadSources}
+                onChange={handleLeadSourceFilterChange}
+                className="hig-input min-h-[56px] mt-2"
+              >
+                {availableLeadSources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI cards - not draggable */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

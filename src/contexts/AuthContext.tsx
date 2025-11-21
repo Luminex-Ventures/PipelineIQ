@@ -7,7 +7,7 @@ interface AuthContextType {
   user: User | null;
   roleInfo: UserRoleInfo | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: AuthError | null }>;
+  signUp: (email: string, password: string, name: string, inviteToken?: string) => Promise<{ error: AuthError | null }>;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
 }
@@ -44,7 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (email: string, password: string, name: string, inviteToken?: string) => {
+    if (!inviteToken) {
+      return { error: { message: 'An invite code is required to create an account' } as AuthError };
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -53,32 +57,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    if (!error && data.user) {
-      await supabase.from('user_settings').insert({
-        user_id: data.user.id,
-        annual_gci_goal: 0,
-        default_tax_rate: 0.25,
-        default_brokerage_split_rate: 0.2
-      });
-
-       const { data: workspaceRow } = await supabase
-         .from('workspace_settings')
-         .insert({
-           owner_user_id: data.user.id,
-           name: `${name || 'My'} Workspace`
-         })
-         .select('id')
-         .maybeSingle();
-
-       if (workspaceRow?.id) {
-         await supabase
-           .from('user_settings')
-           .update({ workspace_id: workspaceRow.id })
-           .eq('user_id', data.user.id);
-       }
+    if (error || !data.user) {
+      return { error };
     }
 
-    return { error };
+    const { error: acceptError } = await supabase.rpc('accept_workspace_invite', {
+      invite_token: inviteToken
+    });
+
+    if (acceptError) {
+      return { error: { message: acceptError.message } as AuthError };
+    }
+
+    return { error: null };
   };
 
   const signIn = async (email: string, password: string) => {

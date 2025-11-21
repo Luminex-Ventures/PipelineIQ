@@ -4,32 +4,78 @@ import {
   List,
   Tag,
   PlugZap,
-  Layers
+  Layers,
+  Users,
+  Mail,
+  FolderTree
 } from 'lucide-react';
 import PipelineStatusesSettings from './settings/PipelineStatusesSettings';
 import LeadSourcesSettings from './settings/LeadSourcesSettings';
 import WorkspaceInfoSettings from './settings/workspace/WorkspaceInfoSettings';
 import IntegrationsSettings from './settings/workspace/IntegrationsSettings';
 import WorkspaceConfigurationSettings from './settings/workspace/WorkspaceConfigurationSettings';
+import WorkspaceMembersSettings from './settings/workspace/WorkspaceMembersSettings';
+import WorkspaceInvitesSettings from './settings/workspace/WorkspaceInvitesSettings';
+import WorkspaceTeamsSettings from './settings/workspace/WorkspaceTeamsSettings';
 import { useAuth } from '../contexts/AuthContext';
-import { getRoleLabel, isAdmin } from '../lib/rbac';
-import { useState } from 'react';
+import { canInviteAgents, canManageTeams, canManageWorkspaceMembers, getRoleLabel, isAdmin } from '../lib/rbac';
+import { useMemo, useState } from 'react';
 
-const workspaceSections = [
+const baseSections = [
   { id: 'workspace.info' as const, label: 'Workspace Info', description: 'Identity, locale, and defaults', icon: Building },
   { id: 'workspace.pipeline-statuses' as const, label: 'Pipeline Statuses', description: 'Shared stage definitions', icon: List },
   { id: 'workspace.lead-sources' as const, label: 'Lead Sources', description: 'Partner & portal sources', icon: Tag },
   { id: 'workspace.integrations' as const, label: 'Integrations', description: 'CRM & email connections', icon: PlugZap },
   { id: 'workspace.configuration' as const, label: 'Shared Configuration', description: 'Templates & custom fields', icon: Layers }
-];
+] as const;
 
-type WorkspaceSectionId = typeof workspaceSections[number]['id'];
+type WorkspaceSectionId =
+  | 'workspace.info'
+  | 'workspace.pipeline-statuses'
+  | 'workspace.lead-sources'
+  | 'workspace.integrations'
+  | 'workspace.configuration'
+  | 'workspace.teams'
+  | 'workspace.members'
+  | 'workspace.invites';
 
 export default function WorkspaceSettings() {
   const { user, roleInfo } = useAuth();
   const roleLabel = getRoleLabel(roleInfo?.globalRole);
   const canEditWorkspace = isAdmin(roleInfo);
+  const canManageMembers = canManageWorkspaceMembers(roleInfo);
+  const canInvite = canInviteAgents(roleInfo);
+  const canEditTeams = canManageTeams(roleInfo);
   const [activeSection, setActiveSection] = useState<WorkspaceSectionId>('workspace.info');
+
+  const workspaceSections = useMemo(() => {
+    const sections = [...baseSections];
+    if (canEditTeams) {
+      sections.push({
+        id: 'workspace.teams' as const,
+        label: 'Teams',
+        description: 'Create teams for routing',
+        icon: FolderTree
+      });
+    }
+    if (canManageMembers) {
+      sections.push({
+        id: 'workspace.members' as const,
+        label: 'Members',
+        description: 'Roles, status, and access',
+        icon: Users
+      });
+    }
+    if (canInvite) {
+      sections.push({
+        id: 'workspace.invites' as const,
+        label: 'Invitations',
+        description: 'Pending & sent invites',
+        icon: Mail
+      });
+    }
+    return sections;
+  }, [canManageMembers, canInvite]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -41,6 +87,12 @@ export default function WorkspaceSettings() {
         return <LeadSourcesSettings canEdit={canEditWorkspace} />;
       case 'workspace.integrations':
         return <IntegrationsSettings canEdit={canEditWorkspace} />;
+      case 'workspace.teams':
+        return <WorkspaceTeamsSettings />;
+      case 'workspace.members':
+        return <WorkspaceMembersSettings />;
+      case 'workspace.invites':
+        return <WorkspaceInvitesSettings />;
       case 'workspace.configuration':
       default:
         return <WorkspaceConfigurationSettings canEdit={canEditWorkspace} />;
@@ -86,19 +138,25 @@ export default function WorkspaceSettings() {
                   <button
                     key={section.id}
                     onClick={() => setActiveSection(section.id)}
-                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                    className={`group w-full rounded-2xl border px-4 py-3 text-left transition-all duration-200 ${
                       isActive
                         ? 'border-[rgb(0,122,255)] bg-[rgba(0,122,255,0.06)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.2)]'
-                        : 'border-white/60 bg-white hover:border-gray-200'
+                        : 'border-white/60 bg-white hover:-translate-y-[1px] hover:border-[rgba(0,122,255,0.25)] hover:bg-[rgba(0,122,255,0.04)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(0,122,255,0.35)]'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <span
                         className={`rounded-2xl border p-2 ${
-                          isActive ? 'border-[rgba(0,122,255,0.3)] bg-white' : 'border-gray-100 bg-gray-50'
+                          isActive
+                            ? 'border-[rgba(0,122,255,0.3)] bg-white'
+                            : 'border-gray-100 bg-gray-50 group-hover:border-[rgba(0,122,255,0.2)] group-hover:bg-white'
                         }`}
                       >
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-[rgb(0,122,255)]' : 'text-gray-500'}`} />
+                        <Icon
+                          className={`w-4 h-4 ${
+                            isActive ? 'text-[rgb(0,122,255)]' : 'text-gray-500 group-hover:text-[rgb(0,122,255)]'
+                          }`}
+                        />
                       </span>
                       <div>
                         <p className={`text-sm font-semibold ${isActive ? 'text-[rgb(0,122,255)]' : 'text-gray-800'}`}>

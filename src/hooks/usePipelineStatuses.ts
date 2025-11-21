@@ -2,9 +2,48 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
+import { COLOR_SWATCHES } from '../components/ui/ColorPicker';
 
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 type PipelineTemplate = Database['public']['Tables']['pipeline_templates']['Row'];
+
+const ALLOWED_COLORS = COLOR_SWATCHES.map((c) => c.value.toLowerCase());
+
+const getPaletteColor = (index: number) => COLOR_SWATCHES[index % COLOR_SWATCHES.length].value;
+
+const STATUS_COLOR_MAP: Record<string, string> = {
+  'new lead': '#E8F1FF', // Ice Blue
+  contacted: '#AECFFF', // Pale Azure
+  'warm lead': '#FFF1E6', // Peach Wash
+  'hot lead': '#FFD1AE', // Soft Tangerine
+  'showing scheduled': '#98C3FF', // Soft Blue
+  'offer submitted': '#87B6F9', // Bluebell
+  inspection: '#B7F0D9', // Pale Green
+  appraisal: '#C3DBFF', // Sky Wash
+  'under contract': '#8EDCC0', // Soft Teal
+  financing: '#FFE38C', // Golden Mist
+  'title review': '#8DCFD9', // Muted Teal
+  'clear to close': '#CFF9EA', // Soft Mint
+  closed: '#E6FFF5', // Mint Wash
+  lost: '#FFE5E5', // Rose Mist
+  lead: '#C3DBFF', // Sky Wash
+  'in progress': '#98C3FF', // Soft Blue
+  pending: '#8EDCC0', // Soft Teal
+  'advanced transaction pipeline': '#E5FAFF', // Aqua Mist (fallback for template label)
+};
+
+const normalizeToPalette = (color: string | null | undefined): string | null => {
+  if (!color) return null;
+  const lowered = color.toLowerCase();
+  const match = ALLOWED_COLORS.find((c) => c === lowered);
+  return match || null;
+};
+
+const getColorForStatus = (name: string, index: number): string => {
+  const mapped = STATUS_COLOR_MAP[name.trim().toLowerCase()];
+  if (mapped) return mapped;
+  return getPaletteColor(index);
+};
 
 export function usePipelineStatuses() {
   const { user } = useAuth();
@@ -28,7 +67,28 @@ export function usePipelineStatuses() {
 
       if (fetchError) throw fetchError;
 
-      setStatuses(data || []);
+      const fetched = data || [];
+      const updates: Array<{ id: string; color: string }> = [];
+      const normalized = fetched.map((status, idx) => {
+        const preferred = getColorForStatus(status.name, idx);
+        const cleanExisting = normalizeToPalette(status.color);
+        const nextColor = cleanExisting || preferred;
+
+        if (status.color !== nextColor) {
+          updates.push({ id: status.id, color: nextColor });
+        }
+        return { ...status, color: nextColor };
+      });
+
+      if (updates.length > 0) {
+        await Promise.all(
+          updates.map((u) =>
+            supabase.from('pipeline_statuses').update({ color: u.color }).eq('id', u.id)
+          )
+        );
+      }
+
+      setStatuses(normalized);
       setError(null);
     } catch (err) {
       console.error('Error loading pipeline statuses:', err);
@@ -42,11 +102,12 @@ export function usePipelineStatuses() {
     loadStatuses();
   }, [loadStatuses]);
 
-  const addStatus = async (name: string, color: string = 'gray') => {
+  const addStatus = async (name: string, color?: string) => {
     if (!user) return;
 
     const maxSort = Math.max(...statuses.map(s => s.sort_order), 0);
     const slug = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const resolvedColor = normalizeToPalette(color || '') || getColorForStatus(name, maxSort);
 
     const { data, error: insertError } = await supabase
       .from('pipeline_statuses')
@@ -55,7 +116,7 @@ export function usePipelineStatuses() {
         name,
         slug,
         sort_order: maxSort + 1,
-        color,
+        color: resolvedColor,
         is_default: false
       })
       .select()
@@ -166,7 +227,7 @@ export function usePipelineStatuses() {
       name,
       slug: name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
       sort_order: index + 1,
-      color: 'hsl(220, 70%, 50%)',
+      color: getColorForStatus(name, index),
       is_default: index === 0
     }));
 
