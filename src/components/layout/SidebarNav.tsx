@@ -1,4 +1,13 @@
-import { LayoutDashboard, Trello, CheckSquare, Sparkles, Settings, BarChart3 } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Trello,
+  CheckSquare,
+  Sparkles,
+  Settings,
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const mainNavItems = [
@@ -16,25 +25,37 @@ const settingsNavItems = [
   { icon: Settings, label: 'Settings', path: '/workspace-settings' },
 ];
 
-export function SidebarNav() {
+interface SidebarNavProps {
+  isCollapsed: boolean;
+  onToggle: () => void;
+}
+
+export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
   const renderNavSection = (title: string, items: typeof mainNavItems) => (
     <div>
-      <p className="px-3 pb-2 text-[12px] font-semibold uppercase tracking-[0.35em] text-gray-400">
+      <p
+        className={`px-3 pb-2 text-[12px] font-semibold uppercase tracking-[0.35em] text-gray-400 ${
+          isCollapsed ? 'sr-only' : ''
+        }`}
+      >
         {title}
       </p>
       <div className="space-y-1">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
+          const layoutClasses = isCollapsed ? 'justify-center px-2' : 'gap-3 px-4 text-left';
 
           return (
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
-              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold transition ${
+              aria-label={item.label}
+              title={item.label}
+              className={`flex w-full items-center rounded-2xl py-3 text-[15px] font-semibold transition ${layoutClasses} ${
                 isActive
                   ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] shadow-[inset_0_0_0_1px_rgba(10,132,255,0.2)]'
                   : 'text-gray-600 hover:bg-white/70 hover:text-gray-900'
@@ -49,7 +70,7 @@ export function SidebarNav() {
               >
                 <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
               </span>
-              <span>{item.label}</span>
+              {!isCollapsed && <span className="whitespace-nowrap">{item.label}</span>}
             </button>
           );
         })}
@@ -58,7 +79,26 @@ export function SidebarNav() {
   );
 
   return (
-    <nav className="sticky top-24 rounded-[var(--app-radius)] border border-[var(--app-border)] bg-white/80 p-4 shadow-[0_15px_40px_rgba(15,23,42,0.12)]">
+    <nav
+      className={`sticky top-24 rounded-[var(--app-radius)] border border-[var(--app-border)] bg-white/80 shadow-[0_15px_40px_rgba(15,23,42,0.12)] transition-all duration-300 ${
+        isCollapsed ? 'p-3' : 'p-4'
+      }`}
+    >
+      <div className={`mb-6 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+        {!isCollapsed && (
+          <p className="text-[13px] font-semibold uppercase tracking-[0.35em] text-gray-500">Navigation</p>
+        )}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={!isCollapsed}
+          aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? 'Expand sidebar navigation' : 'Collapse sidebar navigation'}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/90 text-gray-700 transition hover:text-[var(--app-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
+        >
+          {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+        </button>
+      </div>
       <div className="space-y-6">
         {renderNavSection('Primary', mainNavItems)}
         {renderNavSection('Intelligence', aiNavItems)}
