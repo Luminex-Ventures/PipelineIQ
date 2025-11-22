@@ -70,12 +70,14 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[11px] uppercase tracking-wide text-gray-400">Last Update</div>
+          <div className="text-[11px] uppercase tracking-wide text-gray-400">Close Date</div>
           <div className="text-sm font-semibold text-gray-900">
-            {new Date(deal.updated_at).toLocaleDateString(undefined, {
-              month: 'short',
-              day: 'numeric'
-            })}
+            {deal.close_date
+              ? new Date(deal.close_date).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric'
+                })
+              : '—'}
           </div>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search, Tag } from 'lucide-react';
 import { DndContext, DragEndEvent, DragOverlay, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -13,6 +13,7 @@ interface LeadSource {
   name: string;
   category: string | null;
   sort_order: number;
+  team_id: string | null;
   brokerage_split_rate: number;
   payout_structure: PayoutStructure;
   partnership_split_rate: number | null;
@@ -40,7 +41,8 @@ interface LeadSourcesSettingsProps {
 }
 
 export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSettingsProps) {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
+  const teamId = roleInfo?.teamId || null;
   const [sources, setSources] = useState<LeadSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,20 +56,33 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
 
   useEffect(() => {
     loadSources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user?.id, teamId]);
 
   const loadSources = async () => {
     if (!user) return;
     setLoading(true);
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('lead_sources')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('sort_order', { ascending: true, nullsLast: true })
-        .order('name', { ascending: true });
+      const { data: teamSources, error: teamError } = teamId
+        ? await supabase
+            .from('lead_sources')
+            .select('*')
+            .eq('team_id', teamId)
+            .order('sort_order', { ascending: true, nullsLast: true })
+            .order('name', { ascending: true })
+        : ({ data: null, error: null } as any);
+
+      if (teamError) throw teamError;
+
+      const shouldUseTeam = !!teamSources?.length;
+      const { data, error: fetchError } = shouldUseTeam
+        ? ({ data: teamSources, error: null } as any)
+        : await supabase
+            .from('lead_sources')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('sort_order', { ascending: true, nullsLast: true })
+            .order('name', { ascending: true });
 
       if (fetchError) {
         throw fetchError;
@@ -125,6 +140,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     try {
       const payload = {
         name: formData.name,
+        team_id: teamId,
         brokerage_split_rate: formData.brokerage_split_rate / 100,
         payout_structure: formData.payout_structure,
         partnership_split_rate: formData.payout_structure === 'partnership' ? formData.partnership_split_rate / 100 : null,

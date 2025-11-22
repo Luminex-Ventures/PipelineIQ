@@ -18,6 +18,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
+          team_id: string | null;
           name: string;
           category: string | null;
           sort_order: number;
@@ -31,6 +32,7 @@ export interface Database {
         Insert: {
           id?: string;
           user_id: string;
+          team_id?: string | null;
           name: string;
           category?: string | null;
           sort_order?: number;
@@ -44,6 +46,7 @@ export interface Database {
         Update: {
           id?: string;
           user_id?: string;
+          team_id?: string | null;
           name?: string;
           category?: string | null;
           sort_order?: number;

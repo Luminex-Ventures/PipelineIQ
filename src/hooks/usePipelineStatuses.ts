@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
@@ -7,7 +7,7 @@ import { COLOR_SWATCHES } from '../components/ui/ColorPicker';
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 type PipelineTemplate = Database['public']['Tables']['pipeline_templates']['Row'];
 
-const ALLOWED_COLORS = COLOR_SWATCHES.map((c) => c.value.toLowerCase());
+type ColorOverrides = Record<string, string>;
 
 const getPaletteColor = (index: number) => COLOR_SWATCHES[index % COLOR_SWATCHES.length].value;
 
@@ -32,24 +32,49 @@ const STATUS_COLOR_MAP: Record<string, string> = {
   'advanced transaction pipeline': '#E5FAFF', // Aqua Mist (fallback for template label)
 };
 
-const normalizeToPalette = (color: string | null | undefined): string | null => {
-  if (!color) return null;
-  const lowered = color.toLowerCase();
-  const match = ALLOWED_COLORS.find((c) => c === lowered);
-  return match || null;
-};
-
 const getColorForStatus = (name: string, index: number): string => {
   const mapped = STATUS_COLOR_MAP[name.trim().toLowerCase()];
   if (mapped) return mapped;
   return getPaletteColor(index);
 };
 
+const getOverrideStorageKey = (userId: string) => `pipeline-status-color-overrides:${userId}`;
+
 export function usePipelineStatuses() {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
   const [statuses, setStatuses] = useState<PipelineStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [colorOverrides, setColorOverrides] = useState<ColorOverrides>({});
+  const baseColorsRef = useRef<Record<string, string>>({});
+  const teamId = roleInfo?.teamId || null;
+  const overrideStorageKey = user ? getOverrideStorageKey(user.id) : null;
+
+  const readColorOverrides = useCallback((): ColorOverrides => {
+    if (typeof window === 'undefined' || !overrideStorageKey) return {};
+    try {
+      const raw = window.localStorage.getItem(overrideStorageKey);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return parsed as ColorOverrides;
+      }
+    } catch (err) {
+      console.warn('Failed to read status color overrides', err);
+    }
+    return {};
+  }, [overrideStorageKey]);
+
+  const persistColorOverrides = useCallback((overrides: ColorOverrides) => {
+    if (typeof window === 'undefined' || !overrideStorageKey) return;
+    window.localStorage.setItem(overrideStorageKey, JSON.stringify(overrides));
+  }, [overrideStorageKey]);
+
+  const resolveBaseColor = useCallback((status: PipelineStatus, index: number) => {
+    const stored = status.color?.trim();
+    if (stored) return stored;
+    return getColorForStatus(status.name, index);
+  }, []);
 
   const loadStatuses = useCallback(async () => {
     if (!user) {
@@ -58,26 +83,47 @@ export function usePipelineStatuses() {
       return;
     }
 
+    setLoading(true);
     try {
-      const { data, error: fetchError } = await supabase
-        .from('pipeline_statuses')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('sort_order', { ascending: true });
+      const { data: teamStatuses, error: teamError } = teamId
+        ? await supabase
+            .from('pipeline_statuses')
+            .select('*')
+            .eq('team_id', teamId)
+            .order('sort_order', { ascending: true })
+        : ({ data: null, error: null } as any);
 
-      if (fetchError) throw fetchError;
+      if (teamError) throw teamError;
 
-      const fetched = data || [];
+      const shouldUseTeam = !!teamStatuses?.length;
+      const { data: personalStatuses, error: personalError } = shouldUseTeam
+        ? ({ data: null, error: null } as any)
+        : await supabase
+            .from('pipeline_statuses')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('sort_order', { ascending: true });
+
+      if (personalError) throw personalError;
+
+      const sourceStatuses = shouldUseTeam ? teamStatuses : personalStatuses;
+
+      if (!sourceStatuses) throw new Error('Failed to load pipeline statuses');
+
+      const fetched = sourceStatuses || [];
       const updates: Array<{ id: string; color: string }> = [];
+      const overrides = readColorOverrides();
+      const baseColors: Record<string, string> = {};
       const normalized = fetched.map((status, idx) => {
-        const preferred = getColorForStatus(status.name, idx);
-        const cleanExisting = normalizeToPalette(status.color);
-        const nextColor = cleanExisting || preferred;
+        const baseColor = resolveBaseColor(status, idx);
+        baseColors[status.id] = baseColor;
+        const overrideColor = overrides[status.id];
 
-        if (status.color !== nextColor) {
-          updates.push({ id: status.id, color: nextColor });
+        if (!status.color && baseColor) {
+          updates.push({ id: status.id, color: baseColor });
         }
-        return { ...status, color: nextColor };
+
+        return { ...status, color: overrideColor || baseColor };
       });
 
       if (updates.length > 0) {
@@ -88,6 +134,8 @@ export function usePipelineStatuses() {
         );
       }
 
+      baseColorsRef.current = baseColors;
+      setColorOverrides(overrides);
       setStatuses(normalized);
       setError(null);
     } catch (err) {
@@ -96,7 +144,7 @@ export function usePipelineStatuses() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, teamId, readColorOverrides, resolveBaseColor]);
 
   useEffect(() => {
     loadStatuses();
@@ -107,12 +155,13 @@ export function usePipelineStatuses() {
 
     const maxSort = Math.max(...statuses.map(s => s.sort_order), 0);
     const slug = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    const resolvedColor = normalizeToPalette(color || '') || getColorForStatus(name, maxSort);
+    const resolvedColor = color?.trim() || getColorForStatus(name, maxSort);
 
     const { data, error: insertError } = await supabase
       .from('pipeline_statuses')
       .insert({
         user_id: user.id,
+        team_id: teamId,
         name,
         slug,
         sort_order: maxSort + 1,
@@ -194,6 +243,14 @@ export function usePipelineStatuses() {
       throw applyError;
     }
 
+    if (teamId) {
+      await supabase
+        .from('pipeline_statuses')
+        .update({ team_id: teamId })
+        .eq('user_id', user.id)
+        .is('team_id', null);
+    }
+
     // Migrate existing deals
     const { error: migrateError } = await supabase.rpc('migrate_user_deals_to_pipeline_statuses', {
       p_user_id: user.id
@@ -213,10 +270,11 @@ export function usePipelineStatuses() {
       throw new Error('Please provide at least one stage.');
     }
 
+    const deleteFilter = teamId ? { team_id: teamId } : { user_id: user.id };
     const { error: deleteError } = await supabase
       .from('pipeline_statuses')
       .delete()
-      .eq('user_id', user.id);
+      .match(deleteFilter);
 
     if (deleteError) {
       throw deleteError;
@@ -224,6 +282,7 @@ export function usePipelineStatuses() {
 
     const inserts = cleanedStages.map((name, index) => ({
       user_id: user.id,
+      team_id: teamId,
       name,
       slug: name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
       sort_order: index + 1,
@@ -247,17 +306,47 @@ export function usePipelineStatuses() {
     await loadStatuses();
   };
 
+  const setPersonalStatusColor = (statusId: string, color: string) => {
+    if (!overrideStorageKey) return;
+    const currentOverrides = readColorOverrides();
+    const nextOverrides = { ...currentOverrides, [statusId]: color };
+    persistColorOverrides(nextOverrides);
+    setColorOverrides(nextOverrides);
+    setStatuses(prev => prev.map(status => status.id === statusId ? { ...status, color } : status));
+  };
+
+  const clearPersonalStatusColor = (statusId: string) => {
+    if (!overrideStorageKey) return;
+    const currentOverrides = readColorOverrides();
+    if (!(statusId in currentOverrides)) {
+      return;
+    }
+
+    const { [statusId]: _removed, ...rest } = currentOverrides;
+    persistColorOverrides(rest);
+    setColorOverrides(rest);
+
+    setStatuses(prev => prev.map(status => {
+      if (status.id !== statusId) return status;
+      const fallback = baseColorsRef.current[statusId] || resolveBaseColor(status, (status.sort_order || 1) - 1);
+      return { ...status, color: fallback };
+    }));
+  };
+
   return {
     statuses,
     loading,
     error,
+    colorOverrides,
     addStatus,
     updateStatus,
     deleteStatus,
     reorderStatuses,
     applyTemplate,
     createCustomWorkflow,
-    reload: loadStatuses
+    reload: loadStatuses,
+    setPersonalStatusColor,
+    clearPersonalStatusColor
   };
 }
 

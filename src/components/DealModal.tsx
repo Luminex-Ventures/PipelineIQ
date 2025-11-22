@@ -17,7 +17,8 @@ interface DealModalProps {
 }
 
 export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
+  const teamId = roleInfo?.teamId || null;
   const [loading, setLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
@@ -57,26 +58,42 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     if (deal) {
       loadTasks();
     }
-  }, [deal]);
+  }, [deal, teamId, user?.id]);
 
   const loadLeadSources = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('lead_sources')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('name');
+    const { data: teamSources, error: teamError } = teamId
+      ? await supabase.from('lead_sources').select('*').eq('team_id', teamId).order('name')
+      : ({ data: null, error: null } as any);
+
+    if (teamError) return;
+
+    const { data } = teamSources?.length
+      ? ({ data: teamSources } as any)
+      : await supabase.from('lead_sources').select('*').eq('user_id', user.id).order('name');
 
     if (data) setLeadSources(data);
   };
 
   const loadPipelineStatuses = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('pipeline_statuses')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('sort_order');
+    const { data: teamStatuses, error: teamError } = teamId
+      ? await supabase
+          .from('pipeline_statuses')
+          .select('*')
+          .eq('team_id', teamId)
+          .order('sort_order')
+      : ({ data: null, error: null } as any);
+
+    if (teamError) return;
+
+    const { data } = teamStatuses?.length
+      ? ({ data: teamStatuses } as any)
+      : await supabase
+          .from('pipeline_statuses')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('sort_order');
 
     if (data) {
       setPipelineStatuses(data);

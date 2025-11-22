@@ -18,7 +18,7 @@ import WorkspaceMembersSettings from './settings/workspace/WorkspaceMembersSetti
 import WorkspaceInvitesSettings from './settings/workspace/WorkspaceInvitesSettings';
 import WorkspaceTeamsSettings from './settings/workspace/WorkspaceTeamsSettings';
 import { useAuth } from '../contexts/AuthContext';
-import { canInviteAgents, canManageTeams, canManageWorkspaceMembers, getRoleLabel, isAdmin } from '../lib/rbac';
+import { canInviteAgents, canManageTeams, canManageWorkspaceMembers, getRoleLabel, isAdmin, isTeamLead, isSalesManagerOrAdmin } from '../lib/rbac';
 import { useMemo, useState } from 'react';
 
 const baseSections = [
@@ -43,6 +43,7 @@ export default function WorkspaceSettings() {
   const { user, roleInfo } = useAuth();
   const roleLabel = getRoleLabel(roleInfo?.globalRole);
   const canEditWorkspace = isAdmin(roleInfo);
+  const canEditTeamScoped = isAdmin(roleInfo) || isSalesManagerOrAdmin(roleInfo) || isTeamLead(roleInfo);
   const canManageMembers = canManageWorkspaceMembers(roleInfo);
   const canInvite = canInviteAgents(roleInfo);
   const canEditTeams = canManageTeams(roleInfo);
@@ -82,9 +83,9 @@ export default function WorkspaceSettings() {
       case 'workspace.info':
         return <WorkspaceInfoSettings canEdit={canEditWorkspace} />;
       case 'workspace.pipeline-statuses':
-        return <PipelineStatusesSettings canEdit={canEditWorkspace} />;
+        return <PipelineStatusesSettings canEdit={canEditTeamScoped} />;
       case 'workspace.lead-sources':
-        return <LeadSourcesSettings canEdit={canEditWorkspace} />;
+        return <LeadSourcesSettings canEdit={canEditTeamScoped} />;
       case 'workspace.integrations':
         return <IntegrationsSettings canEdit={canEditWorkspace} />;
       case 'workspace.teams':

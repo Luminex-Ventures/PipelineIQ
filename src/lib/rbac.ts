@@ -81,16 +81,18 @@ export function isAdmin(roleInfo: UserRoleInfo | null | undefined): roleInfo is 
 }
 
 export function getRoleLabel(role?: GlobalRole): string {
+  if (!role) return '—';
   switch (role) {
     case 'admin':
       return 'Admin';
     case 'sales_manager':
-      return 'Manager';
+      return 'Sales Manager';
     case 'team_lead':
       return 'Team Lead';
     case 'agent':
-    default:
       return 'Agent';
+    default:
+      return '—';
   }
 }
 

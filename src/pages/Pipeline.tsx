@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -11,6 +11,7 @@ import DealCard from '../components/DealCard';
 import DealModal from '../components/DealModal';
 import TemplateSelectionModal from '../components/TemplateSelectionModal';
 import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
+import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
 
 type Deal = Database['public']['Tables']['deals']['Row'] & {
@@ -60,7 +61,7 @@ const DEAL_TYPE_FILTER_META: Record<
 };
 
 export default function Pipeline() {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
   const { statuses, loading: statusesLoading, applyTemplate, createCustomWorkflow } = usePipelineStatuses();
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +73,28 @@ export default function Pipeline() {
   const [dealTypeFilter, setDealTypeFilter] = useState<'all' | Deal['deal_type']>('all');
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingNewDeal = searchParams.get('newDeal');
+  const combinedStatuses = useMemo(() => {
+    const statusMap = new Map<string, PipelineStatus>();
+
+    statuses.forEach(status => {
+      statusMap.set(status.id, status);
+    });
+
+    deals.forEach(deal => {
+      if (deal.pipeline_statuses && !statusMap.has(deal.pipeline_statuses.id)) {
+        statusMap.set(deal.pipeline_statuses.id, deal.pipeline_statuses as PipelineStatus);
+      }
+    });
+
+    return Array.from(statusMap.values()).sort((a, b) => {
+      const orderA = a.sort_order ?? 999;
+      const orderB = b.sort_order ?? 999;
+      if (orderA === orderB) {
+        return a.name.localeCompare(b.name);
+      }
+      return orderA - orderB;
+    });
+  }, [statuses, deals]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -83,7 +106,7 @@ export default function Pipeline() {
 
   useEffect(() => {
     loadDeals();
-  }, [user]);
+  }, [user, roleInfo]);
 
   useEffect(() => {
     if (pendingNewDeal) {
@@ -97,29 +120,81 @@ export default function Pipeline() {
 
   useEffect(() => {
     // Show template selection if user has no statuses
-    if (!statusesLoading && statuses.length === 0) {
+    if (!statusesLoading && combinedStatuses.length === 0) {
       setShowTemplateModal(true);
     }
-  }, [statusesLoading, statuses]);
+  }, [statusesLoading, combinedStatuses]);
 
   const loadDeals = async () => {
-    if (!user) return;
+    if (!user || !roleInfo) return;
 
-    const { data, error } = await supabase
-      .from('deals')
-      .select(`
-        *,
-        lead_sources (*),
-        pipeline_statuses (*)
-      `)
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    setLoading(true);
 
-    if (!error && data) {
-      setDeals(data);
+    try {
+      const resolveTeamUserIds = async () => {
+        if (!roleInfo.teamId) return [] as string[];
+        const { data, error } = await supabase
+          .from('user_teams')
+          .select('user_id')
+          .eq('team_id', roleInfo.teamId);
+        if (error) {
+          console.error('Error loading team members', error);
+          return [];
+        }
+        return (data || []).map(member => member.user_id);
+      };
+
+      let visibleUserIds: string[] = [];
+
+      switch (roleInfo.globalRole) {
+        case 'admin': {
+          visibleUserIds = await getVisibleUserIds(roleInfo);
+          break;
+        }
+        case 'sales_manager': {
+          const teamIds = await resolveTeamUserIds();
+          visibleUserIds = teamIds.length ? teamIds : await getVisibleUserIds(roleInfo);
+          break;
+        }
+        case 'team_lead': {
+          const teamIds = await resolveTeamUserIds();
+          visibleUserIds = teamIds.length ? teamIds : [roleInfo.userId];
+          break;
+        }
+        default: {
+          visibleUserIds = [roleInfo.userId];
+        }
+      }
+
+      let query = supabase
+        .from('deals')
+        .select(`
+          *,
+          lead_sources (*),
+          pipeline_statuses (*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (visibleUserIds.length === 1) {
+        query = query.eq('user_id', visibleUserIds[0]);
+      } else if (visibleUserIds.length > 1) {
+        query = query.in('user_id', visibleUserIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error loading deals', error);
+        setDeals([]);
+      } else {
+        setDeals(data || []);
+      }
+    } catch (err) {
+      console.error('Error resolving visible users', err);
+      setDeals([]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -161,7 +236,7 @@ export default function Pipeline() {
       return;
     }
 
-    const newStatus = statuses.find(s => s.id === potentialStatusId);
+    const newStatus = combinedStatuses.find(s => s.id === potentialStatusId);
     if (!newStatus) {
       return;
     }
@@ -253,7 +328,7 @@ export default function Pipeline() {
       updateData.pipeline_status_id = updates.pipeline_status_id;
       updateData.stage_entered_at = new Date().toISOString();
 
-      const newStatus = statuses.find(s => s.id === updates.pipeline_status_id);
+      const newStatus = combinedStatuses.find(s => s.id === updates.pipeline_status_id);
       if (newStatus?.name.toLowerCase() === 'closed') {
         updateData.status = 'closed';
         updateData.closed_at = new Date().toISOString();
@@ -416,7 +491,7 @@ export default function Pipeline() {
         </div>
       </div>
 
-      {statuses.length === 0 ? (
+      {combinedStatuses.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />
@@ -439,7 +514,7 @@ export default function Pipeline() {
         >
           <div className="pb-2 overflow-x-auto">
             <div className="flex gap-3 sm:gap-4 pb-4 px-2 sm:px-6 min-w-max">
-              {statuses.map(status => (
+              {combinedStatuses.map(status => (
                 <PipelineColumn
                   key={status.id}
                   status={status.id}
@@ -470,7 +545,7 @@ export default function Pipeline() {
         <div className="overflow-x-auto">
           <PipelineTable
             deals={filteredDeals}
-            statuses={statuses}
+            statuses={combinedStatuses}
             onDealClick={handleDealClick}
             calculateNetCommission={calculateNetCommission}
             getDaysInStage={getDaysInStage}

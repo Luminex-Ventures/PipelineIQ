@@ -82,7 +82,17 @@ function SortableStatusItem({ status, onEdit, onDelete }: {
   );
 }
 
-function StatusPreviewItem({ status }: { status: PipelineStatus }) {
+function StatusPreviewItem({
+  status,
+  onPersonalize,
+  onResetOverride,
+  hasPersonalOverride
+}: {
+  status: PipelineStatus;
+  onPersonalize?: (status: PipelineStatus) => void;
+  onResetOverride?: (id: string) => void;
+  hasPersonalOverride?: boolean;
+}) {
   const statusColor = getColorByName(status.color);
   return (
     <div className="bg-white border border-gray-200/60 rounded-xl p-4 flex items-center justify-between">
@@ -91,9 +101,31 @@ function StatusPreviewItem({ status }: { status: PipelineStatus }) {
         <div>
           <p className="text-sm font-semibold text-gray-900">{status.name}</p>
           <p className="text-xs text-gray-500">Order {status.sort_order}</p>
+          {hasPersonalOverride && (
+            <p className="text-[11px] font-semibold text-[rgb(0,122,255)]">Personalized</p>
+          )}
         </div>
       </div>
-      <span className="text-[11px] uppercase tracking-wide text-gray-400">View only</span>
+      {onPersonalize ? (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onPersonalize(status)}
+            className="px-3 py-1.5 text-xs font-semibold text-[rgb(0,122,255)] hover:bg-blue-50 rounded-lg transition"
+          >
+            Personalize color
+          </button>
+          {hasPersonalOverride && onResetOverride && (
+            <button
+              onClick={() => onResetOverride(status.id)}
+              className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-gray-100 rounded-lg transition"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      ) : (
+        <span className="text-[11px] uppercase tracking-wide text-gray-400">View only</span>
+      )}
     </div>
   );
 }
@@ -107,7 +139,10 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
     deleteStatus,
     reorderStatuses,
     applyTemplate,
-    createCustomWorkflow
+    createCustomWorkflow,
+    colorOverrides,
+    setPersonalStatusColor,
+    clearPersonalStatusColor
   } = usePipelineStatuses();
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -116,6 +151,8 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
   const [selectedColor, setSelectedColor] = useState(DEFAULT_STATUS_COLOR);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [personalizingStatus, setPersonalizingStatus] = useState<PipelineStatus | null>(null);
+  const [personalColor, setPersonalColor] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -210,6 +247,27 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
     }
   };
 
+  const openPersonalizeModal = (status: PipelineStatus) => {
+    setPersonalizingStatus(status);
+    setPersonalColor(status.color || DEFAULT_STATUS_COLOR);
+  };
+
+  const handleSavePersonalColor = () => {
+    if (!personalizingStatus || !personalColor) return;
+    setPersonalStatusColor(personalizingStatus.id, personalColor);
+    setPersonalizingStatus(null);
+  };
+
+  const handleResetPersonalColor = (statusId?: string) => {
+    if (!personalizingStatus && !statusId) return;
+    const targetId = statusId || personalizingStatus?.id;
+    if (!targetId) return;
+    clearPersonalStatusColor(targetId);
+    if (!statusId) {
+      setPersonalizingStatus(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -227,7 +285,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
         </p>
         {!canEdit && (
           <p className="text-xs text-gray-500 mt-1">
-            Viewing workspace stages. Only admins can modify pipeline statuses.
+            Viewing workspace stages from your workspace. You can personalize colors without changing the shared setup.
           </p>
         )}
       </div>
@@ -308,7 +366,13 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
       ) : (
         <div className="space-y-3">
           {statuses.map(status => (
-            <StatusPreviewItem key={status.id} status={status} />
+            <StatusPreviewItem
+              key={status.id}
+              status={status}
+              hasPersonalOverride={!!colorOverrides[status.id]}
+              onPersonalize={canEdit ? undefined : openPersonalizeModal}
+              onResetOverride={canEdit ? undefined : () => handleResetPersonalColor(status.id)}
+            />
           ))}
         </div>
       )}
@@ -375,6 +439,55 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
                   <span>{editingStatus ? 'Update' : 'Add'} Status</span>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!canEdit && personalizingStatus && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200/60">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Personalize "{personalizingStatus.name}"</h2>
+                <p className="text-xs text-gray-500 mt-1">Changes apply only to your view. Workspace defaults stay intact.</p>
+              </div>
+              <button
+                onClick={() => setPersonalizingStatus(null)}
+                className="text-gray-400 hover:text-gray-600 transition p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" strokeWidth={2} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <ColorPicker
+                value={personalColor}
+                onChange={setPersonalColor}
+              />
+            </div>
+
+            <div className="flex justify-between items-center gap-3 p-6 border-t border-gray-200/60 bg-gray-50/50">
+              <button
+                onClick={() => handleResetPersonalColor()}
+                className="text-sm font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-3 py-2 rounded-lg transition"
+              >
+                Use workspace default
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPersonalizingStatus(null)}
+                  className="hig-btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePersonalColor}
+                  className="hig-btn-primary"
+                >
+                  Save for me
+                </button>
+              </div>
             </div>
           </div>
         </div>

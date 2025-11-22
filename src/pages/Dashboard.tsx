@@ -364,12 +364,30 @@ export default function Dashboard() {
         );
       }
 
+      const fallbackLabel = (id: string) =>
+        id === user.id
+          ? (user.user_metadata?.name || user.email || 'You')
+          : `Agent ${id.slice(0, 8)}`;
+
       if (!agentOptions.length) {
         agentOptions = agentIds.map(id => ({
           id,
-          label: id === user.id ? (user.user_metadata?.name || user.email || 'You') : 'Agent',
+          label: fallbackLabel(id),
           email: ''
         }));
+      } else {
+        const existingIds = new Set(agentOptions.map(a => a.id));
+        const missing = agentIds.filter(id => !existingIds.has(id));
+        if (missing.length) {
+          agentOptions = [
+            ...agentOptions,
+            ...missing.map(id => ({
+              id,
+              label: fallbackLabel(id),
+              email: ''
+            }))
+          ];
+        }
       }
 
       setAvailableAgents(agentOptions);
@@ -396,6 +414,7 @@ export default function Dashboard() {
     () => (selectedDealTypes.length ? [...selectedDealTypes].sort().join('|') : ''),
     [selectedDealTypes]
   );
+  const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isAllAgentsSelected = selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
   const scopeDescription = useMemo(() => {
     if (!selectedAgentIds.length) return 'No agents selected';
@@ -407,16 +426,6 @@ export default function Dashboard() {
     return `${selectedAgentIds.length} agents`;
   }, [isAllAgentsSelected, selectedAgentIds, availableAgents]);
 
-  const toggleAgentSelection = (agentId: string) => {
-    setSelectedAgentIds((current) => {
-      if (current.includes(agentId)) {
-        const next = current.filter((id) => id !== agentId);
-        return next.length ? next : current;
-      }
-      return [...current, agentId];
-    });
-  };
-
   const selectAllAgents = () => {
     if (availableAgents.length) {
       setSelectedAgentIds(availableAgents.map((agent) => agent.id));
@@ -427,6 +436,12 @@ export default function Dashboard() {
     if (user) {
       setSelectedAgentIds([user.id]);
     }
+  };
+
+  const handleAgentSelectionChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+    if (values.length === 0) return;
+    setSelectedAgentIds(values);
   };
 
   useEffect(() => {
@@ -1704,50 +1719,45 @@ export default function Dashboard() {
               onChange={(value) => setDateRangePreset(value as DateRange)}
             />
           </div>
-          {availableAgents.length > 1 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400 mb-2">Agents</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={selectAllAgents}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
-                    isAllAgentsSelected
-                      ? 'bg-[rgba(10,132,255,0.12)] text-[var(--app-accent)] border-transparent'
-                      : 'border-gray-200 text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  All Agents
-                </button>
-                {user && (
+          {availableAgents.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
+                  <p className="text-[11px] text-gray-500">Pick one or more agents to focus this view.</p>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={selectMyData}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
-                      selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'border-gray-200 text-gray-600 hover:text-gray-900'
-                    }`}
+                    onClick={selectAllAgents}
+                    className="rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white hover:bg-black transition"
                   >
-                    Focus on me
+                    All
                   </button>
-                )}
-                {availableAgents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => toggleAgentSelection(agent.id)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
-                      selectedAgentIds.includes(agent.id)
-                        ? 'bg-white text-gray-900 border-gray-900/10 shadow-sm'
-                        : 'border-gray-200 text-gray-600 hover:text-gray-900'
-                    }`}
-                    title={agent.email}
-                  >
-                    {agent.label}
-                  </button>
-                ))}
+                  {showFocusOnMe && (
+                    <button
+                      type="button"
+                      onClick={selectMyData}
+                      className="rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 transition"
+                    >
+                      Focus on me
+                    </button>
+                  )}
+                </div>
               </div>
+              <select
+                multiple
+                value={selectedAgentIds}
+                onChange={handleAgentSelectionChange}
+                className="hig-input min-h-[120px] rounded-2xl border-gray-200 bg-white/90 text-sm"
+              >
+                {availableAgents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.label} {agent.email ? `• ${agent.email}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500">Tip: Hold ⌘/Ctrl to select multiple agents.</p>
             </div>
           )}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

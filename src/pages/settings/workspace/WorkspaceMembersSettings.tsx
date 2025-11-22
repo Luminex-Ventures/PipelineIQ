@@ -15,6 +15,7 @@ export default function WorkspaceMembersSettings() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { members, loading, error, changeRole, deactivate, reactivate, updateTeam } = useWorkspaceMembers(workspaceId);
   const { teams, loading: teamsLoading } = useWorkspaceTeams(workspaceId);
+  const [teamError, setTeamError] = useState<string | null>(null);
 
   const adminCount = useMemo(
     () => members.filter((member) => member.global_role === 'admin' && member.is_active).length,
@@ -41,7 +42,8 @@ export default function WorkspaceMembersSettings() {
 
   const handleTeamChange = async (memberId: string, teamId: string | null) => {
     setPendingAction(`team-${memberId}`);
-    await updateTeam(memberId, teamId);
+    const { error } = await updateTeam(memberId, teamId);
+    setTeamError(error?.message ?? null);
     setPendingAction(null);
   };
 
@@ -71,6 +73,11 @@ export default function WorkspaceMembersSettings() {
         {error && (
           <div className="mt-3 rounded-xl border border-red-200/70 bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
+          </div>
+        )}
+        {teamError && !error && (
+          <div className="mt-3 rounded-xl border border-red-200/70 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {teamError}
           </div>
         )}
         {!error && teamsLoading && (
@@ -142,11 +149,10 @@ export default function WorkspaceMembersSettings() {
                   <td className="px-4 py-4">
                     <select
                       className="hig-input text-sm"
-                      value={member.team_id || ''}
-                      disabled={!isActive || disableControls || teamsLoading}
-                      onChange={(e) => handleTeamChange(member.user_id, e.target.value || null)}
+                      value={member.team_id || teams[0]?.team_id || ''}
+                      disabled={!isActive || disableControls || teamsLoading || teams.length === 0}
+                      onChange={(e) => handleTeamChange(member.user_id, e.target.value)}
                     >
-                      <option value="">No team</option>
                       {teams.map((team) => (
                         <option key={team.team_id} value={team.team_id}>
                           {team.name}

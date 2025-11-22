@@ -62,16 +62,15 @@ export function useWorkspaceMembers(workspaceId?: string | null) {
     deactivate: (userId: string) => manageMember(userId, 'deactivate'),
     reactivate: (userId: string) => manageMember(userId, 'reactivate'),
     updateTeam: async (userId: string, teamId: string | null) => {
-      // Clear existing team memberships then optionally add a new one.
+      if (!teamId) return { error: new Error('Team is required') };
+      // Clear existing team memberships then add the new one.
       const { error: deleteError } = await supabase.from('user_teams').delete().eq('user_id', userId);
       if (deleteError) return { error: deleteError };
 
-      if (teamId) {
-        const { error: insertError } = await supabase
-          .from('user_teams')
-          .upsert({ user_id: userId, team_id: teamId, role: 'agent' });
-        if (insertError) return { error: insertError };
-      }
+      const { error: insertError } = await supabase
+        .from('user_teams')
+        .upsert({ user_id: userId, team_id: teamId, role: 'agent' });
+      if (insertError) return { error: insertError };
 
       await fetchMembers();
       return { error: null };

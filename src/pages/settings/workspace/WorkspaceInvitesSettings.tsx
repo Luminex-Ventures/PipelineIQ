@@ -4,7 +4,7 @@ import { canInviteAgents, canInviteElevatedRoles, getRoleLabel } from '../../../
 import { useWorkspaceInvites } from '../../../hooks/useWorkspaceInvites';
 import { useWorkspaceTeams } from '../../../hooks/useWorkspaceTeams';
 import type { GlobalRole } from '../../../lib/database.types';
-import { Loader2, MailPlus, RefreshCw, XCircle, Link as LinkIcon } from 'lucide-react';
+import { Loader2, MailPlus, RefreshCw, XCircle, Link as LinkIcon, Check } from 'lucide-react';
 
 const roleOptions: { value: GlobalRole; label: string }[] = [
   { value: 'admin', label: 'Admin' },
@@ -25,6 +25,7 @@ export default function WorkspaceInvitesSettings() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(roleInfo?.teamId || null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
   const userTeamName = teams.find((team) => team.team_id === roleInfo?.teamId)?.name;
 
   const availableRoles = canInviteElevated ? roleOptions : roleOptions.filter((r) => r.value === 'agent');
@@ -34,6 +35,12 @@ export default function WorkspaceInvitesSettings() {
       setSelectedRole('agent');
     }
   }, [canInviteElevated]);
+
+  useEffect(() => {
+    if (!selectedTeamId && teams.length > 0) {
+      setSelectedTeamId(teams[0].team_id);
+    }
+  }, [teams, selectedTeamId]);
 
   const inviteLink = (token: string) => `${window.location.origin}/invite/${token}`;
 
@@ -47,12 +54,19 @@ export default function WorkspaceInvitesSettings() {
       });
       return;
     }
+    if (!selectedTeamId) {
+      setFeedback({
+        type: 'error',
+        text: 'A team is required so pipeline statuses and lead sources stay in sync. Create a team first if none exist.'
+      });
+      return;
+    }
     setSubmitting(true);
     setFeedback(null);
     const { error } = await createInvite({
       email: email.trim().toLowerCase(),
       intendedRole: selectedRole,
-      teamId: selectedRole === 'agent' ? (selectedTeamId || roleInfo?.teamId || null) : selectedTeamId,
+      teamId: selectedTeamId,
     });
     setSubmitting(false);
     if (error) {
@@ -132,12 +146,19 @@ export default function WorkspaceInvitesSettings() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="hig-label">Team (optional)</label>
+            <label className="hig-label">Team *</label>
             {roleInfo?.globalRole === 'agent' || (!canInviteElevated && roleInfo?.teamId) ? (
               <input
                 type="text"
                 className="hig-input bg-gray-50"
                 value={userTeamName || 'Assigned automatically'}
+                readOnly
+              />
+            ) : teams.length === 0 ? (
+              <input
+                type="text"
+                className="hig-input bg-gray-50"
+                value="Create a team first to send invites"
                 readOnly
               />
             ) : (
@@ -146,7 +167,6 @@ export default function WorkspaceInvitesSettings() {
                 value={selectedTeamId || ''}
                 onChange={(e) => setSelectedTeamId(e.target.value || null)}
               >
-                <option value="">No specific team</option>
                 {teams.map((team) => (
                   <option key={team.team_id} value={team.team_id}>
                     {team.name}
@@ -158,7 +178,7 @@ export default function WorkspaceInvitesSettings() {
         </div>
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !selectedTeamId}
           className="hig-btn-primary inline-flex items-center gap-2"
         >
           {submitting ? (
@@ -204,11 +224,28 @@ export default function WorkspaceInvitesSettings() {
                     {invite.status === 'pending' && (
                       <button
                         type="button"
-                        onClick={() => navigator.clipboard.writeText(inviteLink(invite.token))}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-gray-300"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(inviteLink(invite.token));
+                          setCopiedInviteId(invite.id);
+                          setTimeout(() => setCopiedInviteId(null), 2000);
+                        }}
+                        className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-1.5 text-xs font-semibold transition shadow-sm ${
+                          copiedInviteId === invite.id
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-gray-200 text-gray-700 hover:border-emerald-200/80 hover:bg-emerald-50/60 hover:text-emerald-700 hover:shadow-md'
+                        }`}
                       >
-                        <LinkIcon className="h-3.5 w-3.5" />
-                        Copy link
+                        {copiedInviteId === invite.id ? (
+                          <>
+                            <Check className="h-3.5 w-3.5" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <LinkIcon className="h-3.5 w-3.5" />
+                            Copy link
+                          </>
+                        )}
                       </button>
                     )}
                     {effectiveStatus === 'pending' ? (

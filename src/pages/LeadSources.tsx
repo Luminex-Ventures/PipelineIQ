@@ -7,6 +7,7 @@ type PayoutStructure = 'standard' | 'partnership';
 
 interface LeadSource {
   id: string;
+  team_id: string | null;
   name: string;
   category: string | null;
   brokerage_split_rate: number;
@@ -34,7 +35,8 @@ const createDefaultFormState = (): LeadSourceFormState => ({
 });
 
 export default function LeadSources() {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
+  const teamId = roleInfo?.teamId || null;
   const [sources, setSources] = useState<LeadSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -43,16 +45,31 @@ export default function LeadSources() {
 
   useEffect(() => {
     loadSources();
-  }, [user]);
+  }, [user?.id, teamId]);
 
   const loadSources = async () => {
     if (!user) return;
 
-    const { data } = await supabase
-      .from('lead_sources')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('name');
+    const { data: teamSources, error: teamError } = teamId
+      ? await supabase
+          .from('lead_sources')
+          .select('*')
+          .eq('team_id', teamId)
+          .order('name')
+      : ({ data: null, error: null } as any);
+
+    if (teamError) {
+      setLoading(false);
+      return;
+    }
+
+    const { data } = teamSources?.length
+      ? ({ data: teamSources } as any)
+      : await supabase
+          .from('lead_sources')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('name');
 
     if (data) setSources(data);
     setLoading(false);
@@ -65,6 +82,7 @@ export default function LeadSources() {
     const payload = {
       name: formData.name,
       category: formData.category || null,
+      team_id: teamId,
       brokerage_split_rate: formData.brokerage_split_rate / 100,
       payout_structure: formData.payout_structure,
       partnership_split_rate: formData.payout_structure === 'partnership' ? formData.partnership_split_rate / 100 : null,

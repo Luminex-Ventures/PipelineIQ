@@ -76,6 +76,7 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
   const createInvite = useCallback(
     async ({ email, intendedRole, teamId }: CreateInvitePayload) => {
       if (!workspaceId) return { error: new Error('Workspace is required') };
+      if (!teamId) return { error: new Error('Team is required for invites') };
       const { data, error } = await supabase
         .from('workspace_invitations')
         .insert({

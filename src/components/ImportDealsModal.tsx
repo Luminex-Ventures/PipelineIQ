@@ -16,7 +16,8 @@ interface ImportResult {
 }
 
 export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModalProps) {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
+  const teamId = roleInfo?.teamId || null;
   const [file, setFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -24,11 +25,21 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
   const handleDownloadExample = async () => {
     if (!user) return;
 
-    const { data: statuses } = await supabase
-      .from('pipeline_statuses')
-      .select('name')
-      .eq('user_id', user.id)
-      .order('sort_order');
+    const { data: teamStatuses } = teamId
+      ? await supabase
+          .from('pipeline_statuses')
+          .select('name')
+          .eq('team_id', teamId)
+          .order('sort_order')
+      : ({ data: null } as any);
+
+    const { data: statuses } = teamStatuses?.length
+      ? ({ data: teamStatuses } as any)
+      : await supabase
+          .from('pipeline_statuses')
+          .select('name')
+          .eq('user_id', user.id)
+          .order('sort_order');
 
     const statusNames = statuses?.map(s => s.name) || [];
     const csvContent = generateExampleCSV(statusNames);
@@ -64,19 +75,37 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
       const headers = rows[0].map(h => h.toLowerCase().trim());
       const dataRows = rows.slice(1);
 
-      const { data: leadSources } = await supabase
-        .from('lead_sources')
-        .select('id, name')
-        .eq('user_id', user.id);
+      const { data: teamLeadSources } = teamId
+        ? await supabase
+            .from('lead_sources')
+            .select('id, name')
+            .eq('team_id', teamId)
+        : ({ data: null } as any);
+
+      const { data: leadSources } = teamLeadSources?.length
+        ? ({ data: teamLeadSources } as any)
+        : await supabase
+            .from('lead_sources')
+            .select('id, name')
+            .eq('user_id', user.id);
 
       const leadSourceMap = new Map(
         leadSources?.map(ls => [ls.name.toLowerCase(), ls.id]) || []
       );
 
-      const { data: pipelineStatuses } = await supabase
-        .from('pipeline_statuses')
-        .select('id, name')
-        .eq('user_id', user.id);
+      const { data: teamPipelineStatuses } = teamId
+        ? await supabase
+            .from('pipeline_statuses')
+            .select('id, name')
+            .eq('team_id', teamId)
+        : ({ data: null } as any);
+
+      const { data: pipelineStatuses } = teamPipelineStatuses?.length
+        ? ({ data: teamPipelineStatuses } as any)
+        : await supabase
+            .from('pipeline_statuses')
+            .select('id, name')
+            .eq('user_id', user.id);
 
       const pipelineStatusMap = new Map(
         pipelineStatuses?.map(ps => [ps.name.toLowerCase(), ps.id]) || []

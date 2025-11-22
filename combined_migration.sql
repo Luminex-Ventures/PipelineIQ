@@ -89,6 +89,19 @@ CREATE TABLE IF NOT EXISTS lead_sources (
   updated_at timestamptz DEFAULT now() NOT NULL
 );
 
+-- Add team scoping to lead_sources
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'lead_sources' AND column_name = 'team_id'
+  ) THEN
+    ALTER TABLE lead_sources ADD COLUMN team_id uuid REFERENCES teams(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_lead_sources_team_id ON lead_sources(team_id);
+
 -- Create deals table
 CREATE TABLE IF NOT EXISTS deals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -616,10 +629,15 @@ DROP POLICY IF EXISTS "Users can update accessible deals" ON deals;
 DROP POLICY IF EXISTS "Users can delete own deals" ON deals;
 
 -- Recreate lead_sources policies with optimized auth.uid()
-CREATE POLICY "Users can view own lead sources"
+CREATE POLICY "Users can view team lead sources"
   ON lead_sources FOR SELECT
   TO authenticated
-  USING (user_id = (SELECT auth.uid()));
+  USING (
+    user_id = (SELECT auth.uid())
+    OR team_id IN (
+      SELECT team_id FROM user_teams WHERE user_id = (SELECT auth.uid())
+    )
+  );
 
 CREATE POLICY "Users can insert own lead sources"
   ON lead_sources FOR INSERT
@@ -636,6 +654,38 @@ CREATE POLICY "Users can delete own lead sources"
   ON lead_sources FOR DELETE
   TO authenticated
   USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY "Team leads can manage team lead sources"
+  ON lead_sources FOR ALL
+  TO authenticated
+  USING (
+    team_id IN (
+      SELECT team_id FROM user_teams
+      WHERE user_id = (SELECT auth.uid()) AND role = 'team_lead'
+    )
+  )
+  WITH CHECK (
+    team_id IN (
+      SELECT team_id FROM user_teams
+      WHERE user_id = (SELECT auth.uid()) AND role = 'team_lead'
+    )
+  );
+
+CREATE POLICY "Admins and sales managers can manage all lead sources"
+  ON lead_sources FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_settings
+      WHERE user_id = (SELECT auth.uid()) AND global_role IN ('admin', 'sales_manager')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_settings
+      WHERE user_id = (SELECT auth.uid()) AND global_role IN ('admin', 'sales_manager')
+    )
+  );
 
 -- Recreate tasks policies with optimized auth.uid()
 CREATE POLICY "Users can view own tasks"
@@ -1014,6 +1064,22 @@ CREATE POLICY "Team leads can manage team statuses"
     team_id IN (
       SELECT team_id FROM user_teams
       WHERE user_id = (SELECT auth.uid()) AND role = 'team_lead'
+    )
+  );
+
+CREATE POLICY "Admins and sales managers can manage all statuses"
+  ON pipeline_statuses FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_settings
+      WHERE user_id = (SELECT auth.uid()) AND global_role IN ('admin', 'sales_manager')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_settings
+      WHERE user_id = (SELECT auth.uid()) AND global_role IN ('admin', 'sales_manager')
     )
   );
 
