@@ -56,24 +56,25 @@ export async function getVisibleUserIds(roleInfo: UserRoleInfo): Promise<string[
   return [roleInfo.userId];
 }
 
-export function canManageTeams(roleInfo: UserRoleInfo): boolean {
-  return roleInfo.globalRole === 'admin';
+export function canManageTeams(roleInfo?: UserRoleInfo | null): boolean {
+  return roleInfo?.globalRole === 'admin';
 }
 
-export function canViewAllTeams(roleInfo: UserRoleInfo): boolean {
-  return roleInfo.globalRole === 'admin' || roleInfo.globalRole === 'sales_manager';
+export function canViewAllTeams(roleInfo?: UserRoleInfo | null): boolean {
+  return roleInfo?.globalRole === 'admin' || roleInfo?.globalRole === 'sales_manager';
 }
 
-export function canViewTeamAnalytics(roleInfo: UserRoleInfo): boolean {
+export function canViewTeamAnalytics(roleInfo?: UserRoleInfo | null): boolean {
+  if (!roleInfo) return false;
   return roleInfo.globalRole !== 'agent' || roleInfo.teamRole === 'team_lead';
 }
 
-export function isTeamLead(roleInfo: UserRoleInfo): boolean {
-  return roleInfo.teamRole === 'team_lead' || roleInfo.globalRole === 'team_lead';
+export function isTeamLead(roleInfo?: UserRoleInfo | null): boolean {
+  return roleInfo?.teamRole === 'team_lead' || roleInfo?.globalRole === 'team_lead';
 }
 
-export function isSalesManagerOrAdmin(roleInfo: UserRoleInfo): boolean {
-  return roleInfo.globalRole === 'sales_manager' || roleInfo.globalRole === 'admin';
+export function isSalesManagerOrAdmin(roleInfo?: UserRoleInfo | null): boolean {
+  return roleInfo?.globalRole === 'sales_manager' || roleInfo?.globalRole === 'admin';
 }
 
 export function isAdmin(roleInfo: UserRoleInfo | null | undefined): roleInfo is UserRoleInfo {

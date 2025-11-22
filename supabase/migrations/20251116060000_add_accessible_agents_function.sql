@@ -28,10 +28,10 @@ begin
     return;
   end if;
 
-  select workspace_id, global_role
+  select us.workspace_id, us.global_role
   into viewer_workspace, viewer_role
-  from user_settings
-  where user_id = viewer_id;
+  from user_settings us
+  where us.user_id = viewer_id;
 
   if viewer_workspace is null then
     viewer_workspace := '00000000-0000-0000-0000-000000000000'::uuid;

@@ -30,10 +30,10 @@ begin
     return;
   end if;
 
-  select workspace_id, global_role
+  select us.workspace_id, us.global_role
   into viewer_workspace, viewer_role
-  from user_settings
-  where user_id = viewer_id;
+  from user_settings us
+  where us.user_id = viewer_id;
 
   -- If the viewer has no role record, return just their own row
   if viewer_role is null then
