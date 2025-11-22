@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { TrendingUp, DollarSign, Target } from 'lucide-react';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
 type DealRow = Database['public']['Tables']['deals']['Row'];
 
@@ -64,6 +65,8 @@ interface StageOption {
   label: string;
   sortOrder?: number | null;
 }
+
+const CLOSING_STATUSES: DealRow['status'][] = ['under_contract', 'pending', 'closed'];
 
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   buyer: 'Buyer',
@@ -333,32 +336,76 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         email: user.email || ''
       };
 
+      const resolveTeamUserIds = async () => {
+        if (!roleInfo?.teamId) return [] as string[];
+        const { data, error } = await supabase
+          .from('user_teams')
+          .select('user_id')
+          .eq('team_id', roleInfo.teamId);
+        if (error) {
+          console.error('Unable to load team members', error);
+          return [];
+        }
+        return (data || []).map(member => member.user_id);
+      };
+
+      const resolveVisibleAgentIds = async () => {
+        if (!roleInfo) return [user.id];
+        switch (roleInfo.globalRole) {
+          case 'admin': {
+            return await getVisibleUserIds(roleInfo);
+          }
+          case 'sales_manager': {
+            const teamIds = await resolveTeamUserIds();
+            if (teamIds.length) return teamIds;
+            return await getVisibleUserIds(roleInfo);
+          }
+          case 'team_lead': {
+            const teamIds = await resolveTeamUserIds();
+            return teamIds.length ? teamIds : [roleInfo.userId];
+          }
+          default:
+            return [roleInfo.userId];
+        }
+      };
+
       if (!roleInfo || roleInfo.globalRole === 'agent') {
         setAvailableAgents([fallback]);
         setSelectedAgentIds([user.id]);
         return;
       }
 
+      const agentIds = await resolveVisibleAgentIds();
+
+      let agentOptions: AgentOption[] = [];
+
       const { data, error } = await supabase.rpc('get_accessible_agents');
-      if (error || !data) {
+      if (error) {
         console.error('Unable to load accessible agents', error);
-        setAvailableAgents([fallback]);
-        setSelectedAgentIds([user.id]);
-        return;
+      } else if (data) {
+        const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
+          id: agent.user_id,
+          label: agent.display_name || agent.email || 'Agent',
+          email: agent.email || ''
+        }));
+        const filtered = agentIds.length
+          ? normalized.filter(option => agentIds.includes(option.id))
+          : normalized;
+        agentOptions = filtered.filter(
+          (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
+        );
       }
 
-      const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
-        id: agent.user_id,
-        label: agent.display_name || agent.email || 'Agent',
-        email: agent.email || ''
-      }));
+      if (!agentOptions.length) {
+        agentOptions = agentIds.map(id => ({
+          id,
+          label: id === user.id ? (user.user_metadata?.name || user.email || 'You') : 'Agent',
+          email: ''
+        }));
+      }
 
-      const unique = normalized.filter(
-        (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
-      );
-
-      setAvailableAgents(unique);
-      setSelectedAgentIds(unique.map((agent) => agent.id));
+      setAvailableAgents(agentOptions);
+      setSelectedAgentIds(agentIds.length ? agentIds : [user.id]);
     };
 
     bootstrapAgents();
@@ -452,7 +499,6 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
       const monthlyGCI: { [key: string]: number } = {};
       const monthlyDeals: { [key: string]: number } = {};
-      const closingThisMonth: ClosingThisMonthStats = { count: 0, gci: 0 };
 
       const now = new Date();
       const currentMonthIndex = now.getMonth();
@@ -500,14 +546,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         const monthShort = monthNames[monthIndex];
         monthlyGCI[monthShort] = (monthlyGCI[monthShort] || 0) + netCommission;
         monthlyDeals[monthShort] = (monthlyDeals[monthShort] || 0) + 1;
-
-        if (isCurrentYear && monthIndex === currentMonthIndex) {
-          closingThisMonth.count += 1;
-          closingThisMonth.gci += netCommission;
-        }
       });
-
-      setClosingThisMonthStats(closingThisMonth);
 
       const avgDaysToClose =
         dealsWithDuration > 0 ? totalDaysToClose / dealsWithDuration : 0;
@@ -545,7 +584,36 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       setClosingThisMonthStats({ count: 0, gci: 0 });
     }
 
+    const now = new Date();
+    const isCurrentYear = now.getFullYear() === selectedYear;
+    const closingThisMonth: ClosingThisMonthStats = { count: 0, gci: 0 };
+
     if (allDeals) {
+      if (isCurrentYear) {
+        allDeals.forEach((deal: any) => {
+          const closeParts =
+            parseDateValue(deal.close_date) ||
+            parseDateValue(deal.closed_at);
+
+          if (!closeParts) return;
+          const sameMonth = closeParts.year === now.getFullYear() && closeParts.month === now.getMonth();
+          if (!sameMonth) return;
+
+          if (!CLOSING_STATUSES.includes(deal.status)) return;
+
+          const salePrice = deal.actual_sale_price || deal.expected_sale_price || 0;
+          const grossCommission = salePrice * (deal.gross_commission_rate || 0);
+          const afterBrokerageSplit = grossCommission * (1 - (deal.brokerage_split_rate || 0));
+          const afterReferral = deal.referral_out_rate
+            ? afterBrokerageSplit * (1 - deal.referral_out_rate)
+            : afterBrokerageSplit;
+          const netCommission = afterReferral - (deal.transaction_fee || 0);
+
+          closingThisMonth.count += 1;
+          closingThisMonth.gci += netCommission;
+        });
+      }
+
       const sourceMap: {
         [key: string]: { total: number; closed: number; commission: number };
       } = {};
@@ -584,8 +652,11 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         sourceStats.sort((a, b) => b.totalCommission - a.totalCommission)
       );
     } else {
+      setClosingThisMonthStats({ count: 0, gci: 0 });
       setLeadSourceStats([]);
     }
+
+    setClosingThisMonthStats(closingThisMonth);
 
     if (isInitialLoad) {
       setLoading(false);

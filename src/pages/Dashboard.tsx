@@ -35,6 +35,7 @@ import {
 import type { Database } from '../lib/database.types';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { STATUS_LABELS } from '../constants/statusLabels';
+import { getVisibleUserIds } from '../lib/rbac';
 
 type DealRow = Database['public']['Tables']['deals']['Row'];
 type LeadSourceRow = Database['public']['Tables']['lead_sources']['Row'];
@@ -304,32 +305,75 @@ export default function Dashboard() {
         email: user.email || ''
       };
 
+      const resolveTeamUserIds = async () => {
+        if (!roleInfo?.teamId) return [] as string[];
+        const { data, error } = await supabase
+          .from('user_teams')
+          .select('user_id')
+          .eq('team_id', roleInfo.teamId);
+        if (error) {
+          console.error('Unable to load team members', error);
+          return [];
+        }
+        return (data || []).map(member => member.user_id);
+      };
+
+      const resolveVisibleAgentIds = async () => {
+        if (!roleInfo) return [user.id];
+        switch (roleInfo.globalRole) {
+          case 'admin': {
+            return await getVisibleUserIds(roleInfo);
+          }
+          case 'sales_manager': {
+            const teamIds = await resolveTeamUserIds();
+            if (teamIds.length) return teamIds;
+            return await getVisibleUserIds(roleInfo);
+          }
+          case 'team_lead': {
+            const teamIds = await resolveTeamUserIds();
+            return teamIds.length ? teamIds : [roleInfo.userId];
+          }
+          default:
+            return [roleInfo.userId];
+        }
+      };
+
       if (!roleInfo || roleInfo.globalRole === 'agent') {
         setAvailableAgents([fallback]);
         setSelectedAgentIds([user.id]);
         return;
       }
 
+      const agentIds = await resolveVisibleAgentIds();
+      let agentOptions: AgentOption[] = [];
+
       const { data, error } = await supabase.rpc('get_accessible_agents');
-      if (error || !data) {
+      if (error) {
         console.error('Unable to load accessible agents', error);
-        setAvailableAgents([fallback]);
-        setSelectedAgentIds([user.id]);
-        return;
+      } else if (data) {
+        const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
+          id: agent.user_id,
+          label: agent.display_name || agent.email || 'Agent',
+          email: agent.email || ''
+        }));
+        const filtered = agentIds.length
+          ? normalized.filter(option => agentIds.includes(option.id))
+          : normalized;
+        agentOptions = filtered.filter(
+          (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
+        );
       }
 
-      const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
-        id: agent.user_id,
-        label: agent.display_name || agent.email || 'Agent',
-        email: agent.email || ''
-      }));
+      if (!agentOptions.length) {
+        agentOptions = agentIds.map(id => ({
+          id,
+          label: id === user.id ? (user.user_metadata?.name || user.email || 'You') : 'Agent',
+          email: ''
+        }));
+      }
 
-      const unique = normalized.filter(
-        (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
-      );
-
-      setAvailableAgents(unique);
-      setSelectedAgentIds(unique.map((agent) => agent.id));
+      setAvailableAgents(agentOptions);
+      setSelectedAgentIds(agentIds.length ? agentIds : [user.id]);
     };
 
     bootstrapAgents();
