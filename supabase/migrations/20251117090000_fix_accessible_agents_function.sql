@@ -58,8 +58,8 @@ begin
     )
     select
       us.user_id,
-      coalesce(u.raw_user_meta_data->>'name', u.email) as display_name,
-      u.email,
+      coalesce(u.raw_user_meta_data->>'name', u.email)::text as display_name,
+      u.email::text as email,
       ut.team_id,
       ut.role as team_role,
       us.global_role
