@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search, Tag } from 'lucide-react';
 import { DndContext, DragEndEvent, DragOverlay, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -65,7 +65,6 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       const { data, error: fetchError } = await supabase
         .from('lead_sources')
         .select('*')
-        .eq('user_id', user.id)
         .order('sort_order', { ascending: true, nullsLast: true })
         .order('name', { ascending: true });
 
@@ -140,10 +139,23 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
         if (updateError) throw updateError;
       } else {
         const maxSort = sources.reduce((max, src) => Math.max(max, src.sort_order ?? 0), 0);
+        
+        // Get user's workspace_id
+        const { data: userSettings } = await supabase
+          .from('user_settings')
+          .select('workspace_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (!userSettings?.workspace_id) {
+          throw new Error('No workspace found');
+        }
+
         const { error: insertError } = await supabase
           .from('lead_sources')
           .insert({
-            user_id: user.id,
+            user_id: user.id, // Keep for audit trail
+            workspace_id: userSettings.workspace_id,
             sort_order: maxSort + 1,
             ...payload
           });

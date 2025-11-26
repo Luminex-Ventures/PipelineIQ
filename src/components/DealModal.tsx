@@ -64,7 +64,6 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     const { data } = await supabase
       .from('lead_sources')
       .select('*')
-      .eq('user_id', user.id)
       .order('name');
 
     if (data) setLeadSources(data);

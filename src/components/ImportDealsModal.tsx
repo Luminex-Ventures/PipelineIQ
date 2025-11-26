@@ -66,8 +66,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
 
       const { data: leadSources } = await supabase
         .from('lead_sources')
-        .select('id, name')
-        .eq('user_id', user.id);
+        .select('id, name');
 
       const leadSourceMap = new Map(
         leadSources?.map(ls => [ls.name.toLowerCase(), ls.id]) || []

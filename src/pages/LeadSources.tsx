@@ -51,7 +51,6 @@ export default function LeadSources() {
     const { data } = await supabase
       .from('lead_sources')
       .select('*')
-      .eq('user_id', user.id)
       .order('name');
 
     if (data) setSources(data);
@@ -77,10 +76,23 @@ export default function LeadSources() {
         .update(payload)
         .eq('id', editingSource.id);
     } else {
+      // Get user's workspace_id
+      const { data: userSettings } = await supabase
+        .from('user_settings')
+        .select('workspace_id')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (!userSettings?.workspace_id) {
+        console.error('No workspace found');
+        return;
+      }
+
       await supabase
         .from('lead_sources')
         .insert({
-          user_id: user.id,
+          user_id: user.id, // Keep for audit trail
+          workspace_id: userSettings.workspace_id,
           ...payload
         });
     }

@@ -51,7 +51,7 @@ Deno.serve(async (req: Request) => {
         expires_at,
         intended_role,
         workspace_id,
-        workspace_settings ( name )
+        workspace_settings!workspace_id ( name )
       `)
       .eq('id', payload.inviteId)
       .single();
