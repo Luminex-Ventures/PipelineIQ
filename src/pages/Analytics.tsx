@@ -863,16 +863,12 @@ const parseDateValue = (value?: string | null): DateParts | null => {
             </p>
             <p className="text-sm text-gray-500">{timeframeDescription}</p>
           </div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 min-h-[20px]">
-            {refreshing ? (
-              <>
-                <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                Updating…
-              </>
-            ) : (
-              <span className="invisible">Updating…</span>
-            )}
-          </div>
+          {refreshing && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+              Updating…
+            </div>
+          )}
           <SegmentedControl
             options={yearOptions}
             value={String(selectedYear)}

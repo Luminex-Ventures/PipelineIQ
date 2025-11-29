@@ -1733,16 +1733,12 @@ export default function Dashboard() {
               {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto min-h-[20px]">
-            {refreshing ? (
-              <>
-                <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                Updating…
-              </>
-            ) : (
-              <span className="invisible">Updating…</span>
-            )}
-          </div>
+          {refreshing && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto">
+              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+              Updating…
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
