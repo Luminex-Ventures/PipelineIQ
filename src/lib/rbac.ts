@@ -44,16 +44,14 @@ export async function getVisibleUserIds(roleInfo: UserRoleInfo): Promise<string[
     return allUsers?.map(u => u.user_id) || [];
   }
 
-  if (roleInfo.globalRole === 'team_lead' && roleInfo.teamId) {
-    const { data: teamMembers } = await supabase
-      .from('user_teams')
-      .select('user_id')
-      .eq('team_id', roleInfo.teamId);
-
-    return teamMembers?.map(m => m.user_id) || [roleInfo.userId];
+  // Mirror backend accessibility rules via the RPC to stay consistent with server logic
+  const { data, error } = await supabase.rpc('get_accessible_agents');
+  if (error || !data) {
+    // Fallback: if RPC fails, at least allow self
+    return [roleInfo.userId];
   }
-
-  return [roleInfo.userId];
+  const ids = (data as { user_id: string }[]).map(row => row.user_id);
+  return ids.length ? ids : [roleInfo.userId];
 }
 
 export function canManageTeams(roleInfo?: UserRoleInfo | null): boolean {

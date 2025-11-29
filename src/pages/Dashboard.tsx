@@ -330,8 +330,7 @@ export default function Dashboard() {
             return await getVisibleUserIds(roleInfo);
           }
           case 'team_lead': {
-            const teamIds = await resolveTeamUserIds();
-            return teamIds.length ? teamIds : [roleInfo.userId];
+            return await getVisibleUserIds(roleInfo);
           }
           default:
             return [roleInfo.userId];
@@ -417,24 +416,61 @@ export default function Dashboard() {
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isAllAgentsSelected = selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
   const scopeDescription = useMemo(() => {
-    if (!selectedAgentIds.length) return 'No agents selected';
-    if (isAllAgentsSelected) return 'All agents';
-    if (selectedAgentIds.length === 1) {
-      const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
-      return agent?.label || 'Single agent';
-    }
-    return `${selectedAgentIds.length} agents`;
-  }, [isAllAgentsSelected, selectedAgentIds, availableAgents]);
+    const agentPart = (() => {
+      if (!selectedAgentIds.length) return 'No agents selected';
+      if (isAllAgentsSelected) return 'all agents';
+      if (selectedAgentIds.length === 1) {
+        const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
+        return agent?.label || 'a single agent';
+      }
+      return `${selectedAgentIds.length} agents`;
+    })();
 
-  const selectAllAgents = () => {
-    if (availableAgents.length) {
-      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
-    }
-  };
+    const stagePart =
+      selectedPipelineStages.length && availableStages.length
+        ? ` in ${availableStages
+            .filter((stage) => selectedPipelineStages.includes(stage.id))
+            .map((stage) => stage.label)
+            .join(', ')}`
+        : '';
+
+    const dealTypePart =
+      selectedDealTypes.length && availableDealTypes.length
+        ? ` for ${selectedDealTypes
+            .map((dealType) => DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' '))
+            .join(', ')} deals`
+        : '';
+
+    const leadSourcePart =
+      selectedLeadSources.length && availableLeadSources.length
+        ? ` from ${availableLeadSources
+            .filter((source) => selectedLeadSources.includes(source.id))
+            .map((source) => source.name)
+            .join(', ')}`
+        : '';
+
+    return `Viewing ${agentPart}${stagePart}${dealTypePart}${leadSourcePart}`.trim();
+  }, [
+    availableAgents,
+    availableDealTypes,
+    availableLeadSources,
+    availableStages,
+    isAllAgentsSelected,
+    selectedAgentIds,
+    selectedDealTypes,
+    selectedLeadSources,
+    selectedPipelineStages
+  ]);
 
   const selectMyData = () => {
     if (user) {
       setSelectedAgentIds([user.id]);
+    }
+  };
+
+  const resetAgents = () => {
+    if (availableAgents.length) {
+      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
     }
   };
 
@@ -1720,126 +1756,126 @@ export default function Dashboard() {
             />
           </div>
           {availableAgents.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
-                  <p className="text-[11px] text-gray-500">Pick one or more agents to focus this view.</p>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {!isAllAgentsSelected && (
+                        <button
+                          type="button"
+                          className="text-xs text-[var(--app-accent)]"
+                          onClick={resetAgents}
+                        >
+                          Clear
+                        </button>
+                      )}
+                      {showFocusOnMe && (
+                        <button
+                          type="button"
+                          onClick={selectMyData}
+                          className="rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 transition"
+                      >
+                        Focus
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={selectAllAgents}
-                    className="rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white hover:bg-black transition"
-                  >
-                    All
-                  </button>
-                  {showFocusOnMe && (
+                <select
+                  multiple
+                  value={selectedAgentIds}
+                  onChange={handleAgentSelectionChange}
+                  className="hig-input min-h-[72px] rounded-2xl border-gray-200 bg-white/90 text-sm"
+                >
+                  {availableAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Pipeline Stage</p>
+                  {selectedPipelineStages.length > 0 && (
                     <button
                       type="button"
-                      onClick={selectMyData}
-                      className="rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 transition"
+                      className="text-xs text-[var(--app-accent)]"
+                      onClick={() => setSelectedPipelineStages([])}
                     >
-                      Focus on me
+                      Clear
                     </button>
                   )}
                 </div>
+                <select
+                  multiple
+                  value={selectedPipelineStages}
+                  onChange={handlePipelineFilterChange}
+                  className="hig-input min-h-[64px] mt-2"
+                >
+                  {availableStages.map((stage) => (
+                    <option key={stage.id} value={stage.id}>
+                      {stage.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <select
-                multiple
-                value={selectedAgentIds}
-                onChange={handleAgentSelectionChange}
-                className="hig-input min-h-[120px] rounded-2xl border-gray-200 bg-white/90 text-sm"
-              >
-                {availableAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label} {agent.email ? `• ${agent.email}` : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-gray-500">Tip: Hold ⌘/Ctrl to select multiple agents.</p>
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
+                  {selectedDealTypes.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs text-[var(--app-accent)]"
+                      onClick={() => setSelectedDealTypes([])}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <select
+                  multiple
+                  value={selectedDealTypes}
+                  onChange={handleDealTypeFilterChange}
+                  className="hig-input min-h-[64px] mt-2"
+                >
+                  {availableDealTypes.map((dealType) => (
+                    <option key={dealType} value={dealType}>
+                      {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Lead Source</p>
+                  {selectedLeadSources.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs text-[var(--app-accent)]"
+                      onClick={() => setSelectedLeadSources([])}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <select
+                  multiple
+                  value={selectedLeadSources}
+                  onChange={handleLeadSourceFilterChange}
+                  className="hig-input min-h-[64px] mt-2"
+                >
+                  {availableLeadSources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Pipeline Stage</p>
-                {selectedPipelineStages.length > 0 && (
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--app-accent)]"
-                    onClick={() => setSelectedPipelineStages([])}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <select
-                multiple
-                value={selectedPipelineStages}
-                onChange={handlePipelineFilterChange}
-                className="hig-input min-h-[56px] mt-2"
-              >
-                {availableStages.map((stage) => (
-                  <option key={stage.id} value={stage.id}>
-                    {stage.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
-                {selectedDealTypes.length > 0 && (
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--app-accent)]"
-                    onClick={() => setSelectedDealTypes([])}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <select
-                multiple
-                value={selectedDealTypes}
-                onChange={handleDealTypeFilterChange}
-                className="hig-input min-h-[56px] mt-2"
-              >
-                {availableDealTypes.map((dealType) => (
-                  <option key={dealType} value={dealType}>
-                    {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Lead Source</p>
-                {selectedLeadSources.length > 0 && (
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--app-accent)]"
-                    onClick={() => setSelectedLeadSources([])}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <select
-                multiple
-                value={selectedLeadSources}
-                onChange={handleLeadSourceFilterChange}
-                className="hig-input min-h-[56px] mt-2"
-              >
-                {availableLeadSources.map((source) => (
-                  <option key={source.id} value={source.id}>
-                    {source.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
         </div>
       )}
 
