@@ -108,6 +108,7 @@ const ACTIVE_CLOSING_STATUSES = ['under_contract', 'pending'] as const;
 const NON_ACTIVE_STATUSES = ['closed', 'dead'] as const;
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+const CURRENT_YEAR = new Date().getFullYear();
 
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   buyer: 'Buyer',
@@ -967,6 +968,7 @@ export default function Dashboard() {
   };
 
   const loadMonthlyTrends = async (userIds: string[]) => {
+    const currentYear = range?.start ? range.start.getFullYear() : CURRENT_YEAR;
     const closeDateFilter = buildCloseDateFilter(range.start.toISOString(), range.end.toISOString());
 
     let dealsQuery = supabase
@@ -1731,12 +1733,16 @@ export default function Dashboard() {
               {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
             </p>
           </div>
-          {refreshing && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto">
-              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-              Updating…
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto min-h-[20px]">
+            {refreshing ? (
+              <>
+                <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+                Updating…
+              </>
+            ) : (
+              <span className="invisible">Updating…</span>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
