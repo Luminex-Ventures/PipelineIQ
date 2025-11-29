@@ -52,9 +52,9 @@ begin
 
   return query
     with my_teams as (
-      select team_id
-      from user_teams
-      where user_id = viewer_id
+      select ut.team_id
+      from user_teams ut
+      where ut.user_id = viewer_id
     )
     select
       us.user_id,
