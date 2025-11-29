@@ -353,9 +353,13 @@ export default function Dashboard() {
         console.error('Unable to load accessible agents', error);
       } else if (data) {
         const rows = data as AccessibleAgentRow[];
-        const adminIds = new Set(rows.filter((row) => row.global_role === 'admin').map((row) => row.user_id));
+        const excludeIds = new Set(
+          rows
+            .filter((row) => row.global_role === 'admin' || row.global_role === 'sales_manager')
+            .map((row) => row.user_id)
+        );
         const normalized: AgentOption[] = rows
-          .filter((agent) => agent.global_role !== 'admin')
+          .filter((agent) => agent.global_role !== 'admin' && agent.global_role !== 'sales_manager')
           .map((agent) => ({
             id: agent.user_id,
             label: agent.display_name || agent.email || 'Agent',
@@ -367,9 +371,9 @@ export default function Dashboard() {
         agentOptions = filtered.filter(
           (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
         );
-        // remove admins from the selection list as well
-        if (adminIds.size) {
-          for (const id of adminIds) {
+        // remove excluded ids (admins/managers) from the selection list as well
+        if (excludeIds.size) {
+          for (const id of excludeIds) {
             const idx = agentIds.indexOf(id);
             if (idx !== -1) agentIds.splice(idx, 1);
           }
@@ -404,7 +408,7 @@ export default function Dashboard() {
 
       setAvailableAgents(agentOptions);
       const initialIds = agentIds.length ? agentIds : agentOptions.map(a => a.id);
-      setSelectedAgentIds(initialIds.length ? initialIds : [user.id]);
+      setSelectedAgentIds([]);
     };
 
     bootstrapAgents();
@@ -429,11 +433,11 @@ export default function Dashboard() {
   );
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id;
-  const isAllAgentsSelected = selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
+  const isAllAgentsSelected =
+    selectedAgentIds.length === 0 || selectedAgentIds.length === availableAgents.length;
   const scopeDescription = useMemo(() => {
     const agentPart = (() => {
-      if (!selectedAgentIds.length) return 'No agents selected';
-      if (isAllAgentsSelected) return 'all agents';
+      if (!selectedAgentIds.length || isAllAgentsSelected) return 'all agents';
       if (selectedAgentIds.length === 1) {
         const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
         return agent?.label || 'a single agent';
@@ -484,14 +488,11 @@ export default function Dashboard() {
   };
 
   const resetAgents = () => {
-    if (availableAgents.length) {
-      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
-    }
+    setSelectedAgentIds([]);
   };
 
   const handleAgentSelectionChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    if (values.length === 0) return;
     setSelectedAgentIds(values);
   };
 
@@ -539,10 +540,11 @@ export default function Dashboard() {
   );
 
   useEffect(() => {
-    if (!user || !agentScopeKey) return;
+    if (!user) return;
+    if (!availableAgents.length) return;
     loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, dateRangePreset]);
+  }, [user?.id, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, dateRangePreset, availableAgents.length]);
 
   useEffect(() => {
     if (!user) return;
@@ -551,10 +553,11 @@ export default function Dashboard() {
   }, [user]);
 
   useEffect(() => {
-    if (!selectedAgentIds.length) return;
-    loadFilterContext(selectedAgentIds);
+    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+    if (!user || !ids.length) return;
+    loadFilterContext(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgentIds]);
+  }, [selectedAgentIds, availableAgents]);
 
   useEffect(() => {
     if (loading) return;
@@ -571,7 +574,7 @@ export default function Dashboard() {
       const isStale =
         lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS || !greetingText;
       if (isStale) {
-        setGreetingText(getGreeting(user.user_metadata?.name));
+        setGreetingText(getGreeting(user.user_metadata?.name, roleInfo?.globalRole));
         setLastInsightsUpdatedAt(now);
       }
     };
@@ -625,7 +628,8 @@ export default function Dashboard() {
   };
 
   const loadFilterContext = async (agentIds: string[]) => {
-    if (!agentIds.length) return;
+    const ids = agentIds.length ? agentIds : availableAgents.map(a => a.id);
+    if (!ids.length) return;
 
     let contextQuery = supabase
       .from('deals')
@@ -641,7 +645,7 @@ export default function Dashboard() {
       .order('created_at', { ascending: false })
       .limit(1000);
 
-    contextQuery = withUserScope(contextQuery, agentIds);
+    contextQuery = withUserScope(contextQuery, ids);
 
     const { data, error } = await contextQuery;
     if (error) {
@@ -695,7 +699,9 @@ export default function Dashboard() {
   };
 
   const loadDashboardData = async () => {
-    if (!user || !selectedAgentIds.length) return;
+    if (!user) return;
+    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+    if (!ids.length) return;
 
     const isInitialLoad = loading;
     if (isInitialLoad) {
@@ -709,12 +715,12 @@ export default function Dashboard() {
 
     try {
       await Promise.all([
-        loadStats(selectedAgentIds, startDate, endDate),
-        loadPipelineHealth(selectedAgentIds),
-        loadMonthlyTrends(selectedAgentIds),
-        loadLeadSourcePerformance(selectedAgentIds, startDate, endDate),
-        loadUpcomingDeals(selectedAgentIds),
-        loadStalledDeals(selectedAgentIds)
+        loadStats(ids, startDate, endDate),
+        loadPipelineHealth(ids),
+        loadMonthlyTrends(ids),
+        loadLeadSourcePerformance(ids, startDate, endDate),
+        loadUpcomingDeals(ids),
+        loadStalledDeals(ids)
       ]);
     } catch (err) {
       console.error('Error loading dashboard data', err);

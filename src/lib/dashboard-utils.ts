@@ -29,7 +29,9 @@ export function formatDate(date: string): string {
   }).format(new Date(date));
 }
 
-export function getGreeting(userName?: string): string {
+import type { GlobalRole } from './database.types';
+
+export function getGreeting(userName?: string, role?: GlobalRole | null): string {
   const hour = new Date().getHours();
   const timeGreeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
@@ -48,10 +50,41 @@ export function getGreeting(userName?: string): string {
     "Let's make today count"
   ];
 
+  const managerMotivations = [
+    'Rally the team to a strong finish',
+    'Spot the blockers and clear the way',
+    'Guide the pipeline to momentum',
+    'Coach for better follow-through today',
+    'Keep your team sharp and focused',
+    'Measure, adjust, and push the pace'
+  ];
+
+  const leadMotivations = [
+    'Lead from the front—show them the way',
+    'Tee up the right opportunities for the team',
+    'Mentor and keep the cadence tight',
+    'Keep your squad synced and confident',
+    'Set the tone and celebrate small wins',
+    'Align the team to the next milestones'
+  ];
+
+  const adminMotivations = [
+    'Keep operations humming smoothly',
+    'Check the pulse and anticipate needs',
+    'Steady hands keep the flywheel spinning',
+    'Align the org and let the teams run',
+    'Remove friction and raise the bar',
+    'Your oversight keeps momentum steady'
+  ];
+
   const firstName = userName ? userName.split(' ')[0] : '';
   const capitalizedFirstName = firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : '';
   const name = capitalizedFirstName ? `, ${capitalizedFirstName}` : '';
-  const randomMotivation = salesMotivations[Math.floor(Math.random() * salesMotivations.length)];
+  let pool = salesMotivations;
+  if (role === 'sales_manager') pool = managerMotivations;
+  else if (role === 'team_lead') pool = leadMotivations;
+  else if (role === 'admin') pool = adminMotivations;
+  const randomMotivation = pool[Math.floor(Math.random() * pool.length)];
 
   return `${timeGreeting}${name}. ${randomMotivation}!`;
 }

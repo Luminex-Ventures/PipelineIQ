@@ -123,12 +123,11 @@ export default function Analytics() {
   );
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isAllAgentsSelected =
-    selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
+    selectedAgentIds.length === 0 || selectedAgentIds.length === availableAgents.length;
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user?.id;
   const scopeDescription = useMemo(() => {
     const agentPart = (() => {
-      if (!selectedAgentIds.length) return 'No agents selected';
-      if (isAllAgentsSelected) return 'all agents';
+      if (!selectedAgentIds.length || isAllAgentsSelected) return 'all agents';
       if (selectedAgentIds.length === 1) {
         const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
         return agent?.label || 'a single agent';
@@ -186,14 +185,11 @@ export default function Analytics() {
   };
 
   const resetAgents = () => {
-    if (availableAgents.length) {
-      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
-    }
+    setSelectedAgentIds([]);
   };
 
   const handleAgentSelectionChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    if (values.length === 0) return;
     setSelectedAgentIds(values);
   };
 
@@ -250,7 +246,8 @@ export default function Analytics() {
     (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
 
   const loadFilterContext = async (agentIds: string[], year: number) => {
-    if (!agentIds.length) return;
+    const ids = agentIds.length ? agentIds : availableAgents.map(a => a.id);
+    if (!ids.length) return;
     const startOfYearISO = new Date(year, 0, 1).toISOString();
     const endOfYearISO = new Date(year, 11, 31, 23, 59, 59).toISOString();
 
@@ -267,7 +264,7 @@ export default function Analytics() {
       .gte('created_at', startOfYearISO)
       .lte('created_at', endOfYearISO);
 
-    contextQuery = withUserScope(contextQuery, agentIds);
+    contextQuery = withUserScope(contextQuery, ids);
 
     const { data, error } = await contextQuery;
     if (error) {
@@ -409,9 +406,13 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         console.error('Unable to load accessible agents', error);
       } else if (data) {
         const rows = data as AccessibleAgentRow[];
-        const adminIds = new Set(rows.filter((row) => row.global_role === 'admin').map((row) => row.user_id));
+        const excludeIds = new Set(
+          rows
+            .filter((row) => row.global_role === 'admin' || row.global_role === 'sales_manager')
+            .map((row) => row.user_id)
+        );
         const normalized: AgentOption[] = rows
-          .filter((agent) => agent.global_role !== 'admin')
+          .filter((agent) => agent.global_role !== 'admin' && agent.global_role !== 'sales_manager')
           .map((agent) => ({
             id: agent.user_id,
             label: agent.display_name || agent.email || 'Agent',
@@ -423,8 +424,8 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         agentOptions = filtered.filter(
           (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
         );
-        if (adminIds.size) {
-          for (const id of adminIds) {
+        if (excludeIds.size) {
+          for (const id of excludeIds) {
             const idx = agentIds.indexOf(id);
             if (idx !== -1) agentIds.splice(idx, 1);
           }
@@ -460,26 +461,48 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
       setAvailableAgents(agentOptions);
       const initialIds = agentOptions.map(a => a.id);
-      setSelectedAgentIds(initialIds.length ? initialIds : [user.id]);
+      setSelectedAgentIds(initialIds.length ? [] : [user.id]);
     };
 
     bootstrapAgents();
   }, [user, roleInfo?.globalRole, roleInfo?.teamId]);
 
   useEffect(() => {
-    if (!user || !agentScopeKey) return;
+    if (!user) return;
     loadAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey]);
 
   useEffect(() => {
-    if (!selectedAgentIds.length) return;
-    loadFilterContext(selectedAgentIds, selectedYear);
+    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+    if (!user || ids.length === 0) return;
+    loadFilterContext(ids, selectedYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgentIds, selectedYear]);
+  }, [selectedAgentIds, selectedYear, availableAgents]);
 
   const loadAnalytics = async () => {
-    if (!user || !selectedAgentIds.length) return;
+    if (!user) return;
+    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+    if (!ids.length) {
+      startTransition(() => {
+        setYearlyStats({
+          closedDeals: 0,
+          totalVolume: 0,
+          totalGCI: 0,
+          avgSalePrice: 0,
+          avgCommission: 0,
+          buyerDeals: 0,
+          sellerDeals: 0,
+          avgDaysToClose: 0,
+        });
+        setMonthlyData([]);
+        setLeadSourceStats([]);
+        setClosingThisMonthStats({ count: 0, gci: 0 });
+      });
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
 
     const isInitialLoad = loading;
     if (isInitialLoad) {
@@ -509,7 +532,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       `
       )
       .eq('status', 'closed');
-    closedQuery = applyDealFilters(closedQuery, selectedAgentIds);
+    closedQuery = applyDealFilters(closedQuery, ids);
 
     const { data: closedDeals } = await closedQuery;
 
@@ -524,7 +547,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       )
       .gte('created_at', startOfYear)
       .lte('created_at', endOfYear);
-    allDealsQuery = applyDealFilters(allDealsQuery, selectedAgentIds);
+    allDealsQuery = applyDealFilters(allDealsQuery, ids);
 
     const { data: allDeals } = await allDealsQuery;
 
