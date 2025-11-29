@@ -71,7 +71,7 @@ begin
       us.user_id = viewer_id
       -- admins/sales managers can see workspace users
       or (
-        viewer_role in ('admin', 'sales_manager')
+        viewer_role in ('admin', 'sales_manager', 'team_lead')
         and (viewer_workspace is null or us.workspace_id = viewer_workspace)
       )
       -- team leads can see users on the same team

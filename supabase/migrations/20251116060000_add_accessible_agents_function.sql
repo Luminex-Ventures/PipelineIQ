@@ -51,24 +51,8 @@ begin
     where
       us.user_id = viewer_id
       or (
-        viewer_role in ('sales_manager', 'admin')
+        viewer_role in ('sales_manager', 'admin', 'team_lead')
         and us.workspace_id = viewer_workspace
-      )
-      or (
-        (
-          viewer_role = 'team_lead'
-          or exists (
-            select 1
-            from user_teams my_team
-            where my_team.user_id = viewer_id and my_team.role = 'team_lead'
-          )
-        )
-        and us.user_id in (
-          select team_members.user_id
-          from user_teams team_members
-          join user_teams my_team on my_team.team_id = team_members.team_id
-          where my_team.user_id = viewer_id and my_team.role = 'team_lead'
-        )
       )
     order by display_name nulls last;
 end;

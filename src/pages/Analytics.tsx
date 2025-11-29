@@ -52,6 +52,7 @@ interface AccessibleAgentRow {
   user_id: string;
   display_name: string | null;
   email: string | null;
+  global_role?: string | null;
 }
 
 interface AgentOption {
@@ -380,17 +381,27 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       if (error) {
         console.error('Unable to load accessible agents', error);
       } else if (data) {
-        const normalized: AgentOption[] = (data as AccessibleAgentRow[]).map((agent) => ({
-          id: agent.user_id,
-          label: agent.display_name || agent.email || 'Agent',
-          email: agent.email || ''
-        }));
+        const rows = data as AccessibleAgentRow[];
+        const adminIds = new Set(rows.filter((row) => row.global_role === 'admin').map((row) => row.user_id));
+        const normalized: AgentOption[] = rows
+          .filter((agent) => agent.global_role !== 'admin')
+          .map((agent) => ({
+            id: agent.user_id,
+            label: agent.display_name || agent.email || 'Agent',
+            email: agent.email || ''
+          }));
         const filtered = agentIds.length
           ? normalized.filter(option => agentIds.includes(option.id))
           : normalized;
         agentOptions = filtered.filter(
           (option, index, arr) => arr.findIndex((candidate) => candidate.id === option.id) === index
         );
+        if (adminIds.size) {
+          for (const id of adminIds) {
+            const idx = agentIds.indexOf(id);
+            if (idx !== -1) agentIds.splice(idx, 1);
+          }
+        }
       }
 
       const fallbackLabel = (id: string) =>
@@ -421,7 +432,8 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       }
 
       setAvailableAgents(agentOptions);
-      setSelectedAgentIds(agentIds.length ? agentIds : [user.id]);
+      const initialIds = agentIds.length ? agentIds : agentOptions.map(a => a.id);
+      setSelectedAgentIds(initialIds.length ? initialIds : [user.id]);
     };
 
     bootstrapAgents();
