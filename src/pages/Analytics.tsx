@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -79,6 +79,7 @@ const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
 
 export default function Analytics() {
   const { user, roleInfo } = useAuth();
+  const [, startTransition] = useTransition();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [yearlyStats, setYearlyStats] = useState<YearlyStats>({
     closedDeals: 0,
@@ -514,42 +515,54 @@ const parseDateValue = (value?: string | null): DateParts | null => {
     const startOfYear = new Date(selectedYear, 0, 1).toISOString();
     const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59).toISOString();
 
-    const { data: settings } = await supabase
-      .from('user_settings')
-      .select('annual_gci_goal')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const dealColumns = `
+      id,
+      user_id,
+      deal_type,
+      status,
+      created_at,
+      close_date,
+      closed_at,
+      expected_sale_price,
+      actual_sale_price,
+      gross_commission_rate,
+      brokerage_split_rate,
+      referral_out_rate,
+      transaction_fee,
+      lead_source_id,
+      lead_sources (name),
+      pipeline_status_id,
+      pipeline_statuses (id, name, sort_order)
+    `;
 
-    if (settings) setGciGoal(settings.annual_gci_goal || 0);
+    const closedQuery = applyDealFilters(
+      supabase.from('deals').select(dealColumns).eq('status', 'closed'),
+      ids
+    );
 
-    let closedQuery = supabase
-      .from('deals')
-      .select(
-        `
-        *,
-        lead_sources (name),
-        pipeline_statuses (id, name, sort_order)
-      `
-      )
-      .eq('status', 'closed');
-    closedQuery = applyDealFilters(closedQuery, ids);
+    const allDealsQuery = applyDealFilters(
+      supabase
+        .from('deals')
+        .select(dealColumns)
+        .gte('created_at', startOfYear)
+        .lte('created_at', endOfYear),
+      ids
+    );
 
-    const { data: closedDeals } = await closedQuery;
+    const [settingsResp, closedResp, allResp] = await Promise.all([
+      supabase
+        .from('user_settings')
+        .select('annual_gci_goal')
+        .eq('user_id', user.id)
+        .maybeSingle(),
+      closedQuery,
+      allDealsQuery
+    ]);
 
-    let allDealsQuery = supabase
-      .from('deals')
-      .select(
-        `
-        *,
-        lead_sources (name),
-        pipeline_statuses (id, name, sort_order)
-      `
-      )
-      .gte('created_at', startOfYear)
-      .lte('created_at', endOfYear);
-    allDealsQuery = applyDealFilters(allDealsQuery, ids);
+    if (settingsResp.data) setGciGoal(settingsResp.data.annual_gci_goal || 0);
 
-    const { data: allDeals } = await allDealsQuery;
+    const closedDeals = closedResp.data;
+    const allDeals = allResp.data;
 
     if (closedDeals) {
       const monthNames = [
@@ -640,11 +653,11 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         avgDaysToClose,
       });
 
-      const monthlyDataArray = monthNames.map((month) => ({
-        month,
-        gci: monthlyGCI[month] || 0,
-        deals: monthlyDeals[month] || 0,
-      }));
+    const monthlyDataArray = monthNames.map((month) => ({
+      month,
+      gci: monthlyGCI[month] || 0,
+      deals: monthlyDeals[month] || 0,
+    }));
       setMonthlyData(monthlyDataArray);
     } else {
       setYearlyStats((prev) => ({
