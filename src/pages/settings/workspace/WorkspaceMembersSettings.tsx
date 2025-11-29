@@ -2,7 +2,7 @@ import { useWorkspaceMembers } from '../../../hooks/useWorkspaceMembers';
 import { useAuth } from '../../../contexts/AuthContext';
 import { canManageWorkspaceMembers, getRoleLabel } from '../../../lib/rbac';
 import type { GlobalRole } from '../../../lib/database.types';
-import { Loader2, Power, RefreshCw } from 'lucide-react';
+import { Loader2, Power, RefreshCw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useWorkspaceTeams } from '../../../hooks/useWorkspaceTeams';
 
@@ -13,7 +13,7 @@ export default function WorkspaceMembersSettings() {
   const workspaceId = roleInfo?.workspaceId || null;
   const canManage = canManageWorkspaceMembers(roleInfo);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const { members, loading, error, changeRole, deactivate, reactivate, updateTeam } = useWorkspaceMembers(workspaceId);
+  const { members, loading, error, changeRole, deactivate, reactivate, remove, updateTeam } = useWorkspaceMembers(workspaceId);
   const { teams, loading: teamsLoading } = useWorkspaceTeams(workspaceId);
   const [teamError, setTeamError] = useState<string | null>(null);
 
@@ -37,6 +37,16 @@ export default function WorkspaceMembersSettings() {
   const handleReactivate = async (memberId: string) => {
     setPendingAction(`reactivate-${memberId}`);
     await reactivate(memberId);
+    setPendingAction(null);
+  };
+
+  const handleDelete = async (memberId: string, memberEmail?: string | null) => {
+    const confirmed = confirm(
+      `Delete ${memberEmail || 'this user'}? This removes their account and access. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setPendingAction(`delete-${memberId}`);
+    await remove(memberId);
     setPendingAction(null);
   };
 
@@ -176,7 +186,7 @@ export default function WorkspaceMembersSettings() {
                       ? new Date(member.last_sign_in_at).toLocaleDateString()
                       : '—'}
                   </td>
-                  <td className="px-4 py-4 text-right">
+                  <td className="px-4 py-4 text-right space-x-2">
                     {isActive ? (
                       <button
                         onClick={() => handleDeactivate(member.user_id)}
@@ -194,6 +204,17 @@ export default function WorkspaceMembersSettings() {
                       >
                         <RefreshCw className="h-4 w-4" />
                         Reactivate
+                      </button>
+                    )}
+                    {!isSelf && (
+                      <button
+                        onClick={() => handleDelete(member.user_id, member.email)}
+                        disabled={disableControls}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-gray-200/70 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-red-50 hover:border-red-200/70 hover:text-red-700 disabled:opacity-50"
+                        title="Delete user"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
                       </button>
                     )}
                   </td>

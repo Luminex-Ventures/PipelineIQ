@@ -39,7 +39,11 @@ export function useWorkspaceMembers(workspaceId?: string | null) {
   }, [fetchMembers]);
 
   const manageMember = useCallback(
-    async (targetUser: string, action: 'update_role' | 'deactivate' | 'reactivate', newRole?: GlobalRole) => {
+    async (
+      targetUser: string,
+      action: 'update_role' | 'deactivate' | 'reactivate' | 'delete',
+      newRole?: GlobalRole
+    ) => {
       const { error } = await supabase.rpc('manage_workspace_member', {
         target_user: targetUser,
         action,
@@ -61,6 +65,7 @@ export function useWorkspaceMembers(workspaceId?: string | null) {
     changeRole: (userId: string, role: GlobalRole) => manageMember(userId, 'update_role', role),
     deactivate: (userId: string) => manageMember(userId, 'deactivate'),
     reactivate: (userId: string) => manageMember(userId, 'reactivate'),
+    remove: (userId: string) => manageMember(userId, 'delete'),
     updateTeam: async (userId: string, teamId: string | null) => {
       if (!teamId) return { error: new Error('Team is required') };
       // Clear existing team memberships then add the new one.

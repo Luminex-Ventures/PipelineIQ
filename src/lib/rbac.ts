@@ -36,22 +36,21 @@ export async function getUserRoleInfo(userId: string): Promise<UserRoleInfo | nu
 }
 
 export async function getVisibleUserIds(roleInfo: UserRoleInfo): Promise<string[]> {
-  if (roleInfo.globalRole === 'admin' || roleInfo.globalRole === 'sales_manager') {
-    const { data: allUsers } = await supabase
-      .from('user_settings')
-      .select('user_id');
-
-    return allUsers?.map(u => u.user_id) || [];
-  }
-
-  // Mirror backend accessibility rules via the RPC to stay consistent with server logic
+  // Always mirror backend rules via RPC; fall back to user_settings if RPC fails
   const { data, error } = await supabase.rpc('get_accessible_agents');
-  if (error || !data) {
-    // Fallback: if RPC fails, at least allow self
-    return [roleInfo.userId];
+  if (!error && data) {
+    const ids = (data as { user_id: string }[]).map(row => row.user_id);
+    if (ids.length) return ids;
   }
-  const ids = (data as { user_id: string }[]).map(row => row.user_id);
-  return ids.length ? ids : [roleInfo.userId];
+
+  // Fallback: admins/managers try direct user_settings; otherwise self
+  if (roleInfo.globalRole === 'admin' || roleInfo.globalRole === 'sales_manager') {
+    const { data: allUsers } = await supabase.from('user_settings').select('user_id');
+    const ids = allUsers?.map(u => u.user_id).filter(Boolean);
+    if (ids && ids.length) return ids;
+  }
+
+  return [roleInfo.userId];
 }
 
 export function canManageTeams(roleInfo?: UserRoleInfo | null): boolean {

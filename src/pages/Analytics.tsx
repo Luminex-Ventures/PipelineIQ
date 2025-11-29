@@ -379,33 +379,15 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         email: user.email || ''
       };
 
-      const resolveTeamUserIds = async () => {
-        if (!roleInfo?.teamId) return [] as string[];
-        const { data, error } = await supabase
-          .from('user_teams')
-          .select('user_id')
-          .eq('team_id', roleInfo.teamId);
-        if (error) {
-          console.error('Unable to load team members', error);
-          return [];
-        }
-        return (data || []).map(member => member.user_id);
-      };
-
       const resolveVisibleAgentIds = async () => {
         if (!roleInfo) return [user.id];
         switch (roleInfo.globalRole) {
           case 'admin': {
             return await getVisibleUserIds(roleInfo);
           }
-          case 'sales_manager': {
-            const teamIds = await resolveTeamUserIds();
-            if (teamIds.length) return teamIds;
-            return await getVisibleUserIds(roleInfo);
-          }
+          case 'sales_manager':
           case 'team_lead': {
-            const teamIds = await resolveTeamUserIds();
-            return teamIds.length ? teamIds : [roleInfo.userId];
+            return await getVisibleUserIds(roleInfo);
           }
           default:
             return [roleInfo.userId];
@@ -477,7 +459,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       }
 
       setAvailableAgents(agentOptions);
-      const initialIds = agentIds.length ? agentIds : agentOptions.map(a => a.id);
+      const initialIds = agentOptions.map(a => a.id);
       setSelectedAgentIds(initialIds.length ? initialIds : [user.id]);
     };
 
@@ -844,9 +826,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
   return (
     <div className="space-y-8">
-      <section
-        className={`${surfaceClass} p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between`}
-      >
+      <section className={`${surfaceClass} p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between relative`}>
         <div>
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
             Analytics
@@ -857,18 +837,24 @@ const parseDateValue = (value?: string | null): DateParts | null => {
           </p>
         </div>
         <div className="flex flex-col gap-3 items-start sm:items-end">
-          <div className="text-left sm:text-right">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400">
-              Timeframe
-            </p>
-            <p className="text-sm text-gray-500">{timeframeDescription}</p>
-          </div>
-          {refreshing && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-              Updating…
+          <div className="flex items-center gap-3 text-left sm:text-right">
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 min-h-[20px]">
+              {refreshing ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+                  Updating…
+                </>
+              ) : (
+                <span className="invisible">Updating…</span>
+              )}
             </div>
-          )}
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400">
+                Timeframe
+              </p>
+              <p className="text-sm text-gray-500">{timeframeDescription}</p>
+            </div>
+          </div>
           <SegmentedControl
             options={yearOptions}
             value={String(selectedYear)}
