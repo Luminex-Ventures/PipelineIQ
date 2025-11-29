@@ -303,10 +303,22 @@ BEGIN
     is_active = true;
 
   IF invite.team_id IS NOT NULL THEN
+    -- Map global role to a team role: team leads join as team_lead; everyone else joins as agent
+    -- This avoids downgrading team leads to agent on acceptance.
+    -- (Sales managers/admins may not need a team role; keep them as agent for membership if a team is provided.)
+    -- Note: team_role enum only supports agent | team_lead.
+    -- If you later add more team roles, update this mapping.
     INSERT INTO user_teams (user_id, team_id, role)
-    VALUES (viewer, invite.team_id, 'agent')
+    VALUES (
+      viewer,
+      invite.team_id,
+      CASE
+        WHEN invite.intended_role = 'team_lead' THEN 'team_lead'
+        ELSE 'agent'
+      END
+    )
     ON CONFLICT (user_id, team_id)
-    DO UPDATE SET role = COALESCE(user_teams.role, 'agent');
+    DO UPDATE SET role = EXCLUDED.role;
   END IF;
 
   RETURN QUERY SELECT invite.workspace_id, invite.intended_role;

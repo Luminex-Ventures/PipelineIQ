@@ -133,18 +133,27 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       setError('Lead source name is required');
       return;
     }
+    if (!roleInfo?.workspaceId) {
+      setError('Workspace is required to add a lead source.');
+      return;
+    }
 
     setSaving(true);
     setError(null);
 
     try {
+      const brokerageSplitRaw = parseFloat(formData.brokerage_split_rate || '');
+      const brokerageSplit = Number.isNaN(brokerageSplitRaw) ? 0 : brokerageSplitRaw;
+      const partnershipSplitRaw = formData.partnership_split_rate ?? 0;
+      const partnershipSplit = Number.isNaN(partnershipSplitRaw) ? 0 : partnershipSplitRaw;
       const payload = {
         name: formData.name,
         team_id: teamId,
-        brokerage_split_rate: formData.brokerage_split_rate / 100,
+        brokerage_split_rate: brokerageSplit / 100,
         payout_structure: formData.payout_structure,
-        partnership_split_rate: formData.payout_structure === 'partnership' ? formData.partnership_split_rate / 100 : null,
-        partnership_notes: formData.payout_structure === 'partnership' ? formData.partnership_notes.trim() || null : null
+        partnership_split_rate: formData.payout_structure === 'partnership' ? partnershipSplit / 100 : null,
+        partnership_notes: formData.payout_structure === 'partnership' ? formData.partnership_notes.trim() || null : null,
+        workspace_id: roleInfo.workspaceId
       };
 
       if (editingSource) {

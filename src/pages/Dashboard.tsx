@@ -414,6 +414,7 @@ export default function Dashboard() {
     [selectedDealTypes]
   );
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
+  const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id;
   const isAllAgentsSelected = selectedAgentIds.length > 0 && selectedAgentIds.length === availableAgents.length;
   const scopeDescription = useMemo(() => {
     const agentPart = (() => {
@@ -1757,28 +1758,32 @@ export default function Dashboard() {
           </div>
           {availableAgents.length > 0 && (
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {!isAllAgentsSelected && (
-                        <button
-                          type="button"
-                          className="text-xs text-[var(--app-accent)]"
-                          onClick={resetAgents}
-                        >
-                          Clear
-                        </button>
-                      )}
-                      {showFocusOnMe && (
-                        <button
-                          type="button"
-                          onClick={selectMyData}
-                          className="rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 transition"
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
+                    {showFocusOnMe && (
+                      <button
+                        type="button"
+                        onClick={selectMyData}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                          isFocusOnMeActive
+                            ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
+                            : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                        }`}
                       >
-                        Focus
+                        Focus On Me
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {!isAllAgentsSelected && (
+                      <button
+                        type="button"
+                        className="text-xs text-[var(--app-accent)]"
+                        onClick={resetAgents}
+                      >
+                        Clear
                       </button>
                     )}
                   </div>
