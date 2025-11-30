@@ -127,39 +127,95 @@ export default function Analytics() {
     selectedAgentIds.length === 0 || selectedAgentIds.length === availableAgents.length;
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user?.id;
   const scopeDescription = useMemo(() => {
-    const agentPart = (() => {
-      if (!selectedAgentIds.length || isAllAgentsSelected) return 'all agents';
-      if (selectedAgentIds.length === 1) {
-        const agent = availableAgents.find((item) => item.id === selectedAgentIds[0]);
-        return agent?.label || 'a single agent';
+    const formatList = (items: string[], fallbackLabel: string) => {
+      if (items.length === 0) return fallbackLabel;
+      if (items.length === 1) return items[0];
+      if (items.length === 2) return `${items[0]} and ${items[1]}`;
+      if (items.length === 3) return `${items[0]}, ${items[1]} and ${items[2]}`;
+      return `multiple ${fallbackLabel}`;
+    };
+
+    const makePossessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}'s`);
+
+    const agentNames = availableAgents
+      .filter((agent) => selectedAgentIds.includes(agent.id))
+      .map((agent) => agent.label || agent.email || 'Agent');
+
+    const agentsAreAll = isAllAgentsSelected || agentNames.length === 0;
+    const singleAgentSelected = !agentsAreAll && agentNames.length === 1;
+    const agentPossessive = singleAgentSelected ? makePossessive(agentNames[0]) : '';
+
+    const allStagesSelected =
+      selectedPipelineStages.length === 0 ||
+      (availableStages.length > 0 && selectedPipelineStages.length === availableStages.length);
+    const allDealTypesSelected =
+      selectedDealTypes.length === 0 ||
+      (availableDealTypes.length > 0 && selectedDealTypes.length === availableDealTypes.length);
+    const allLeadSourcesSelected =
+      selectedLeadSources.length === 0 ||
+      (availableLeadSources.length > 0 && selectedLeadSources.length === availableLeadSources.length);
+
+    const stageNames = availableStages
+      .filter((stage) => selectedPipelineStages.includes(stage.id))
+      .map((stage) => stage.label);
+    const dealTypeNames = selectedDealTypes.map(
+      (dealType) => DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')
+    );
+    const leadSourceNames = availableLeadSources
+      .filter((source) => selectedLeadSources.includes(source.id))
+      .map((source) => source.name);
+
+    const stagePhrase = allStagesSelected
+      ? 'all pipeline stages'
+      : formatList(stageNames, 'pipeline stages');
+    const dealTypePhrase = allDealTypesSelected
+      ? 'all deal types'
+      : formatList(dealTypeNames, 'deal types');
+    const leadSourcePhrase = allLeadSourcesSelected
+      ? 'all lead sources'
+      : formatList(leadSourceNames, 'lead sources');
+
+    const allFiltersAreAll = allStagesSelected && allDealTypesSelected && allLeadSourcesSelected;
+
+    if (allFiltersAreAll) {
+      if (singleAgentSelected) {
+        return `Viewing ${agentPossessive} deals across all pipeline stages, deal types, and lead sources.`;
       }
-      return `${selectedAgentIds.length} agents`;
+      if (agentsAreAll) {
+        return 'Viewing all deals across all agents, pipeline stages, deal types, and lead sources.';
+      }
+      return 'Viewing deals for multiple agents across all pipeline stages, deal types, and lead sources.';
+    }
+
+    const agentPhrase = (() => {
+      if (agentsAreAll) return 'all agents';
+      if (singleAgentSelected) return agentPossessive;
+      if (agentNames.length === 2) return `${agentNames[0]} and ${agentNames[1]}`;
+      if (agentNames.length === 3) return `${agentNames[0]}, ${agentNames[1]} and ${agentNames[2]}`;
+      return 'multiple agents';
     })();
 
-    const stagePart =
-      selectedPipelineStages.length && availableStages.length
-        ? ` in ${availableStages
-            .filter((stage) => selectedPipelineStages.includes(stage.id))
-            .map((stage) => stage.label)
-            .join(', ')}`
-        : '';
+    const segments: string[] = [];
+    if (stagePhrase) segments.push(stagePhrase);
 
-    const dealTypePart =
-      selectedDealTypes.length && availableDealTypes.length
-        ? ` for ${selectedDealTypes
-            .map((dealType) => DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' '))
-            .join(', ')} deals`
-        : '';
+    if (dealTypePhrase) {
+      const dealPhrase = allDealTypesSelected
+        ? `across ${dealTypePhrase}`
+        : `${dealTypePhrase} deals`;
+      segments.push(dealPhrase);
+    }
 
-    const leadSourcePart =
-      selectedLeadSources.length && availableLeadSources.length
-        ? ` from ${availableLeadSources
-            .filter((source) => selectedLeadSources.includes(source.id))
-            .map((source) => source.name)
-            .join(', ')}`
-        : '';
+    if (leadSourcePhrase) {
+      segments.push(`from ${leadSourcePhrase}`);
+    }
 
-    return `Viewing ${agentPart}${stagePart}${dealTypePart}${leadSourcePart}`.trim();
+    if (segments.length === 0) {
+      segments.push('deals');
+    }
+
+    const joinedSegments = segments.join(', ');
+
+    return `Viewing ${agentPhrase} ${joinedSegments}`.replace(/\s+/g, ' ').trim() + '.';
   }, [
     availableAgents,
     availableDealTypes,
