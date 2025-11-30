@@ -187,7 +187,15 @@ export default function Pipeline() {
         console.error('Error loading deals', error);
         setDeals([]);
       } else {
-        setDeals(data || []);
+        const currentYear = new Date().getFullYear();
+        const filtered = (data || []).filter(deal => {
+          if (deal.status !== 'closed') return true;
+          const closedDate = deal.close_date || deal.closed_at;
+          if (!closedDate) return false;
+          const year = new Date(closedDate).getFullYear();
+          return year >= currentYear; // keep current year and future closures; drop past years
+        });
+        setDeals(filtered);
       }
     } catch (err) {
       console.error('Error resolving visible users', err);

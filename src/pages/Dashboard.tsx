@@ -45,7 +45,7 @@ interface DashboardStats {
   ytdDeals: number;
   ytdVolume: number;
   avgCommission: number;
-  closingThisMonth: number;
+  closingNext7Days: number;
   conversionRate: number;
 }
 
@@ -146,6 +146,8 @@ interface ParsedDateParts {
   date: Date;
 }
 
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
 const parseDateValue = (value?: string | null): ParsedDateParts | null => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -186,6 +188,22 @@ const parseDateValue = (value?: string | null): ParsedDateParts | null => {
     month: parsed.getUTCMonth(),
     date: parsed
   };
+};
+
+const getCloseDateTimestamp = (value?: string | null): number | null => {
+  if (!value) return null;
+  const parsed = parseDateValue(value);
+  if (!parsed) return null;
+
+  const trimmed = value.trim();
+  const isDateOnly = DATE_ONLY_REGEX.test(trimmed);
+
+  if (isDateOnly) {
+    const day = parsed.date.getUTCDate();
+    return new Date(parsed.year, parsed.month, day, 23, 59, 59, 999).getTime();
+  }
+
+  return parsed.date.getTime();
 };
 
 const buildCloseDateFilter = (startISO: string, endISO: string) => {
@@ -251,7 +269,7 @@ export default function Dashboard() {
     ytdDeals: 0,
     ytdVolume: 0,
     avgCommission: 0,
-    closingThisMonth: 0,
+    closingNext7Days: 0,
     conversionRate: 0
   });
   const [pipelineHealth, setPipelineHealth] = useState<PipelineStatusSummary[]>([]);
@@ -534,9 +552,32 @@ export default function Dashboard() {
     [pipelineHealth]
   );
 
+  const filteredUpcomingDeals = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfWindow = new Date(startOfToday);
+    endOfWindow.setDate(endOfWindow.getDate() + 29);
+    endOfWindow.setHours(23, 59, 59, 999);
+
+    const windowStart = startOfToday.getTime();
+    const windowEnd = endOfWindow.getTime();
+
+    return upcomingDeals
+      .map((deal) => {
+        const closeTime = getCloseDateTimestamp(deal.close_date) ?? getCloseDateTimestamp(deal.closed_at);
+        return closeTime === null ? null : { deal, closeTime };
+      })
+      .filter((entry): entry is { deal: Deal; closeTime: number } => {
+        if (!entry) return false;
+        return entry.closeTime >= windowStart && entry.closeTime <= windowEnd;
+      })
+      .sort((a, b) => a.closeTime - b.closeTime)
+      .map(({ deal }) => deal);
+  }, [upcomingDeals]);
+
   const projectedGCI = useMemo(
-    () => upcomingDeals.reduce((sum, deal) => sum + calculateGCI(deal), 0),
-    [upcomingDeals]
+    () => filteredUpcomingDeals.reduce((sum, deal) => sum + calculateGCI(deal), 0),
+    [filteredUpcomingDeals]
   );
 
   useEffect(() => {
@@ -744,6 +785,11 @@ export default function Dashboard() {
       if (!session) return;
 
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/luma-insights`;
+      const statsPayload = {
+        ...stats,
+        // backward compatibility for downstream consumers expecting the old field name
+        closingThisMonth: stats.closingNext7Days
+      };
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -752,7 +798,7 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          stats,
+          stats: statsPayload,
           pipelineHealth: pipelineHealth.map(p => ({
             id: p.id,
             name: p.name,
@@ -818,24 +864,25 @@ export default function Dashboard() {
       console.error('loadStats allDeals error', allDealsError);
     }
 
-    // "Closing this month" uses close_date + active closing statuses
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth();
-    const startOfMonth = new Date(currentYear, currentMonth, 1).toISOString();
-    const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59).toISOString();
+    // "Closing soon" uses close_date + active closing statuses within the next 7 days
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfWindow = new Date(startOfToday);
+    endOfWindow.setDate(endOfWindow.getDate() + 6);
+    endOfWindow.setHours(23, 59, 59, 999);
 
     let closingQuery = supabase
       .from('deals')
       .select('id')
       .in('status', ACTIVE_CLOSING_STATUSES)
-      .gte('close_date', startOfMonth)
-      .lte('close_date', endOfMonth);
+      .gte('close_date', startOfToday.toISOString())
+      .lte('close_date', endOfWindow.toISOString());
     closingQuery = applyDealFilters(closingQuery, userIds);
 
-    const { data: closingThisMonth, error: ctError } = await closingQuery;
+    const { data: closingSoon, error: ctError } = await closingQuery;
 
     if (ctError) {
-      console.error('loadStats closingThisMonth error', ctError);
+      console.error('loadStats closingSoon error', ctError);
     }
 
     let totalVolume = 0;
@@ -861,7 +908,7 @@ export default function Dashboard() {
       ytdDeals,
       ytdVolume: totalVolume,
       avgCommission,
-      closingThisMonth: closingThisMonth?.length || 0,
+      closingNext7Days: closingSoon?.length || 0,
       conversionRate
     });
   };
@@ -1071,18 +1118,12 @@ export default function Dashboard() {
   };
 
   const loadUpcomingDeals = async (userIds: string[]) => {
-    const now = new Date();
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(now.getDate() + 30);
-
     let upcomingQuery = supabase
       .from('deals')
       .select('*')
       .in('status', ACTIVE_CLOSING_STATUSES)
-      .gte('close_date', now.toISOString())
-      .lte('close_date', thirtyDaysFromNow.toISOString())
-      .order('close_date', { ascending: true })
-      .limit(5);
+      .order('close_date', { ascending: true, nullsLast: true })
+      .limit(200);
 
     upcomingQuery = applyDealFilters(upcomingQuery, userIds);
 
@@ -1094,7 +1135,7 @@ export default function Dashboard() {
       return;
     }
 
-    setUpcomingDeals((data || []) as Deal[]);
+      setUpcomingDeals((data || []) as Deal[]);
   };
 
   const loadStalledDeals = async (userIds: string[]) => {
@@ -1694,7 +1735,7 @@ export default function Dashboard() {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {upcomingDeals.map(deal => (
+        {filteredUpcomingDeals.map(deal => (
           <div
             key={deal.id}
             className="p-4 border border-gray-200/60 rounded-xl hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
@@ -1735,7 +1776,7 @@ export default function Dashboard() {
               {greetingText || getGreeting(user?.user_metadata?.name)}
             </h1>
             <p className="text-sm text-gray-600 mt-2">
-              {stats.closingThisMonth} deal{stats.closingThisMonth === 1 ? '' : 's'} closing soon ·{' '}
+              {stats.closingNext7Days} deal{stats.closingNext7Days === 1 ? '' : 's'} closing soon (next 7 days) ·{' '}
               {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
             </p>
           </div>
@@ -1746,11 +1787,11 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Pipeline Value</p>
-            <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(pipelineValue)}</p>
-            <p className="text-xs text-gray-600 mt-1">Active stages only</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Pipeline Value</p>
+          <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(pipelineValue)}</p>
+          <p className="text-xs text-gray-600 mt-1">Active stages only</p>
           </div>
           <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/40 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Projected GCI</p>
@@ -1907,42 +1948,74 @@ export default function Dashboard() {
 
       {/* KPI cards - not draggable */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="hig-card p-6">
+        <div
+          className="hig-card p-6"
+          title="Gross commission income from closed deals in the selected date range."
+        >
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 rounded-xl bg-blue-50">
               <DollarSign className="w-5 h-5 text-[rgb(0,122,255)]" strokeWidth={2} />
             </div>
-            <span className="text-sm text-gray-600">Total GCI</span>
+            <span
+              className="text-sm text-gray-600"
+              title="Gross commission income from closed deals in the selected date range."
+            >
+              Total GCI
+            </span>
           </div>
           <div className="text-3xl font-semibold text-gray-900">{formatCurrency(stats.ytdGCI)}</div>
         </div>
 
-        <div className="hig-card p-6">
+        <div
+          className="hig-card p-6"
+          title="Number of deals marked closed within the selected date range."
+        >
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 rounded-xl bg-green-50">
               <CheckCircle className="w-5 h-5 text-green-600" strokeWidth={2} />
             </div>
-            <span className="text-sm text-gray-600">Closed Deals</span>
+            <span
+              className="text-sm text-gray-600"
+              title="Number of deals marked closed within the selected date range."
+            >
+              Closed Deals
+            </span>
           </div>
           <div className="text-3xl font-semibold text-gray-900">{stats.ytdDeals}</div>
         </div>
 
-        <div className="hig-card p-6">
+        <div
+          className="hig-card p-6"
+          title="Active deals scheduled to close in the next 7 days."
+        >
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 rounded-xl bg-orange-50">
               <Calendar className="w-5 h-5 text-orange-600" strokeWidth={2} />
             </div>
-            <span className="text-sm text-gray-600">Closing Soon</span>
+            <span
+              className="text-sm text-gray-600"
+              title="Active deals scheduled to close in the next 7 days."
+            >
+              Closing Soon (7d)
+            </span>
           </div>
-          <div className="text-3xl font-semibold text-gray-900">{stats.closingThisMonth}</div>
+          <div className="text-3xl font-semibold text-gray-900">{stats.closingNext7Days}</div>
         </div>
 
-        <div className="hig-card p-6">
+        <div
+          className="hig-card p-6"
+          title="Closed deals divided by all deals created in the selected date range."
+        >
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 rounded-xl bg-gray-50">
               <Activity className="w-5 h-5 text-gray-600" strokeWidth={2} />
             </div>
-            <span className="text-sm text-gray-600">Conv. Rate</span>
+            <span
+              className="text-sm text-gray-600"
+              title="Closed deals divided by all deals created in the selected date range."
+            >
+              Conv. Rate
+            </span>
           </div>
           <div className="text-3xl font-semibold text-gray-900">{formatPercent(stats.conversionRate)}</div>
         </div>
