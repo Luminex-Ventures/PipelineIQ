@@ -76,6 +76,16 @@ interface ArchiveStats {
   }[];
 }
 
+type FunnelStage = 'lead' | 'in_progress' | 'under_contract' | 'closed_won' | 'archived';
+
+interface FunnelTransition {
+  from: FunnelStage;
+  to: FunnelStage;
+  entered: number;
+  advanced: number;
+  rate: number;
+}
+
 const CLOSING_STATUSES: DealRow['status'][] = ['under_contract', 'pending', 'closed'];
 
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
@@ -125,6 +135,7 @@ export default function Analytics() {
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
   const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
   const [archiveStats, setArchiveStats] = useState<ArchiveStats>({ total: 0, reasons: [] });
+  const [funnelTransitions, setFunnelTransitions] = useState<FunnelTransition[]>([]);
   const agentScopeKey = useMemo(
     () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
     [selectedAgentIds]
@@ -597,6 +608,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       deal_type,
       status,
       created_at,
+      stage_entered_at,
       close_date,
       closed_at,
       expected_sale_price,
@@ -878,6 +890,13 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       setLeadSourceStats([]);
     }
 
+    if (allDeals) {
+      const funnel = computeFunnelTransitions(allDeals, selectedYear);
+      setFunnelTransitions(funnel);
+    } else {
+      setFunnelTransitions([]);
+    }
+
     setClosingThisMonthStats(closingThisMonth);
 
     if (isInitialLoad) {
@@ -897,6 +916,72 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
   const formatNumber = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+
+  const stageOrder: Record<FunnelStage, number> = {
+    lead: 1,
+    in_progress: 2,
+    under_contract: 3,
+    closed_won: 4,
+    archived: 5,
+  };
+
+  const stageLabel: Record<FunnelStage, string> = {
+    lead: 'Lead',
+    in_progress: 'In Progress',
+    under_contract: 'Under Contract',
+    closed_won: 'Closed Won',
+    archived: 'Archived (Closed Lost)',
+  };
+
+  const getStageForStatus = (status: DealRow['status']): FunnelStage => {
+    switch (status) {
+      case 'closed':
+        return 'closed_won';
+      case 'dead':
+        return 'archived';
+      case 'under_contract':
+      case 'pending':
+        return 'under_contract';
+      case 'offer_submitted':
+      case 'showing_scheduled':
+      case 'in_progress':
+      case 'contacted':
+        return 'in_progress';
+      default:
+        return 'lead';
+    }
+  };
+
+  const isDateInYear = (date: Date | null, year: number) => {
+    if (!date) return false;
+    return date.getFullYear() === year;
+  };
+
+  const computeFunnelTransitions = (deals: any[], year: number): FunnelTransition[] => {
+    const transitionsConfig: { from: FunnelStage; to: FunnelStage }[] = [
+      { from: 'lead', to: 'in_progress' },
+      { from: 'in_progress', to: 'under_contract' },
+      { from: 'under_contract', to: 'closed_won' },
+    ];
+
+    const yearDeals = deals.filter((deal: any) => isDateInYear(parseDateValue(deal.created_at)?.date || null, year));
+
+    return transitionsConfig.map(({ from, to }) => {
+      const entered = yearDeals.filter((deal: any) => {
+        const stage = getStageForStatus(deal.status);
+        return stageOrder[stage] >= stageOrder[from];
+      }).length;
+
+      const advanced = yearDeals.filter((deal: any) => {
+        const stage = getStageForStatus(deal.status);
+        if (stage === 'archived') return false;
+        return stageOrder[stage] >= stageOrder[to];
+      }).length;
+
+      const rate = entered > 0 ? (advanced / entered) * 100 : 0;
+      return { from, to, entered, advanced, rate };
+    });
+  };
 
   // Goal & pace calculations
   const goalProgress = gciGoal > 0 ? (yearlyStats.totalGCI / gciGoal) * 100 : 0;
@@ -1431,6 +1516,50 @@ const parseDateValue = (value?: string | null): DateParts | null => {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className={`${surfaceClass} p-6`}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Stage Conversion (Funnel)</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              How many deals advance between key stages; highlights slowdowns and drop-offs.
+            </p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                <th className="pb-2 pr-4">From → To</th>
+                <th className="pb-2 pr-4">Entered</th>
+                <th className="pb-2 pr-4">Advanced</th>
+                <th className="pb-2 pr-4">Conversion</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {funnelTransitions.map((row) => (
+                <tr key={`${row.from}-${row.to}`}>
+                  <td className="py-3 pr-4 font-medium text-gray-900">
+                    {stageLabel[row.from]} → {stageLabel[row.to]}
+                  </td>
+                  <td className="py-3 pr-4 text-gray-700">{row.entered}</td>
+                  <td className="py-3 pr-4 text-gray-700">{row.advanced}</td>
+                  <td className="py-3 pr-4 text-gray-900 font-semibold">
+                    {row.rate.toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+              {funnelTransitions.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-4 text-sm text-gray-500">
+                    No stage movement recorded in this period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
