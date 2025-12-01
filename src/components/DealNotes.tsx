@@ -16,9 +16,11 @@ interface Note {
 
 interface DealNotesProps {
   dealId: string;
+  taskId?: string;
+  showTaskBadge?: boolean;
 }
 
-export default function DealNotes({ dealId }: DealNotesProps) {
+export default function DealNotes({ dealId, taskId, showTaskBadge = false }: DealNotesProps) {
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,8 +31,7 @@ export default function DealNotes({ dealId }: DealNotesProps) {
 
   useEffect(() => {
     loadNotes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dealId]);
+  }, [dealId, taskId, user?.id]); // reload when context changes
 
   const loadNotes = async () => {
     try {
@@ -42,7 +43,9 @@ export default function DealNotes({ dealId }: DealNotesProps) {
 
       if (error) throw error;
 
-      const notesWithUser = (data || []).map((note: any) => ({
+      const scoped = taskId ? (data || []).filter((note: any) => note.task_id === taskId) : data || [];
+
+      const notesWithUser = scoped.map((note: any) => ({
         ...note,
         user_email: user?.email,
         user_name: note.user_id === user?.id
@@ -79,7 +82,8 @@ export default function DealNotes({ dealId }: DealNotesProps) {
           .insert({
             deal_id: dealId,
             user_id: user.id,
-            content: noteContent
+            content: noteContent,
+            task_id: taskId || null
           });
 
         if (error) throw error;
@@ -224,6 +228,14 @@ export default function DealNotes({ dealId }: DealNotesProps) {
                       <>
                         <span className="text-gray-400">•</span>
                         <span className="text-gray-500 text-xs">edited</span>
+                      </>
+                    )}
+                    {showTaskBadge && note.task_id && (
+                      <>
+                        <span className="text-gray-400">•</span>
+                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                          Task note
+                        </span>
                       </>
                     )}
                   </div>

@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus, X } from 'lucide-react';
+import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import DealModal from '../components/DealModal';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
 import { getVisibleUserIds } from '../lib/rbac';
-import DealNotes from '../components/DealNotes';
 
 const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const filterPillBaseClass =
@@ -18,6 +17,12 @@ type DealSummary = Pick<
   Database['public']['Tables']['deals']['Row'],
   'id' | 'user_id' | 'client_name' | 'property_address' | 'city' | 'state' | 'deal_type' | 'status' | 'next_task_due_date' | 'next_task_description'
 >;
+type TaskNote = {
+  id: string;
+  task_id: string | null;
+  content: string;
+  created_at: string;
+};
 type AccessibleAgentRow = {
   user_id: string;
   display_name: string | null;
@@ -47,7 +52,6 @@ export default function Tasks() {
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Database['public']['Tables']['deals']['Row'] | null>(null);
-  const [selectedTaskForNotes, setSelectedTaskForNotes] = useState<Task | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDealId, setNewTaskDealId] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
@@ -56,6 +60,8 @@ export default function Tasks() {
   const [createError, setCreateError] = useState<string | null>(null);
   const isManagerRole = !!roleInfo && ['sales_manager', 'team_lead', 'admin'].includes(roleInfo.globalRole);
   const [agentOptions, setAgentOptions] = useState<{ id: string; label: string }[]>([]);
+  const [notesByTask, setNotesByTask] = useState<Record<string, TaskNote[]>>({});
+  const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
 
   const getOwnerName = (ownerId: string) => {
     if (dealOwners[ownerId]) return dealOwners[ownerId];
@@ -267,9 +273,9 @@ export default function Tasks() {
     const { data, error } = await query;
 
     if (!error && data) {
-      setTasks(
-        data.filter((task) => task.deals).map(task => task as Task)
-      );
+      const taskList = data.filter((task) => task.deals).map(task => task as Task);
+      setTasks(taskList);
+      await fetchTaskNotes(taskList);
     }
 
     setLoading(false);
@@ -329,6 +335,33 @@ export default function Tasks() {
     }
   };
 
+  const fetchTaskNotes = async (taskList: Task[]) => {
+    if (!taskList.length) {
+      setNotesByTask({});
+      return;
+    }
+    const taskIds = taskList.map(t => t.id);
+    const { data, error } = await supabase
+      .from('deal_notes')
+      .select('id, task_id, content, created_at')
+      .in('task_id', taskIds)
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      console.error('Error loading task notes', error);
+      setNotesByTask({});
+      return;
+    }
+
+    const map: Record<string, TaskNote[]> = {};
+    data.forEach((note: any) => {
+      if (!note.task_id) return;
+      if (!map[note.task_id]) map[note.task_id] = [];
+      map[note.task_id].push(note as TaskNote);
+    });
+    setNotesByTask(map);
+  };
+
   const formatDate = (date?: string | null) => {
     const parsed = normalizeDueDate(date);
     if (!parsed) return 'No due date';
@@ -362,9 +395,6 @@ export default function Tasks() {
     setShowDealModal(true);
   };
 
-  const handleOpenNotes = (task: Task) => {
-    setSelectedTaskForNotes(task);
-  };
 
   const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -703,7 +733,10 @@ export default function Tasks() {
                         {group.agentName} • {group.tasks.length} task{group.tasks.length === 1 ? '' : 's'}
                       </td>
                     </tr>
-                    {group.tasks.map((task) => (
+                    {group.tasks.map((task) => {
+                      const notes = notesByTask[task.id] || [];
+                      const expanded = !!expandedNotes[task.id];
+                      return (
                       <tr
                         key={task.id}
                         className="hover:bg-[var(--app-surface-muted)]/60 cursor-pointer"
@@ -727,13 +760,43 @@ export default function Tasks() {
                               )}
                             </button>
                             <div>
-                              <p className="font-medium text-gray-900">{task.title}</p>
-                              {task.deals?.next_task_description && (
-                                <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900">{task.title}</p>
+                            {notes.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedNotes(prev => ({ ...prev, [task.id]: !expanded }));
+                                }}
+                                className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
+                                aria-label="Toggle task notes"
+                              >
+                                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                                <span>Notes</span>
+                              </button>
+                            )}
+                          </div>
+                          {task.deals?.next_task_description && (
+                            <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
+                          )}
+                          {expanded && notes.length > 0 && (
+                            <div className="mt-2 rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
+                              {notes.slice(0, 3).map(note => (
+                                <p key={note.id} className="text-sm text-gray-700">
+                                  {note.content}
+                                </p>
+                              ))}
+                              {notes.length > 3 && (
+                                <p className="text-xs text-gray-500">
+                                  {notes.length - 3} more note{notes.length - 3 === 1 ? '' : 's'} in Deal notes
+                                </p>
                               )}
                             </div>
-                          </div>
-                        </td>
+                          )}
+                        </div>
+                      </div>
+                    </td>
                         <td className="px-5 py-4 text-sm text-gray-700">
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-gray-400" />
@@ -764,11 +827,15 @@ export default function Tasks() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </React.Fragment>
                 ))
               ) : (
-                filteredTasks.map((task) => (
+                filteredTasks.map((task) => {
+                  const notes = notesByTask[task.id] || [];
+                  const expanded = !!expandedNotes[task.id];
+                  return (
                   <tr
                     key={task.id}
                     className="hover:bg-[var(--app-surface-muted)]/60 cursor-pointer"
@@ -792,22 +859,40 @@ export default function Tasks() {
                           )}
                         </button>
                         <div>
-                          <p className="font-medium text-gray-900">{task.title}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900">{task.title}</p>
+                            {notes.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedNotes(prev => ({ ...prev, [task.id]: !expanded }));
+                                }}
+                                className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
+                                aria-label="Toggle task notes"
+                              >
+                                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                                <span>Notes</span>
+                              </button>
+                            )}
+                          </div>
                           {task.deals?.next_task_description && (
                             <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
                           )}
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenNotes(task);
-                              }}
-                              className="text-[11px] font-semibold text-[var(--app-accent)] hover:underline"
-                            >
-                              View notes
-                            </button>
-                          </div>
+                          {expanded && notes.length > 0 && (
+                            <div className="mt-2 rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
+                              {notes.slice(0, 3).map(note => (
+                                <p key={note.id} className="text-sm text-gray-700">
+                                  {note.content}
+                                </p>
+                              ))}
+                              {notes.length > 3 && (
+                                <p className="text-xs text-gray-500">
+                                  {notes.length - 3} more note{notes.length - 3 === 1 ? '' : 's'} in Deal notes
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -841,7 +926,8 @@ export default function Tasks() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
