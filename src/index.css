@@ -112,6 +112,32 @@
   .hig-divider {
     @apply border-t border-gray-200/60;
   }
+
+  /* Elevate grouped agent labels in task deal selector */
+  .task-deal-select optgroup {
+    color: #0f172a !important;
+    font-weight: 800;
+    background-color: #e9edf8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 13px;
+    padding: 6px 8px;
+  }
+
+  .task-deal-select optgroup option {
+    color: #0f172a !important;
+    font-weight: 500;
+  }
+
+  /* Reduce gray overlay on analytics multiselect filters */
+  .analytics-multi-select option {
+    color: #0f172a;
+  }
+  .analytics-multi-select option:checked {
+    background-color: rgba(0, 122, 255, 0.16);
+    color: #0f172a;
+    font-weight: 600;
+  }
 }
 
 @layer utilities {

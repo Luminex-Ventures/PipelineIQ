@@ -67,6 +67,25 @@ interface StageOption {
   sortOrder?: number | null;
 }
 
+interface ArchiveStats {
+  total: number;
+  reasons: {
+    reason: ArchiveReason;
+    count: number;
+    percentage: number;
+  }[];
+}
+
+type FunnelStage = 'lead' | 'in_progress' | 'under_contract' | 'closed_won' | 'archived';
+
+interface FunnelTransition {
+  from: FunnelStage;
+  to: FunnelStage;
+  entered: number;
+  advanced: number;
+  rate: number;
+}
+
 const CLOSING_STATUSES: DealRow['status'][] = ['under_contract', 'pending', 'closed'];
 
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
@@ -76,6 +95,15 @@ const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   renter: 'Renter',
   landlord: 'Landlord'
 };
+
+const ARCHIVE_REASON_OPTIONS = [
+  'No Response / Ghosted',
+  'Client Not Ready / Timeline Changed',
+  'Chose Another Agent',
+  'Financing Didn’t Work Out',
+  'Deal Fell Through'
+] as const;
+type ArchiveReason = (typeof ARCHIVE_REASON_OPTIONS)[number] | 'Other';
 
 export default function Analytics() {
   const { user, roleInfo } = useAuth();
@@ -106,6 +134,8 @@ export default function Analytics() {
   const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
   const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
+  const [archiveStats, setArchiveStats] = useState<ArchiveStats>({ total: 0, reasons: [] });
+  const [funnelTransitions, setFunnelTransitions] = useState<FunnelTransition[]>([]);
   const agentScopeKey = useMemo(
     () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
     [selectedAgentIds]
@@ -526,9 +556,10 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
   useEffect(() => {
     if (!user) return;
+    if (availableAgents.length === 0) return;
     loadAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey]);
+  }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, availableAgents]);
 
   useEffect(() => {
     const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
@@ -538,7 +569,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
   }, [selectedAgentIds, selectedYear, availableAgents]);
 
   const loadAnalytics = async () => {
-    if (!user) return;
+    if (!user || availableAgents.length === 0) return;
     const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
     if (!ids.length) {
       startTransition(() => {
@@ -577,6 +608,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       deal_type,
       status,
       created_at,
+      stage_entered_at,
       close_date,
       closed_at,
       expected_sale_price,
@@ -596,6 +628,16 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       ids
     );
 
+    const archivedQuery = applyDealFilters(
+      supabase
+        .from('deals')
+        .select('id, created_at, close_date, closed_at, lead_source_id, pipeline_status_id, archived_reason')
+        .eq('status', 'dead')
+        .gte('created_at', startOfYear)
+        .lte('created_at', endOfYear),
+      ids
+    );
+
     const allDealsQuery = applyDealFilters(
       supabase
         .from('deals')
@@ -605,19 +647,21 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       ids
     );
 
-    const [settingsResp, closedResp, allResp] = await Promise.all([
+    const [settingsResp, closedResp, archivedResp, allResp] = await Promise.all([
       supabase
         .from('user_settings')
         .select('annual_gci_goal')
         .eq('user_id', user.id)
         .maybeSingle(),
       closedQuery,
+      archivedQuery,
       allDealsQuery
     ]);
 
     if (settingsResp.data) setGciGoal(settingsResp.data.annual_gci_goal || 0);
 
     const closedDeals = closedResp.data;
+    const archivedDeals = archivedResp.data;
     const allDeals = allResp.data;
 
     if (closedDeals) {
@@ -731,6 +775,49 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       setClosingThisMonthStats({ count: 0, gci: 0 });
     }
 
+    if (archivedDeals) {
+      const reasonCounts: Record<ArchiveReason, number> = {
+        'No Response / Ghosted': 0,
+        'Client Not Ready / Timeline Changed': 0,
+        'Chose Another Agent': 0,
+        'Financing Didn’t Work Out': 0,
+        'Deal Fell Through': 0,
+        Other: 0
+      };
+
+      const archivedIds = archivedDeals.map((d: any) => d.id).filter(Boolean);
+
+      if (archivedIds.length) {
+        archivedDeals.forEach((deal: any) => {
+          const raw = (deal.archived_reason || '').trim();
+          const match = ARCHIVE_REASON_OPTIONS.find(
+            (reason) => raw && reason.toLowerCase() === raw.toLowerCase()
+          );
+          const bucket: ArchiveReason = match || 'Other';
+          reasonCounts[bucket] = (reasonCounts[bucket] || 0) + 1;
+        });
+
+        const totalArchived = archivedIds.length;
+        const reasonsArray = Object.entries(reasonCounts)
+          .filter(([, count]) => count > 0)
+          .map(([reason, count]) => ({
+            reason: reason as ArchiveReason,
+            count,
+            percentage: totalArchived > 0 ? (count / totalArchived) * 100 : 0
+          }))
+          .sort((a, b) => b.count - a.count);
+
+        setArchiveStats({
+          total: totalArchived,
+          reasons: reasonsArray
+        });
+      } else {
+        setArchiveStats({ total: 0, reasons: [] });
+      }
+    } else {
+      setArchiveStats({ total: 0, reasons: [] });
+    }
+
     const now = new Date();
     const isCurrentYear = now.getFullYear() === selectedYear;
     const closingThisMonth: ClosingThisMonthStats = { count: 0, gci: 0 };
@@ -803,6 +890,13 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       setLeadSourceStats([]);
     }
 
+    if (allDeals) {
+      const funnel = computeFunnelTransitions(allDeals, selectedYear);
+      setFunnelTransitions(funnel);
+    } else {
+      setFunnelTransitions([]);
+    }
+
     setClosingThisMonthStats(closingThisMonth);
 
     if (isInitialLoad) {
@@ -822,6 +916,72 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
   const formatNumber = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+
+  const stageOrder: Record<FunnelStage, number> = {
+    lead: 1,
+    in_progress: 2,
+    under_contract: 3,
+    closed_won: 4,
+    archived: 5,
+  };
+
+  const stageLabel: Record<FunnelStage, string> = {
+    lead: 'Lead',
+    in_progress: 'In Progress',
+    under_contract: 'Under Contract',
+    closed_won: 'Closed Won',
+    archived: 'Archived (Closed Lost)',
+  };
+
+  const getStageForStatus = (status: DealRow['status']): FunnelStage => {
+    switch (status) {
+      case 'closed':
+        return 'closed_won';
+      case 'dead':
+        return 'archived';
+      case 'under_contract':
+      case 'pending':
+        return 'under_contract';
+      case 'offer_submitted':
+      case 'showing_scheduled':
+      case 'in_progress':
+      case 'contacted':
+        return 'in_progress';
+      default:
+        return 'lead';
+    }
+  };
+
+  const isDateInYear = (date: Date | null, year: number) => {
+    if (!date) return false;
+    return date.getFullYear() === year;
+  };
+
+  const computeFunnelTransitions = (deals: any[], year: number): FunnelTransition[] => {
+    const transitionsConfig: { from: FunnelStage; to: FunnelStage }[] = [
+      { from: 'lead', to: 'in_progress' },
+      { from: 'in_progress', to: 'under_contract' },
+      { from: 'under_contract', to: 'closed_won' },
+    ];
+
+    const yearDeals = deals.filter((deal: any) => isDateInYear(parseDateValue(deal.created_at)?.date || null, year));
+
+    return transitionsConfig.map(({ from, to }) => {
+      const entered = yearDeals.filter((deal: any) => {
+        const stage = getStageForStatus(deal.status);
+        return stageOrder[stage] >= stageOrder[from];
+      }).length;
+
+      const advanced = yearDeals.filter((deal: any) => {
+        const stage = getStageForStatus(deal.status);
+        if (stage === 'archived') return false;
+        return stageOrder[stage] >= stageOrder[to];
+      }).length;
+
+      const rate = entered > 0 ? (advanced / entered) * 100 : 0;
+      return { from, to, entered, advanced, rate };
+    });
+  };
 
   // Goal & pace calculations
   const goalProgress = gciGoal > 0 ? (yearlyStats.totalGCI / gciGoal) * 100 : 0;
@@ -999,7 +1159,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
                   multiple
                   value={selectedAgentIds}
                   onChange={handleAgentSelectionChange}
-                  className="hig-input min-h-[72px] rounded-2xl border-gray-200 bg-white/90 text-sm"
+                  className="hig-input min-h-[72px] rounded-2xl border-gray-200 bg-white/90 text-sm analytics-multi-select"
                 >
                   {availableAgents.map((agent) => (
                     <option key={agent.id} value={agent.id}>
@@ -1025,7 +1185,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
                   multiple
                   value={selectedPipelineStages}
                   onChange={handlePipelineFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
+                  className="hig-input min-h-[64px] mt-2 analytics-multi-select"
                 >
                   {availableStages.map((stage) => (
                     <option key={stage.id} value={stage.id}>
@@ -1051,7 +1211,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
                   multiple
                   value={selectedDealTypes}
                   onChange={handleDealTypeFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
+                  className="hig-input min-h-[64px] mt-2 analytics-multi-select"
                 >
                   {availableDealTypes.map((dealType) => (
                     <option key={dealType} value={dealType}>
@@ -1077,7 +1237,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
                   multiple
                   value={selectedLeadSources}
                   onChange={handleLeadSourceFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
+                  className="hig-input min-h-[64px] mt-2 analytics-multi-select"
                 >
                   {availableLeadSources.map((source) => (
                     <option key={source.id} value={source.id}>
@@ -1357,6 +1517,84 @@ const parseDateValue = (value?: string | null): DateParts | null => {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className={`${surfaceClass} p-6`}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Stage Conversion (Funnel)</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              How many deals advance between key stages; highlights slowdowns and drop-offs.
+            </p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                <th className="pb-2 pr-4">From → To</th>
+                <th className="pb-2 pr-4">Entered</th>
+                <th className="pb-2 pr-4">Advanced</th>
+                <th className="pb-2 pr-4">Conversion</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {funnelTransitions.map((row) => (
+                <tr key={`${row.from}-${row.to}`}>
+                  <td className="py-3 pr-4 font-medium text-gray-900">
+                    {stageLabel[row.from]} → {stageLabel[row.to]}
+                  </td>
+                  <td className="py-3 pr-4 text-gray-700">{row.entered}</td>
+                  <td className="py-3 pr-4 text-gray-700">{row.advanced}</td>
+                  <td className="py-3 pr-4 text-gray-900 font-semibold">
+                    {row.rate.toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+              {funnelTransitions.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-4 text-sm text-gray-500">
+                    No stage movement recorded in this period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className={`${surfaceClass} p-6`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Closed Lost Reasons</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Why archived deals fell out — fuel pipeline fixes, coaching, and source tuning.
+            </p>
+          </div>
+          <div className="text-sm text-gray-600">
+            <span className={pillClass}>
+              {archiveStats.total} archived
+            </span>
+          </div>
+        </div>
+
+        {archiveStats.total === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-600 bg-gray-50/80">
+            No archived deals in this period. When you archive with a reason, we’ll summarize them here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {archiveStats.reasons.map((item) => (
+              <div key={item.reason} className="rounded-xl border border-gray-100/80 bg-white px-4 py-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-gray-900">{item.reason}</p>
+                  <span className="text-xs font-semibold text-gray-500">{item.percentage.toFixed(1)}%</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{item.count} deal{item.count === 1 ? '' : 's'}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className={`${surfaceClass} overflow-hidden`}>

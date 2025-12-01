@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -117,6 +117,36 @@ export default function Pipeline() {
       setSearchParams(nextParams, { replace: true });
     }
   }, [pendingNewDeal, searchParams, setSearchParams]);
+
+  const openDealById = useCallback(
+    async (dealId: string) => {
+      const existing = deals.find((d) => d.id === dealId);
+      if (existing) {
+        setSelectedDeal(existing);
+        setShowModal(true);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('deals')
+        .select('*')
+        .eq('id', dealId)
+        .maybeSingle();
+
+      if (!error && data) {
+        setSelectedDeal(data as Deal);
+        setShowModal(true);
+      }
+    },
+    [deals]
+  );
+
+  useEffect(() => {
+    const dealId = searchParams.get('dealId');
+    if (dealId) {
+      openDealById(dealId);
+    }
+  }, [searchParams, deals, openDealById]);
 
   useEffect(() => {
     // Show template selection if user has no statuses
@@ -284,13 +314,19 @@ export default function Pipeline() {
   const handleModalClose = () => {
     setShowModal(false);
     setSelectedDeal(null);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextParams.has('dealId')) {
+      nextParams.delete('dealId');
+      setSearchParams(nextParams, { replace: true });
+    }
     loadDeals();
   };
 
-  const filteredDeals =
+  const filteredDeals = (
     dealTypeFilter === 'all'
       ? deals
-      : deals.filter(deal => DEAL_TYPE_FILTER_META[dealTypeFilter].matches.includes(deal.deal_type));
+      : deals.filter(deal => DEAL_TYPE_FILTER_META[dealTypeFilter].matches.includes(deal.deal_type))
+  ).filter(deal => deal.status !== 'dead');
 
   const getDealsByStatusId = (statusId: string) => {
     return filteredDeals.filter(deal => deal.pipeline_status_id === statusId);

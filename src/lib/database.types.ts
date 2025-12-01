@@ -85,6 +85,7 @@ export interface Database {
           close_date: string | null;
           next_task_description: string | null;
           next_task_due_date: string | null;
+          archived_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -114,6 +115,7 @@ export interface Database {
           close_date?: string | null;
           next_task_description?: string | null;
           next_task_due_date?: string | null;
+          archived_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -143,8 +145,41 @@ export interface Database {
           close_date?: string | null;
           next_task_description?: string | null;
           next_task_due_date?: string | null;
+          archived_reason?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+      };
+      activity_events: {
+        Row: {
+          id: string;
+          actor_id: string;
+          target_user_id: string;
+          event_type: 'deal_status_change' | 'deal_deleted' | 'task_created';
+          deal_id: string | null;
+          task_id: string | null;
+          payload: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_id: string;
+          target_user_id: string;
+          event_type: 'deal_status_change' | 'deal_deleted' | 'task_created';
+          deal_id?: string | null;
+          task_id?: string | null;
+          payload?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          actor_id?: string;
+          target_user_id?: string;
+          event_type?: 'deal_status_change' | 'deal_deleted' | 'task_created';
+          deal_id?: string | null;
+          task_id?: string | null;
+          payload?: Json | null;
+          created_at?: string;
         };
       };
       deal_notes: {

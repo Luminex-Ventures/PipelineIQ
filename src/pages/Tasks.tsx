@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus } from 'lucide-react';
 import DealModal from '../components/DealModal';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
+import { getVisibleUserIds } from '../lib/rbac';
 
 const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const filterPillBaseClass =
@@ -11,6 +12,15 @@ const filterPillBaseClass =
 
 type Task = Database['public']['Tables']['tasks']['Row'] & {
   deals: Database['public']['Tables']['deals']['Row'];
+};
+type DealSummary = Pick<
+  Database['public']['Tables']['deals']['Row'],
+  'id' | 'user_id' | 'client_name' | 'property_address' | 'city' | 'state' | 'deal_type' | 'status' | 'next_task_due_date' | 'next_task_description'
+>;
+type AccessibleAgentRow = {
+  user_id: string;
+  display_name: string | null;
+  email: string | null;
 };
 
 const statusFilterOptions = [
@@ -23,15 +33,45 @@ const statusFilterOptions = [
 type StatusFilterValue = (typeof statusFilterOptions)[number]['value'];
 
 export default function Tasks() {
-  const { user } = useAuth();
+  const { user, roleInfo } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
+  const [agentFilter, setAgentFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deals, setDeals] = useState<DealSummary[]>([]);
+  const [dealOwners, setDealOwners] = useState<Record<string, string>>({});
+  const [dealsLoading, setDealsLoading] = useState(true);
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDealId, setNewTaskDealId] = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const isManagerRole = !!roleInfo && ['sales_manager', 'team_lead', 'admin'].includes(roleInfo.globalRole);
+  const [agentOptions, setAgentOptions] = useState<{ id: string; label: string }[]>([]);
+
+  const getOwnerName = (ownerId: string) => {
+    if (dealOwners[ownerId]) return dealOwners[ownerId];
+    if (ownerId === user?.id) return user.user_metadata?.name || user.email || 'You';
+    return `Agent ${ownerId.slice(0, 8)}`;
+  };
+
+  const normalizeDueDate = (dateStr?: string | null) => {
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+  };
+
+  const taskBase = useMemo(
+    () => (agentFilter === 'all' ? tasks : tasks.filter(task => task.user_id === agentFilter)),
+    [tasks, agentFilter]
+  );
 
   const taskStats = useMemo(() => {
     const today = new Date();
@@ -44,13 +84,12 @@ export default function Tasks() {
 
     const datedTasks: Task[] = [];
 
-    tasks.forEach((task) => {
-      if (!task.due_date) {
+    taskBase.forEach((task) => {
+      const due = normalizeDueDate(task.due_date);
+      if (!due) {
         unscheduled += 1;
         return;
       }
-      const due = new Date(task.due_date);
-      due.setHours(0, 0, 0, 0);
       if (due < today) {
         overdue += 1;
       } else if (due.getTime() === today.getTime()) {
@@ -62,42 +101,121 @@ export default function Tasks() {
     });
 
     datedTasks.sort((a, b) => {
-      if (!a.due_date) return 1;
-      if (!b.due_date) return -1;
-      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      const dueA = normalizeDueDate(a.due_date);
+      const dueB = normalizeDueDate(b.due_date);
+      if (!dueA) return 1;
+      if (!dueB) return -1;
+      return dueA.getTime() - dueB.getTime();
     });
 
     return {
       total: tasks.length,
+      scopedTotal: taskBase.length,
       overdue,
       dueToday,
       upcoming,
       unscheduled,
       nextTask: datedTasks[0] || null
     };
-  }, [tasks]);
+  }, [taskBase]);
+
+  const selectedDealOption = useMemo(
+    () => deals.find(deal => deal.id === newTaskDealId),
+    [deals, newTaskDealId]
+  );
+
+  const shouldGroupDeals = useMemo(
+    () => !!(roleInfo && ['sales_manager', 'team_lead'].includes(roleInfo.globalRole)),
+    [roleInfo]
+  );
+
+  const groupedDeals = useMemo(() => {
+    if (!shouldGroupDeals) return null;
+    return deals.reduce<Record<string, DealSummary[]>>((acc, deal) => {
+      const ownerId = deal.user_id;
+      if (!acc[ownerId]) acc[ownerId] = [];
+      acc[ownerId].push(deal);
+      return acc;
+    }, {});
+  }, [deals, shouldGroupDeals]);
 
   useEffect(() => {
     if (!user) return;
     fetchTasks();
-  }, [user]);
+  }, [user, roleInfo]);
 
   useEffect(() => {
-    let result = [...tasks];
+    const loadAgents = async () => {
+    if (!user || !roleInfo) return;
+    if (!isManagerRole) {
+      setAgentOptions([]);
+      setAgentFilter('all');
+      return;
+    }
+      try {
+        const visibleIds = await getVisibleUserIds(roleInfo);
+        const { data, error } = await supabase.rpc('get_accessible_agents');
+        if (!error && data) {
+          const opts = (data as any[])
+            .filter(agent =>
+              visibleIds.includes(agent.user_id) &&
+              agent.global_role !== 'admin' &&
+              agent.global_role !== 'sales_manager'
+            )
+            .map(agent => ({
+              id: agent.user_id,
+              label: agent.display_name || agent.email || 'Agent'
+            }));
+          setAgentOptions(opts);
+          if (agentFilter !== 'all' && !opts.find(opt => opt.id === agentFilter)) {
+            setAgentFilter('all');
+          }
+        }
+      } catch (err) {
+        console.error('Error loading agents', err);
+        setAgentOptions([]);
+      }
+    };
+    loadAgents();
+  }, [user, roleInfo]);
+
+  useEffect(() => {
+    if (!user) {
+      setDeals([]);
+      setDealsLoading(false);
+      return;
+    }
+    fetchDeals();
+  }, [user, roleInfo]);
+
+  useEffect(() => {
+    let result = [...taskBase];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     if (statusFilter === 'overdue') {
-      result = result.filter(task => task.due_date && new Date(task.due_date) < today);
+      result = result.filter(task => {
+        if (!task.due_date) return false;
+        const dueDate = normalizeDueDate(task.due_date);
+        return !!dueDate && dueDate < today;
+      });
     } else if (statusFilter === 'today') {
       result = result.filter(task => {
         if (!task.due_date) return false;
-        const dueDate = new Date(task.due_date);
-        dueDate.setHours(0, 0, 0, 0);
+        const dueDate = normalizeDueDate(task.due_date);
+        if (!dueDate) return false;
         return dueDate.getTime() === today.getTime();
       });
     } else if (statusFilter === 'upcoming') {
-      result = result.filter(task => task.due_date && new Date(task.due_date) > today);
+      result = result.filter(task => {
+        if (!task.due_date) return false;
+        const dueDate = normalizeDueDate(task.due_date);
+        return !!dueDate && dueDate > today;
+      });
+    }
+
+    if (agentFilter !== 'all') {
+      result = result.filter(task => task.user_id === agentFilter);
     }
 
     if (searchQuery.trim()) {
@@ -110,18 +228,41 @@ export default function Tasks() {
     }
 
     setFilteredTasks(result);
-  }, [statusFilter, searchQuery, tasks]);
+  }, [statusFilter, searchQuery, agentFilter, taskBase]);
+
+  useEffect(() => {
+    if (agentFilter === 'all') return;
+    const validDealIds = new Set(
+      deals.filter(deal => deal.user_id === agentFilter).map(deal => deal.id)
+    );
+    if (newTaskDealId && !validDealIds.has(newTaskDealId)) {
+      setNewTaskDealId('');
+    }
+  }, [agentFilter, deals, newTaskDealId]);
 
   const fetchTasks = async () => {
     if (!user) return;
     setLoading(true);
 
-    const { data, error } = await supabase
+    let visibleIds: string[] = [user.id];
+    if (roleInfo) {
+      visibleIds = await getVisibleUserIds(roleInfo);
+      if (!visibleIds.length) visibleIds = [user.id];
+    }
+
+    let query = supabase
       .from('tasks')
       .select(`*, deals(*, lead_sources(*))`)
-      .eq('user_id', user.id)
       .eq('completed', false)
       .order('due_date', { ascending: true });
+
+    if (visibleIds.length === 1) {
+      query = query.eq('user_id', visibleIds[0]);
+    } else if (visibleIds.length > 1) {
+      query = query.in('user_id', visibleIds);
+    }
+
+    const { data, error } = await query;
 
     if (!error && data) {
       setTasks(
@@ -132,9 +273,64 @@ export default function Tasks() {
     setLoading(false);
   };
 
+  const fetchDeals = async () => {
+    if (!user) return;
+    setDealsLoading(true);
+
+    try {
+    let visibleUserIds: string[] = [user.id];
+
+    if (roleInfo) {
+      visibleUserIds = await getVisibleUserIds(roleInfo);
+      if (!visibleUserIds.length) {
+        visibleUserIds = [user.id];
+      }
+    }
+
+      let query = supabase
+        .from('deals')
+        .select('id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description')
+        .neq('status', 'closed')
+        .neq('status', 'dead')
+        .order('updated_at', { ascending: false });
+
+      if (visibleUserIds.length === 1) {
+        query = query.eq('user_id', visibleUserIds[0]);
+      } else if (visibleUserIds.length > 1) {
+        query = query.in('user_id', visibleUserIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error loading deals', error);
+        setDeals([]);
+      } else {
+        setDeals(data || []);
+        const ownerMap: Record<string, string> = {};
+        const { data: agents, error: agentError } = await supabase.rpc('get_accessible_agents');
+        if (!agentError && Array.isArray(agents)) {
+          (agents as AccessibleAgentRow[]).forEach(agent => {
+            if (visibleUserIds.includes(agent.user_id)) {
+              ownerMap[agent.user_id] = agent.display_name || agent.email || 'Agent';
+            }
+          });
+        }
+        setDealOwners(ownerMap);
+      }
+    } catch (err) {
+      console.error('Error resolving visible deals', err);
+      setDeals([]);
+      setDealOwners({});
+    } finally {
+      setDealsLoading(false);
+    }
+  };
+
   const formatDate = (date?: string | null) => {
-    if (!date) return 'No due date';
-    return new Date(date).toLocaleDateString('en-US', {
+    const parsed = normalizeDueDate(date);
+    if (!parsed) return 'No due date';
+    return parsed.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric'
@@ -142,11 +338,11 @@ export default function Tasks() {
   };
 
   const getTaskStatusBadge = (task: Task) => {
-    if (!task.due_date) {
+    const due = normalizeDueDate(task.due_date);
+    if (!due) {
       return <span className="text-xs font-medium text-gray-500">No due date</span>;
     }
 
-    const due = new Date(task.due_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -164,6 +360,63 @@ export default function Tasks() {
     setShowDealModal(true);
   };
 
+  const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user) return;
+
+    setCreateError(null);
+
+    if (!newTaskTitle.trim() || !newTaskDealId) {
+      setCreateError('Add a task name and choose a deal.');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const { error } = await supabase.from('tasks').insert({
+        user_id: selectedDealOption?.user_id || user.id,
+        deal_id: newTaskDealId,
+        title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || null,
+        due_date: newTaskDueDate || null,
+        completed: false
+      });
+
+      if (error) throw error;
+
+      setNewTaskTitle('');
+      setNewTaskDealId('');
+      setNewTaskDueDate('');
+      setNewTaskDescription('');
+      setStatusFilter('all');
+      await fetchTasks();
+    } catch (err) {
+      console.error('Error creating task', err);
+      setCreateError('Could not add this task. Please try again.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const groupedTasksByAgent = useMemo(() => {
+    if (!isManagerRole || agentFilter !== 'all') return null;
+    const groups = new Map<string, Task[]>();
+    filteredTasks.forEach(task => {
+      const ownerId = task.user_id;
+      if (!groups.has(ownerId)) groups.set(ownerId, []);
+      groups.get(ownerId)!.push(task);
+    });
+
+    return Array.from(groups.entries())
+      .map(([agentId, tasksForAgent]) => ({
+        agentId,
+        agentName: dealOwners[agentId] || getOwnerName(agentId),
+        tasks: tasksForAgent
+      }))
+      .sort((a, b) => a.agentName.localeCompare(b.agentName));
+  }, [filteredTasks, agentFilter, isManagerRole, dealOwners]);
+
   const handleToggleComplete = async (task: Task, event: React.MouseEvent) => {
     event.stopPropagation();
     if (!user) return;
@@ -172,8 +425,7 @@ export default function Tasks() {
       const { error } = await supabase
         .from('tasks')
         .update({ completed: true })
-        .eq('id', task.id)
-        .eq('user_id', user.id);
+        .eq('id', task.id);
 
       if (error) throw error;
 
@@ -216,38 +468,201 @@ export default function Tasks() {
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-              Task status
-            </span>
-            {statusFilter !== 'all' && (
-              <button
-                onClick={() => setStatusFilter('all')}
-                className="text-xs font-medium text-[var(--app-accent)] hover:underline"
-              >
-                Reset
-              </button>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                Task status
+              </span>
+              {statusFilter !== 'all' && (
+                <button
+                  onClick={() => setStatusFilter('all')}
+                  className="text-xs font-medium text-[var(--app-accent)] hover:underline"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            {isManagerRole && (
+              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                Agent
+              </span>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            {statusFilterOptions.map(option => {
-              const isActive = statusFilter === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => setStatusFilter(option.value)}
-                  className={`${filterPillBaseClass} ${
-                    isActive
-                      ? option.accentClass
-                      : 'border-gray-200/70 bg-white text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {statusFilterOptions.map(option => {
+                const isActive = statusFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => setStatusFilter(option.value)}
+                    className={`${filterPillBaseClass} ${
+                      isActive
+                        ? option.accentClass
+                        : 'border-gray-200/70 bg-white text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            {isManagerRole && (
+              <select
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                className="hig-input w-52"
+              >
+                <option value="all">All agents</option>
+                {(agentOptions.length ? agentOptions : Array.from(new Set(tasks.map(t => t.user_id))).map(id => ({
+                  id,
+                  label: dealOwners[id] || getOwnerName(id)
+                }))).map(agent => (
+                  <option key={agent.id} value={agent.id}>{agent.label}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
+      </div>
+
+      <div className={`${surfaceClass} p-6 space-y-4`}>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
+              Add a task
+            </p>
+            <h2 className="text-2xl font-semibold text-gray-900 mt-1">Assign the next move</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Attach a next step to any deal without leaving this page. Keep it short, clear, and actionable.
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-4 py-2 text-xs font-semibold text-gray-700 shadow-inner">
+            <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] shadow-[0_0_0_4px_rgba(0,122,255,0.12)]" />
+            {dealsLoading
+              ? 'Loading deals…'
+              : `${(agentFilter === 'all' ? deals.length : deals.filter(d => d.user_id === agentFilter).length)} deals available`}
+          </div>
+        </div>
+
+        <form onSubmit={handleCreateTask} className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <label className="hig-label">Task</label>
+            <input
+              type="text"
+              value={newTaskTitle}
+              onChange={(e) => {
+                setNewTaskTitle(e.target.value);
+                if (createError) setCreateError(null);
+              }}
+              placeholder="Call lender about pre-approval"
+              className="hig-input"
+            />
+          </div>
+
+          <div className="lg:col-span-4">
+            <label className="hig-label">Deal</label>
+            <select
+              value={newTaskDealId}
+              onChange={(e) => {
+                setNewTaskDealId(e.target.value);
+                if (createError) setCreateError(null);
+              }}
+              className="hig-input task-deal-select"
+              disabled={dealsLoading || deals.length === 0}
+            >
+              <option value="">{dealsLoading ? 'Loading deals…' : 'Choose a deal'}</option>
+              {shouldGroupDeals && groupedDeals
+                ? Object.entries(groupedDeals)
+                    .map(([ownerId, ownerDeals]) => {
+                      const filtered = agentFilter === 'all' ? ownerDeals : ownerDeals.filter(d => d.user_id === agentFilter);
+                      return [ownerId, filtered] as const;
+                    })
+                    .filter(([, ownerDeals]) => ownerDeals.length > 0)
+                    .sort((a, b) => {
+                      const nameA = getOwnerName(a[0]);
+                      const nameB = getOwnerName(b[0]);
+                      return nameA.localeCompare(nameB);
+                    })
+                    .map(([ownerId, ownerDeals]) => (
+                      <optgroup
+                        key={ownerId}
+                        label={`— ${getOwnerName(ownerId).toUpperCase()} · ${ownerDeals.length} deal${ownerDeals.length === 1 ? '' : 's'} —`}
+                      >
+                        {ownerDeals.map((deal) => (
+                          <option key={deal.id} value={deal.id}>
+                            {deal.client_name} — {deal.property_address || 'Address TBD'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))
+                : (agentFilter === 'all' ? deals : deals.filter(deal => deal.user_id === agentFilter)).map((deal) => (
+                  <option key={deal.id} value={deal.id}>
+                    {deal.client_name} — {deal.property_address || 'Address TBD'}
+                  </option>
+                ))}
+            </select>
+            {selectedDealOption && (
+              <p className="mt-1 text-xs text-gray-500">
+                {selectedDealOption.city && selectedDealOption.state
+                  ? `${selectedDealOption.city}, ${selectedDealOption.state}`
+                  : selectedDealOption.city || selectedDealOption.state || 'No location on file'}
+              </p>
+            )}
+          </div>
+
+          <div className="lg:col-span-2">
+            <label className="hig-label">Due date</label>
+            <input
+              type="date"
+              value={newTaskDueDate}
+              onChange={(e) => setNewTaskDueDate(e.target.value)}
+              className="hig-input"
+            />
+          </div>
+
+          <div className="lg:col-span-1 flex items-end">
+            <button
+              type="submit"
+              className="hig-btn-primary w-full gap-2"
+              disabled={creating || dealsLoading || deals.length === 0}
+            >
+              {creating ? (
+                'Adding…'
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Add
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="lg:col-span-9">
+            <label className="hig-label">Notes (optional)</label>
+            <textarea
+              value={newTaskDescription}
+              onChange={(e) => setNewTaskDescription(e.target.value)}
+              placeholder="Context, prep work, or key talking points"
+              className="hig-input min-h-[80px]"
+            />
+          </div>
+
+          <div className="lg:col-span-3">
+            <div className="h-full rounded-xl border border-gray-200/70 bg-gray-50/80 px-4 py-3 text-sm text-gray-700 shadow-inner">
+              <p className="font-semibold text-gray-900">Give it clarity</p>
+              <p className="mt-1 text-gray-600">
+                Use short verbs, include the who/where, and set a date so it shows up in the right bucket.
+              </p>
+            </div>
+          </div>
+
+          {createError && (
+            <div className="lg:col-span-12 text-sm text-red-600">
+              {createError}
+            </div>
+          )}
+        </form>
       </div>
 
       <div className={`${surfaceClass} p-0 overflow-hidden`}>
@@ -274,6 +689,78 @@ export default function Tasks() {
                     Nothing to show here — take a moment to plan your next steps.
                   </td>
                 </tr>
+              ) : groupedTasksByAgent && groupedTasksByAgent.length > 0 ? (
+                groupedTasksByAgent.map((group) => (
+                  <React.Fragment key={group.agentId}>
+                    <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
+                      <td colSpan={4} className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                        {group.agentName} • {group.tasks.length} task{group.tasks.length === 1 ? '' : 's'}
+                      </td>
+                    </tr>
+                    {group.tasks.map((task) => (
+                      <tr
+                        key={task.id}
+                        className="hover:bg-[var(--app-surface-muted)]/60 cursor-pointer"
+                        onClick={() => handleRowClick(task)}
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-start gap-3">
+                            <button
+                              type="button"
+                              className="pt-1"
+                              onClick={(event) => handleToggleComplete(task, event)}
+                              disabled={completingId === task.id}
+                              aria-label="Mark task complete"
+                            >
+                              {completingId === task.id ? (
+                                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+                              ) : task.completed ? (
+                                <CheckCircle className="h-4 w-4 text-emerald-500" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-gray-300" />
+                              )}
+                            </button>
+                            <div>
+                              <p className="font-medium text-gray-900">{task.title}</p>
+                              {task.deals?.next_task_description && (
+                                <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-700">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-gray-400" />
+                            <span>{formatDate(task.due_date)}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-700">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <User className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="font-medium text-gray-900">{task.deals.client_name}</span>
+                            </div>
+                            {task.deals.property_address && (
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <MapPin className="h-3 w-3" />
+                                <span className="truncate">
+                                  {task.deals.property_address}
+                                  {task.deals.city ? `, ${task.deals.city}` : ''}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-700">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-gray-400" />
+                            {getTaskStatusBadge(task)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))
               ) : (
                 filteredTasks.map((task) => (
                   <tr

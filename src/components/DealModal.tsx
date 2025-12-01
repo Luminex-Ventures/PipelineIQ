@@ -30,6 +30,8 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [editingTaskDueDate, setEditingTaskDueDate] = useState('');
+  const [archived, setArchived] = useState(deal?.status === 'dead');
+  const [archivedReason, setArchivedReason] = useState(deal?.archived_reason || '');
 
   const [formData, setFormData] = useState({
     client_name: deal?.client_name || '',
@@ -57,8 +59,34 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     loadPipelineStatuses();
     if (deal) {
       loadTasks();
+      loadArchivedReason();
     }
+    setArchived(deal?.status === 'dead');
+    setArchivedReason(deal?.archived_reason || '');
   }, [deal, teamId, user?.id]);
+
+  useEffect(() => {
+    if (archived) {
+      setFormData(prev => ({ ...prev, pipeline_status_id: '' }));
+    }
+  }, [archived]);
+
+  const loadArchivedReason = async () => {
+    if (!deal) return;
+    const { data, error } = await supabase
+      .from('deal_notes')
+      .select('content')
+      .eq('deal_id', deal.id)
+      .ilike('content', 'Archive reason:%')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!error && data && data.length) {
+      const note = data[0].content || '';
+      const parsed = note.replace(/^Archive reason:\s*/i, '').trim();
+      setArchivedReason(parsed);
+    }
+  };
 
   const loadLeadSources = async () => {
     if (!user) return;
@@ -148,29 +176,58 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       return;
     }
 
+    if (archived && !archivedReason) {
+      alert('Please choose an archive reason.');
+      setLoading(false);
+      return;
+    }
+
     const dealData = {
       ...formData,
       user_id: user.id,
       lead_source_id: formData.lead_source_id,
-      pipeline_status_id: formData.pipeline_status_id || null,
-      status: selectedStatus ? (selectedStatus.slug || selectedStatus.name || 'new_lead').toLowerCase() : 'new_lead',
+      pipeline_status_id: archived ? null : (formData.pipeline_status_id || null),
+      status: archived
+        ? 'dead'
+        : selectedStatus
+          ? (selectedStatus.slug || selectedStatus.name || 'new_lead').toLowerCase()
+          : 'new_lead',
       expected_sale_price: Number(formData.expected_sale_price) || 0,
       actual_sale_price: formData.actual_sale_price ? Number(formData.actual_sale_price) : null,
       referral_out_rate: formData.referral_out_rate ? Number(formData.referral_out_rate) : null,
       referral_in_rate: formData.referral_in_rate ? Number(formData.referral_in_rate) : null,
       transaction_fee: Number(formData.transaction_fee) || 0,
-      close_date: formData.close_date || null
+      close_date: formData.close_date || null,
+      closed_at: archived ? new Date().toISOString() : deal?.closed_at || null,
+      archived_reason: archived ? archivedReason : null
     };
+
+    let dealId = deal?.id || null;
 
     if (deal) {
       await supabase
         .from('deals')
         .update(dealData)
         .eq('id', deal.id);
+      dealId = deal.id;
     } else {
-      await supabase
+      const { data: insertData, error: insertError } = await supabase
         .from('deals')
-        .insert(dealData);
+        .insert(dealData)
+        .select('id')
+        .single();
+      if (!insertError && insertData?.id) {
+        dealId = insertData.id;
+      }
+    }
+
+    // Keep legacy note logging for history but rely on column going forward
+    if (archived && dealId) {
+      await supabase.from('deal_notes').insert({
+        deal_id: dealId,
+        user_id: user.id,
+        content: `Archive reason: ${archivedReason}`
+      });
     }
 
     setLoading(false);
@@ -798,6 +855,51 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
               <DealNotes dealId={deal.id} />
             </div>
           )}
+
+          <div className="rounded-xl border border-gray-200/70 bg-white/90 p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 border border-gray-200">
+                <CheckSquare className="h-5 w-5 text-gray-700" />
+              </div>
+              <div className="flex-1 space-y-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-900">Archive this deal (Closed Lost)</p>
+                    <p className="text-sm text-gray-600">
+                      Use when a deal falls through, goes MIA, or stops responding. We’ll remove it from the active pipeline and track it for KPIs.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:items-center">
+                  <label className="inline-flex items-center gap-2 md:justify-self-start">
+                    <span className="text-sm text-gray-700">Archived</span>
+                    <input
+                      type="checkbox"
+                      checked={archived}
+                      onChange={(e) => setArchived(e.target.checked)}
+                      className="h-5 w-5 rounded border-gray-300 text-[rgb(0,122,255)] focus:ring-[rgb(0,122,255)]"
+                    />
+                  </label>
+                  <div className="md:col-span-2">
+                    <label className="hig-label mb-1">Archive reason</label>
+                    <select
+                      value={archivedReason}
+                      onChange={(e) => setArchivedReason(e.target.value)}
+                      className="hig-input"
+                      disabled={!archived}
+                    >
+                      <option value="">Select a reason</option>
+                      <option value="No Response / Ghosted">No Response / Ghosted</option>
+                      <option value="Client Not Ready / Timeline Changed">Client Not Ready / Timeline Changed</option>
+                      <option value="Chose Another Agent">Chose Another Agent</option>
+                      <option value="Financing Didn’t Work Out">Financing Didn’t Work Out</option>
+                      <option value="Deal Fell Through">Deal Fell Through</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="flex justify-between items-center pt-6 border-t border-gray-200/60">
             <div className="flex gap-3">
