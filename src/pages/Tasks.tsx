@@ -37,6 +37,7 @@ export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
+  const [agentFilter, setAgentFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<DealSummary[]>([]);
@@ -51,6 +52,8 @@ export default function Tasks() {
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const isManagerRole = !!roleInfo && ['sales_manager', 'team_lead', 'admin'].includes(roleInfo.globalRole);
+  const [agentOptions, setAgentOptions] = useState<{ id: string; label: string }[]>([]);
 
   const getOwnerName = (ownerId: string) => {
     if (dealOwners[ownerId]) return dealOwners[ownerId];
@@ -65,6 +68,11 @@ export default function Tasks() {
     return new Date(year, month - 1, day);
   };
 
+  const taskBase = useMemo(
+    () => (agentFilter === 'all' ? tasks : tasks.filter(task => task.user_id === agentFilter)),
+    [tasks, agentFilter]
+  );
+
   const taskStats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -76,7 +84,7 @@ export default function Tasks() {
 
     const datedTasks: Task[] = [];
 
-    tasks.forEach((task) => {
+    taskBase.forEach((task) => {
       const due = normalizeDueDate(task.due_date);
       if (!due) {
         unscheduled += 1;
@@ -102,13 +110,14 @@ export default function Tasks() {
 
     return {
       total: tasks.length,
+      scopedTotal: taskBase.length,
       overdue,
       dueToday,
       upcoming,
       unscheduled,
       nextTask: datedTasks[0] || null
     };
-  }, [tasks]);
+  }, [taskBase]);
 
   const selectedDealOption = useMemo(
     () => deals.find(deal => deal.id === newTaskDealId),
@@ -133,7 +142,42 @@ export default function Tasks() {
   useEffect(() => {
     if (!user) return;
     fetchTasks();
-  }, [user]);
+  }, [user, roleInfo]);
+
+  useEffect(() => {
+    const loadAgents = async () => {
+    if (!user || !roleInfo) return;
+    if (!isManagerRole) {
+      setAgentOptions([]);
+      setAgentFilter('all');
+      return;
+    }
+      try {
+        const visibleIds = await getVisibleUserIds(roleInfo);
+        const { data, error } = await supabase.rpc('get_accessible_agents');
+        if (!error && data) {
+          const opts = (data as any[])
+            .filter(agent =>
+              visibleIds.includes(agent.user_id) &&
+              agent.global_role !== 'admin' &&
+              agent.global_role !== 'sales_manager'
+            )
+            .map(agent => ({
+              id: agent.user_id,
+              label: agent.display_name || agent.email || 'Agent'
+            }));
+          setAgentOptions(opts);
+          if (agentFilter !== 'all' && !opts.find(opt => opt.id === agentFilter)) {
+            setAgentFilter('all');
+          }
+        }
+      } catch (err) {
+        console.error('Error loading agents', err);
+        setAgentOptions([]);
+      }
+    };
+    loadAgents();
+  }, [user, roleInfo]);
 
   useEffect(() => {
     if (!user) {
@@ -145,7 +189,7 @@ export default function Tasks() {
   }, [user, roleInfo]);
 
   useEffect(() => {
-    let result = [...tasks];
+    let result = [...taskBase];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -170,6 +214,10 @@ export default function Tasks() {
       });
     }
 
+    if (agentFilter !== 'all') {
+      result = result.filter(task => task.user_id === agentFilter);
+    }
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(task =>
@@ -180,18 +228,41 @@ export default function Tasks() {
     }
 
     setFilteredTasks(result);
-  }, [statusFilter, searchQuery, tasks]);
+  }, [statusFilter, searchQuery, agentFilter, taskBase]);
+
+  useEffect(() => {
+    if (agentFilter === 'all') return;
+    const validDealIds = new Set(
+      deals.filter(deal => deal.user_id === agentFilter).map(deal => deal.id)
+    );
+    if (newTaskDealId && !validDealIds.has(newTaskDealId)) {
+      setNewTaskDealId('');
+    }
+  }, [agentFilter, deals, newTaskDealId]);
 
   const fetchTasks = async () => {
     if (!user) return;
     setLoading(true);
 
-    const { data, error } = await supabase
+    let visibleIds: string[] = [user.id];
+    if (roleInfo) {
+      visibleIds = await getVisibleUserIds(roleInfo);
+      if (!visibleIds.length) visibleIds = [user.id];
+    }
+
+    let query = supabase
       .from('tasks')
       .select(`*, deals(*, lead_sources(*))`)
-      .eq('user_id', user.id)
       .eq('completed', false)
       .order('due_date', { ascending: true });
+
+    if (visibleIds.length === 1) {
+      query = query.eq('user_id', visibleIds[0]);
+    } else if (visibleIds.length > 1) {
+      query = query.in('user_id', visibleIds);
+    }
+
+    const { data, error } = await query;
 
     if (!error && data) {
       setTasks(
@@ -207,14 +278,14 @@ export default function Tasks() {
     setDealsLoading(true);
 
     try {
-      let visibleUserIds: string[] = [user.id];
+    let visibleUserIds: string[] = [user.id];
 
-      if (roleInfo) {
-        visibleUserIds = await getVisibleUserIds(roleInfo);
-        if (!visibleUserIds.length) {
-          visibleUserIds = [user.id];
-        }
+    if (roleInfo) {
+      visibleUserIds = await getVisibleUserIds(roleInfo);
+      if (!visibleUserIds.length) {
+        visibleUserIds = [user.id];
       }
+    }
 
       let query = supabase
         .from('deals')
@@ -304,7 +375,7 @@ export default function Tasks() {
 
     try {
       const { error } = await supabase.from('tasks').insert({
-        user_id: user.id,
+        user_id: selectedDealOption?.user_id || user.id,
         deal_id: newTaskDealId,
         title: newTaskTitle.trim(),
         description: newTaskDescription.trim() || null,
@@ -336,8 +407,7 @@ export default function Tasks() {
       const { error } = await supabase
         .from('tasks')
         .update({ completed: true })
-        .eq('id', task.id)
-        .eq('user_id', user.id);
+        .eq('id', task.id);
 
       if (error) throw error;
 
@@ -384,6 +454,24 @@ export default function Tasks() {
             <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
               Task status
             </span>
+            {isManagerRole && (
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Agent</span>
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className="hig-input w-52"
+                >
+                  <option value="all">All agents</option>
+                  {(agentOptions.length ? agentOptions : Array.from(new Set(tasks.map(t => t.user_id))).map(id => ({
+                    id,
+                    label: dealOwners[id] || getOwnerName(id)
+                  }))).map(agent => (
+                    <option key={agent.id} value={agent.id}>{agent.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {statusFilter !== 'all' && (
               <button
                 onClick={() => setStatusFilter('all')}
@@ -427,7 +515,9 @@ export default function Tasks() {
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-4 py-2 text-xs font-semibold text-gray-700 shadow-inner">
             <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] shadow-[0_0_0_4px_rgba(0,122,255,0.12)]" />
-            {dealsLoading ? 'Loading deals…' : `${deals.length} deals available`}
+            {dealsLoading
+              ? 'Loading deals…'
+              : `${(agentFilter === 'all' ? deals.length : deals.filter(d => d.user_id === agentFilter).length)} deals available`}
           </div>
         </div>
 
@@ -460,6 +550,11 @@ export default function Tasks() {
               <option value="">{dealsLoading ? 'Loading deals…' : 'Choose a deal'}</option>
               {shouldGroupDeals && groupedDeals
                 ? Object.entries(groupedDeals)
+                    .map(([ownerId, ownerDeals]) => {
+                      const filtered = agentFilter === 'all' ? ownerDeals : ownerDeals.filter(d => d.user_id === agentFilter);
+                      return [ownerId, filtered] as const;
+                    })
+                    .filter(([, ownerDeals]) => ownerDeals.length > 0)
                     .sort((a, b) => {
                       const nameA = getOwnerName(a[0]);
                       const nameB = getOwnerName(b[0]);
@@ -477,11 +572,11 @@ export default function Tasks() {
                         ))}
                       </optgroup>
                     ))
-                : deals.map((deal) => (
-                    <option key={deal.id} value={deal.id}>
-                      {deal.client_name} — {deal.property_address || 'Address TBD'}
-                    </option>
-                  ))}
+                : (agentFilter === 'all' ? deals : deals.filter(deal => deal.user_id === agentFilter)).map((deal) => (
+                  <option key={deal.id} value={deal.id}>
+                    {deal.client_name} — {deal.property_address || 'Address TBD'}
+                  </option>
+                ))}
             </select>
             {selectedDealOption && (
               <p className="mt-1 text-xs text-gray-500">
