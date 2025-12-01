@@ -1297,6 +1297,27 @@ export default function Dashboard() {
     window.location.href = '/luma';
   };
 
+  const handlePipelineStatusClick = (status: PipelineStatusSummary) => {
+    const serialize = (values: string[]) => values.join(',');
+    const params = new URLSearchParams();
+    params.set('view', 'table');
+    params.set('statusId', status.id);
+    params.set('statusName', status.name);
+    if (selectedAgentIds.length) {
+      params.set('agents', serialize(selectedAgentIds));
+    }
+    if (selectedLeadSources.length) {
+      params.set('leadSources', serialize(selectedLeadSources));
+    }
+    if (selectedPipelineStages.length) {
+      params.set('pipelineStages', serialize(selectedPipelineStages));
+    }
+    if (selectedDealTypes.length) {
+      params.set('dealTypes', serialize(selectedDealTypes));
+    }
+    window.location.href = `/pipeline?${params.toString()}`;
+  };
+
   const generateInsights = useMemo(() => {
     const insights: string[] = [];
 
@@ -1463,6 +1484,15 @@ export default function Dashboard() {
                 <div
                   key={status.id}
                   className="group p-4 rounded-xl border border-gray-200/60 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handlePipelineStatusClick(status)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handlePipelineStatusClick(status);
+                    }
+                  }}
                 >
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
