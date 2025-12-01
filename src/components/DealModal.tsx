@@ -30,6 +30,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [editingTaskDueDate, setEditingTaskDueDate] = useState('');
+  const [archived, setArchived] = useState(deal?.status === 'dead');
 
   const [formData, setFormData] = useState({
     client_name: deal?.client_name || '',
@@ -58,7 +59,14 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     if (deal) {
       loadTasks();
     }
+    setArchived(deal?.status === 'dead');
   }, [deal, teamId, user?.id]);
+
+  useEffect(() => {
+    if (archived) {
+      setFormData(prev => ({ ...prev, pipeline_status_id: '' }));
+    }
+  }, [archived]);
 
   const loadLeadSources = async () => {
     if (!user) return;
@@ -152,14 +160,19 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       ...formData,
       user_id: user.id,
       lead_source_id: formData.lead_source_id,
-      pipeline_status_id: formData.pipeline_status_id || null,
-      status: selectedStatus ? (selectedStatus.slug || selectedStatus.name || 'new_lead').toLowerCase() : 'new_lead',
+      pipeline_status_id: archived ? null : (formData.pipeline_status_id || null),
+      status: archived
+        ? 'dead'
+        : selectedStatus
+          ? (selectedStatus.slug || selectedStatus.name || 'new_lead').toLowerCase()
+          : 'new_lead',
       expected_sale_price: Number(formData.expected_sale_price) || 0,
       actual_sale_price: formData.actual_sale_price ? Number(formData.actual_sale_price) : null,
       referral_out_rate: formData.referral_out_rate ? Number(formData.referral_out_rate) : null,
       referral_in_rate: formData.referral_in_rate ? Number(formData.referral_in_rate) : null,
       transaction_fee: Number(formData.transaction_fee) || 0,
-      close_date: formData.close_date || null
+      close_date: formData.close_date || null,
+      closed_at: archived ? new Date().toISOString() : deal?.closed_at || null
     };
 
     if (deal) {
@@ -798,6 +811,33 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
               <DealNotes dealId={deal.id} />
             </div>
           )}
+
+          <div className="rounded-xl border border-gray-200/70 bg-white/90 p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 border border-gray-200">
+                <CheckSquare className="h-5 w-5 text-gray-700" />
+              </div>
+              <div className="flex-1 space-y-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-900">Archive this deal (Closed Lost)</p>
+                    <p className="text-sm text-gray-600">
+                      Use when a deal falls through, goes MIA, or stops responding. We’ll remove it from the active pipeline and track it for KPIs.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-2">
+                    <span className="text-sm text-gray-700">Archived</span>
+                    <input
+                      type="checkbox"
+                      checked={archived}
+                      onChange={(e) => setArchived(e.target.checked)}
+                      className="h-5 w-5 rounded border-gray-300 text-[rgb(0,122,255)] focus:ring-[rgb(0,122,255)]"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="flex justify-between items-center pt-6 border-t border-gray-200/60">
             <div className="flex gap-3">

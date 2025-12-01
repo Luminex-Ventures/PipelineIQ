@@ -220,6 +220,7 @@ export default function Tasks() {
         .from('deals')
         .select('id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description')
         .neq('status', 'closed')
+        .neq('status', 'dead')
         .order('updated_at', { ascending: false });
 
       if (visibleUserIds.length === 1) {

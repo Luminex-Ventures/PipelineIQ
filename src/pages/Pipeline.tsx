@@ -287,10 +287,11 @@ export default function Pipeline() {
     loadDeals();
   };
 
-  const filteredDeals =
+  const filteredDeals = (
     dealTypeFilter === 'all'
       ? deals
-      : deals.filter(deal => DEAL_TYPE_FILTER_META[dealTypeFilter].matches.includes(deal.deal_type));
+      : deals.filter(deal => DEAL_TYPE_FILTER_META[dealTypeFilter].matches.includes(deal.deal_type))
+  ).filter(deal => deal.status !== 'dead');
 
   const getDealsByStatusId = (statusId: string) => {
     return filteredDeals.filter(deal => deal.pipeline_status_id === statusId);
