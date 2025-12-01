@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus } from 'lucide-react';
+import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus, X } from 'lucide-react';
 import DealModal from '../components/DealModal';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
 import { getVisibleUserIds } from '../lib/rbac';
+import DealNotes from '../components/DealNotes';
 
 const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const filterPillBaseClass =
@@ -46,6 +47,7 @@ export default function Tasks() {
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+  const [selectedTaskForNotes, setSelectedTaskForNotes] = useState<Task | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDealId, setNewTaskDealId] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
@@ -358,6 +360,10 @@ export default function Tasks() {
   const handleRowClick = (task: Task) => {
     setSelectedDeal(task.deals);
     setShowDealModal(true);
+  };
+
+  const handleOpenNotes = (task: Task) => {
+    setSelectedTaskForNotes(task);
   };
 
   const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -790,6 +796,18 @@ export default function Tasks() {
                           {task.deals?.next_task_description && (
                             <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
                           )}
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenNotes(task);
+                              }}
+                              className="text-[11px] font-semibold text-[var(--app-accent)] hover:underline"
+                            >
+                              View notes
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </td>
