@@ -85,6 +85,7 @@ export interface Database {
           close_date: string | null;
           next_task_description: string | null;
           next_task_due_date: string | null;
+          archived_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -114,6 +115,7 @@ export interface Database {
           close_date?: string | null;
           next_task_description?: string | null;
           next_task_due_date?: string | null;
+          archived_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -143,6 +145,7 @@ export interface Database {
           close_date?: string | null;
           next_task_description?: string | null;
           next_task_due_date?: string | null;
+          archived_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };

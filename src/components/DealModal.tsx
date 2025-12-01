@@ -31,7 +31,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [editingTaskDueDate, setEditingTaskDueDate] = useState('');
   const [archived, setArchived] = useState(deal?.status === 'dead');
-  const [archivedReason, setArchivedReason] = useState('');
+  const [archivedReason, setArchivedReason] = useState(deal?.archived_reason || '');
 
   const [formData, setFormData] = useState({
     client_name: deal?.client_name || '',
@@ -62,6 +62,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       loadArchivedReason();
     }
     setArchived(deal?.status === 'dead');
+    setArchivedReason(deal?.archived_reason || '');
   }, [deal, teamId, user?.id]);
 
   useEffect(() => {
@@ -197,7 +198,8 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       referral_in_rate: formData.referral_in_rate ? Number(formData.referral_in_rate) : null,
       transaction_fee: Number(formData.transaction_fee) || 0,
       close_date: formData.close_date || null,
-      closed_at: archived ? new Date().toISOString() : deal?.closed_at || null
+      closed_at: archived ? new Date().toISOString() : deal?.closed_at || null,
+      archived_reason: archived ? archivedReason : null
     };
 
     let dealId = deal?.id || null;
@@ -219,6 +221,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       }
     }
 
+    // Keep legacy note logging for history but rely on column going forward
     if (archived && dealId) {
       await supabase.from('deal_notes').insert({
         deal_id: dealId,

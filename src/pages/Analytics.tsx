@@ -619,7 +619,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
     const archivedQuery = applyDealFilters(
       supabase
         .from('deals')
-        .select('id, created_at, close_date, closed_at, lead_source_id, pipeline_status_id')
+        .select('id, created_at, close_date, closed_at, lead_source_id, pipeline_status_id, archived_reason')
         .eq('status', 'dead')
         .gte('created_at', startOfYear)
         .lte('created_at', endOfYear),
@@ -776,22 +776,14 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       const archivedIds = archivedDeals.map((d: any) => d.id).filter(Boolean);
 
       if (archivedIds.length) {
-        const { data: notesData, error: notesError } = await supabase
-          .from('deal_notes')
-          .select('deal_id, content')
-          .in('deal_id', archivedIds)
-          .ilike('content', 'Archive reason:%');
-
-        if (!notesError && notesData) {
-          notesData.forEach((note: any) => {
-            const raw = (note.content || '').replace(/^Archive reason:\s*/i, '').trim();
-            const match = ARCHIVE_REASON_OPTIONS.find(
-              (reason) => reason.toLowerCase() === raw.toLowerCase()
-            );
-            const bucket: ArchiveReason = match || 'Other';
-            reasonCounts[bucket] = (reasonCounts[bucket] || 0) + 1;
-          });
-        }
+        archivedDeals.forEach((deal: any) => {
+          const raw = (deal.archived_reason || '').trim();
+          const match = ARCHIVE_REASON_OPTIONS.find(
+            (reason) => raw && reason.toLowerCase() === raw.toLowerCase()
+          );
+          const bucket: ArchiveReason = match || 'Other';
+          reasonCounts[bucket] = (reasonCounts[bucket] || 0) + 1;
+        });
 
         const totalArchived = archivedIds.length;
         const reasonsArray = Object.entries(reasonCounts)
