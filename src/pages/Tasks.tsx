@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus } from 'lucide-react';
 import DealModal from '../components/DealModal';
 import { supabase } from '../lib/supabase';
@@ -399,6 +399,24 @@ export default function Tasks() {
     }
   };
 
+  const groupedTasksByAgent = useMemo(() => {
+    if (!isManagerRole || agentFilter !== 'all') return null;
+    const groups = new Map<string, Task[]>();
+    filteredTasks.forEach(task => {
+      const ownerId = task.user_id;
+      if (!groups.has(ownerId)) groups.set(ownerId, []);
+      groups.get(ownerId)!.push(task);
+    });
+
+    return Array.from(groups.entries())
+      .map(([agentId, tasksForAgent]) => ({
+        agentId,
+        agentName: dealOwners[agentId] || getOwnerName(agentId),
+        tasks: tasksForAgent
+      }))
+      .sort((a, b) => a.agentName.localeCompare(b.agentName));
+  }, [filteredTasks, agentFilter, isManagerRole, dealOwners]);
+
   const handleToggleComplete = async (task: Task, event: React.MouseEvent) => {
     event.stopPropagation();
     if (!user) return;
@@ -450,54 +468,60 @@ export default function Tasks() {
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-              Task status
-            </span>
-            {isManagerRole && (
-              <div className="flex flex-col items-end gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Agent</span>
-                <select
-                  value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
-                  className="hig-input w-52"
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                Task status
+              </span>
+              {statusFilter !== 'all' && (
+                <button
+                  onClick={() => setStatusFilter('all')}
+                  className="text-xs font-medium text-[var(--app-accent)] hover:underline"
                 >
-                  <option value="all">All agents</option>
-                  {(agentOptions.length ? agentOptions : Array.from(new Set(tasks.map(t => t.user_id))).map(id => ({
-                    id,
-                    label: dealOwners[id] || getOwnerName(id)
-                  }))).map(agent => (
-                    <option key={agent.id} value={agent.id}>{agent.label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {statusFilter !== 'all' && (
-              <button
-                onClick={() => setStatusFilter('all')}
-                className="text-xs font-medium text-[var(--app-accent)] hover:underline"
-              >
-                Reset
-              </button>
+                  Reset
+                </button>
+              )}
+            </div>
+            {isManagerRole && (
+              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                Agent
+              </span>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            {statusFilterOptions.map(option => {
-              const isActive = statusFilter === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => setStatusFilter(option.value)}
-                  className={`${filterPillBaseClass} ${
-                    isActive
-                      ? option.accentClass
-                      : 'border-gray-200/70 bg-white text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {statusFilterOptions.map(option => {
+                const isActive = statusFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => setStatusFilter(option.value)}
+                    className={`${filterPillBaseClass} ${
+                      isActive
+                        ? option.accentClass
+                        : 'border-gray-200/70 bg-white text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            {isManagerRole && (
+              <select
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                className="hig-input w-52"
+              >
+                <option value="all">All agents</option>
+                {(agentOptions.length ? agentOptions : Array.from(new Set(tasks.map(t => t.user_id))).map(id => ({
+                  id,
+                  label: dealOwners[id] || getOwnerName(id)
+                }))).map(agent => (
+                  <option key={agent.id} value={agent.id}>{agent.label}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
       </div>
@@ -665,6 +689,78 @@ export default function Tasks() {
                     Nothing to show here — take a moment to plan your next steps.
                   </td>
                 </tr>
+              ) : groupedTasksByAgent && groupedTasksByAgent.length > 0 ? (
+                groupedTasksByAgent.map((group) => (
+                  <React.Fragment key={group.agentId}>
+                    <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
+                      <td colSpan={4} className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                        {group.agentName} • {group.tasks.length} task{group.tasks.length === 1 ? '' : 's'}
+                      </td>
+                    </tr>
+                    {group.tasks.map((task) => (
+                      <tr
+                        key={task.id}
+                        className="hover:bg-[var(--app-surface-muted)]/60 cursor-pointer"
+                        onClick={() => handleRowClick(task)}
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-start gap-3">
+                            <button
+                              type="button"
+                              className="pt-1"
+                              onClick={(event) => handleToggleComplete(task, event)}
+                              disabled={completingId === task.id}
+                              aria-label="Mark task complete"
+                            >
+                              {completingId === task.id ? (
+                                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+                              ) : task.completed ? (
+                                <CheckCircle className="h-4 w-4 text-emerald-500" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-gray-300" />
+                              )}
+                            </button>
+                            <div>
+                              <p className="font-medium text-gray-900">{task.title}</p>
+                              {task.deals?.next_task_description && (
+                                <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-700">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-gray-400" />
+                            <span>{formatDate(task.due_date)}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-700">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <User className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="font-medium text-gray-900">{task.deals.client_name}</span>
+                            </div>
+                            {task.deals.property_address && (
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <MapPin className="h-3 w-3" />
+                                <span className="truncate">
+                                  {task.deals.property_address}
+                                  {task.deals.city ? `, ${task.deals.city}` : ''}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-700">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-gray-400" />
+                            {getTaskStatusBadge(task)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))
               ) : (
                 filteredTasks.map((task) => (
                   <tr
