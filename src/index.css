@@ -128,6 +128,16 @@
     color: #0f172a !important;
     font-weight: 500;
   }
+
+  /* Reduce gray overlay on analytics multiselect filters */
+  .analytics-multi-select option {
+    color: #0f172a;
+  }
+  .analytics-multi-select option:checked {
+    background-color: rgba(0, 122, 255, 0.16);
+    color: #0f172a;
+    font-weight: 600;
+  }
 }
 
 @layer utilities {
