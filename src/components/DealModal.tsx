@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { X, Plus, Check, Trash2, Calendar, FileText, CheckSquare, Edit2, GripVertical } from 'lucide-react';
 import type { Database } from '../lib/database.types';
+import { getVisibleUserIds } from '../lib/rbac';
 import DealNotes from './DealNotes';
 
 type Deal = Database['public']['Tables']['deals']['Row'];
@@ -133,11 +134,27 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
 
   const loadTasks = async () => {
     if (!deal || !user) return;
-    const { data } = await supabase
+    let visibleUserIds: string[] = [user.id];
+
+    if (roleInfo) {
+      visibleUserIds = await getVisibleUserIds(roleInfo);
+      if (!visibleUserIds.length) {
+        visibleUserIds = [user.id];
+      }
+    }
+
+    let query = supabase
       .from('tasks')
       .select('*')
-      .eq('deal_id', deal.id)
-      .eq('user_id', user.id);
+      .eq('deal_id', deal.id);
+
+    if (visibleUserIds.length === 1) {
+      query = query.eq('user_id', visibleUserIds[0]);
+    } else if (visibleUserIds.length > 1) {
+      query = query.in('user_id', visibleUserIds);
+    }
+
+    const { data } = await query;
 
     if (data) {
       const sortedTasks = data.sort((a, b) => {
@@ -237,11 +254,13 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const handleAddTask = async () => {
     if (!newTaskTitle.trim() || !deal || !user) return;
 
+    const taskOwnerId = deal.user_id || user.id;
+
     await supabase
       .from('tasks')
       .insert({
         deal_id: deal.id,
-        user_id: user.id,
+        user_id: taskOwnerId,
         title: newTaskTitle,
         due_date: newTaskDueDate || null,
         completed: false

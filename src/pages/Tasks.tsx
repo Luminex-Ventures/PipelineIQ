@@ -410,16 +410,45 @@ export default function Tasks() {
     setCreating(true);
 
     try {
-      const { error } = await supabase.from('tasks').insert({
-        user_id: selectedDealOption?.user_id || user.id,
-        deal_id: newTaskDealId,
-        title: newTaskTitle.trim(),
-        description: newTaskDescription.trim() || null,
-        due_date: newTaskDueDate || null,
-        completed: false
-      });
+      const { data: createdTask, error } = await supabase
+        .from('tasks')
+        .insert({
+          user_id: selectedDealOption?.user_id || user.id,
+          deal_id: newTaskDealId,
+          title: newTaskTitle.trim(),
+          description: newTaskDescription.trim() || null,
+          due_date: newTaskDueDate || null,
+          completed: false
+        })
+        .select('id')
+        .single();
 
       if (error) throw error;
+
+      let noteSaveError: string | null = null;
+
+      if (createdTask && newTaskDescription.trim()) {
+        const trimmedNote = newTaskDescription.trim();
+        const attemptNoteInsert = async (userId: string) =>
+          supabase.from('deal_notes').insert({
+            deal_id: newTaskDealId,
+            task_id: createdTask.id,
+            user_id: userId,
+            content: trimmedNote
+          });
+
+        let { error: noteError } = await attemptNoteInsert(user.id);
+
+        if (noteError && selectedDealOption?.user_id && selectedDealOption.user_id !== user.id) {
+          // RLS only allows the deal owner to create notes; fall back to owner to avoid blocking task creation.
+          ({ error: noteError } = await attemptNoteInsert(selectedDealOption.user_id));
+        }
+
+        if (noteError) {
+          console.error('Error saving task note', noteError);
+          noteSaveError = 'Task saved, but note could not be saved for this deal.';
+        }
+      }
 
       setNewTaskTitle('');
       setNewTaskDealId('');
@@ -427,6 +456,9 @@ export default function Tasks() {
       setNewTaskDescription('');
       setStatusFilter('all');
       await fetchTasks();
+      if (noteSaveError) {
+        setCreateError(noteSaveError);
+      }
     } catch (err) {
       console.error('Error creating task', err);
       setCreateError('Could not add this task. Please try again.');
