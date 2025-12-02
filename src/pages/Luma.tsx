@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Sparkles, Send } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { queryLuma } from '../lib/openai';
+import { buildRAGContext } from '../lib/rag-context';
+import '../lib/rag-debug'; // Enable debug helper in console
 
 interface SupportingData {
   total_deals?: number;
@@ -46,43 +48,26 @@ export default function Luma() {
     setLoading(true);
 
     try {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
+      // Build RAG context from Supabase data
+      const context = await buildRAGContext();
 
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/luma-query`;
-      const headers = {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json'
-      };
-
+      // Get conversation history for context
       const conversationHistory = messages.slice(-6).map((m) => ({
         role: m.role,
         content: m.content
       }));
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          query: userMessage.content,
-          conversation_history: conversationHistory
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      // Query OpenAI with RAG context
+      const response = await queryLuma(
+        userMessage.content,
+        context,
+        conversationHistory
+      );
 
       const assistantMessage: Message = {
         role: 'assistant',
-        content: data.answer,
-        supportingData: data.supporting_data
+        content: response.answer,
+        supportingData: response.supportingData
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -214,8 +199,8 @@ export default function Luma() {
         </div>
 
         <form onSubmit={handleSubmit} className="border-t border-white/60 bg-white/80 px-4 py-4 backdrop-blur sm:px-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end">
-            <div className="flex-1 space-y-2">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-3">
+            <div className="flex-1">
               <div className="rounded-2xl border border-[#d0e2ff] bg-white px-4 py-3 shadow-inner focus-within:border-[var(--app-accent)]/40 focus-within:ring-2 focus-within:ring-[var(--app-accent)]/15">
                 <input
                   type="text"
@@ -226,17 +211,17 @@ export default function Luma() {
                   disabled={loading}
                 />
               </div>
-              <p className="text-[11px] text-gray-500">Enter to send • Luma respects the same roles as PipelineIQ.</p>
             </div>
             <button
               type="submit"
               disabled={loading || !input.trim()}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[rgb(0,122,255)] px-6 py-3 text-sm font-semibold text-white shadow-[0_20px_40px_rgba(0,122,255,0.35)] transition hover:bg-[rgb(0,100,210)] disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[rgb(0,122,255)] px-6 py-3 text-sm font-semibold text-white shadow-[0_20px_40px_rgba(0,122,255,0.35)] transition hover:bg-[rgb(0,100,210)] disabled:opacity-60 md:flex-shrink-0"
             >
               <Send className="h-4 w-4" />
               <span>Send</span>
             </button>
           </div>
+          <p className="mt-2 text-[11px] text-gray-500">Enter to send • Luma respects the same roles as PipelineIQ.</p>
         </form>
       </section>
     </div>

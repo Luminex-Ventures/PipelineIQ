@@ -90,13 +90,13 @@ export default function LeadSources() {
     };
 
     if (editingSource) {
-      await supabase
-        .from('lead_sources')
+      await (supabase
+        .from('lead_sources') as any)
         .update(payload)
         .eq('id', editingSource.id);
     } else {
-      await supabase
-        .from('lead_sources')
+      await (supabase
+        .from('lead_sources') as any)
         .insert({
           user_id: user.id,
           ...payload

@@ -54,7 +54,7 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     setInviteDetails(null);
     setError('');
 
-    const { data, error } = await supabase.rpc('get_invite_preview', {
+    const { data, error } = await (supabase.rpc as any)('get_invite_preview', {
       invite_token: token
     });
 
@@ -72,13 +72,13 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
       return;
     }
 
-    if (record.status !== 'pending') {
+    if ((record as InvitePreview).status !== 'pending') {
       setInviteMessage('This invitation has already been used or canceled.');
       setValidatingInvite(false);
       return;
     }
 
-    const expiresAt = new Date(record.expires_at);
+    const expiresAt = new Date((record as InvitePreview).expires_at);
     if (expiresAt.getTime() < Date.now()) {
       setInviteMessage('This invitation has expired. Please ask your admin to resend.');
       setValidatingInvite(false);
@@ -86,7 +86,7 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     }
 
     setInviteDetails(record as InvitePreview);
-    setEmail(record.email);
+    setEmail((record as InvitePreview).email);
     setInviteMessage('');
     setValidatingInvite(false);
   };

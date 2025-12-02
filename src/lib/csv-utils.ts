@@ -1,4 +1,4 @@
-import type { DealType, DealStatus } from './database.types';
+import type { DealType } from './database.types';
 
 export interface CSVDealRow {
   client_name: string;

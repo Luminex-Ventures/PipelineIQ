@@ -331,7 +331,7 @@ export default function Tasks() {
     const { data, error } = await query;
 
     if (!error && data) {
-      const taskList = data.filter((task) => task.deals).map((task) => task as Task);
+      const taskList = (data as any[]).filter((task) => task.deals).map((task) => task as Task);
       setTasks(taskList);
       await fetchTaskNotes(taskList);
     }
@@ -451,7 +451,7 @@ export default function Tasks() {
       const { data, error } = await query;
 
       if (!error && data) {
-        const list = data.filter((t) => t.deals).map((t) => t as Task);
+        const list = (data as any[]).filter((t) => t.deals).map((t) => t as Task);
         setCompletedTasks(list);
       }
     } catch (err) {
@@ -517,7 +517,7 @@ export default function Tasks() {
           description: newTaskDescription.trim() || null,
           due_date: newTaskDueDate || null,
           completed: false
-        })
+        } as any)
         .select('id')
         .single();
 
@@ -530,10 +530,10 @@ export default function Tasks() {
         const attemptNoteInsert = async (userId: string) =>
           supabase.from('deal_notes').insert({
             deal_id: newTaskDealId,
-            task_id: createdTask.id,
+            task_id: (createdTask as any).id,
             user_id: userId,
             content: trimmedNote
-          });
+          } as any);
 
         let { error: noteError } = await attemptNoteInsert(user.id);
 
@@ -570,8 +570,8 @@ export default function Tasks() {
 
     setCompletingId(task.id);
     try {
-      const { error } = await supabase
-        .from('tasks')
+      const { error } = await (supabase
+        .from('tasks') as any)
         .update({ completed: true })
         .eq('id', task.id);
 

@@ -45,8 +45,8 @@ export function useWorkspaceSettings() {
   const updateWorkspace = async (payload: Partial<WorkspaceRow>) => {
     if (!workspaceId) return { error: new Error('Workspace not found') };
 
-    const { data, error } = await supabase
-      .from('workspace_settings')
+    const { data, error } = await (supabase
+      .from('workspace_settings') as any)
       .update({
         ...payload,
         updated_at: new Date().toISOString()

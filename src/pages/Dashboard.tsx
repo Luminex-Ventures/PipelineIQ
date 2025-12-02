@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { generateDashboardInsights } from '../lib/openai-insights';
 import {
   TrendingUp, DollarSign, CheckCircle, Calendar, AlertCircle,
   Users, Sparkles, Target, Clock, Activity,
-  ChevronRight, FileText, GripVertical, ArrowUpRight, ArrowDownRight
+  ChevronRight, GripVertical, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
-import { DndContext, DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
-import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { DndContext, DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
   formatCurrency,
@@ -244,11 +245,13 @@ function SortableWidget({ id, children }: SortableWidgetProps) {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    position: 'relative' as const
+    position: 'relative' as const,
+    height: 'fit-content' as const,
+    minHeight: 0
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="relative group">
+    <div ref={setNodeRef} style={style} className="relative group h-fit min-h-0 self-start">
       <div
         {...attributes}
         {...listeners}
@@ -289,7 +292,6 @@ export default function Dashboard() {
   const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [dealTypeStats, setDealTypeStats] = useState<DealTypeBreakdown[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGETS]);
-  const [activeWidget, setActiveWidget] = useState<string | null>(null);
   const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [availableLeadSources, setAvailableLeadSources] = useState<{ id: string; name: string }[]>([]);
@@ -335,7 +337,7 @@ export default function Dashboard() {
           console.error('Unable to load team members', error);
           return [];
         }
-        return (data || []).map(member => member.user_id);
+        return (data || []).map((member: any) => member.user_id);
       };
 
       const resolveVisibleAgentIds = async () => {
@@ -425,7 +427,6 @@ export default function Dashboard() {
       }
 
       setAvailableAgents(agentOptions);
-      const initialIds = agentIds.length ? agentIds : agentOptions.map(a => a.id);
       setSelectedAgentIds([]);
     };
 
@@ -837,46 +838,27 @@ export default function Dashboard() {
     setInsightsLoading(true);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/luma-insights`;
       const statsPayload = {
         ...stats,
         // backward compatibility for downstream consumers expecting the old field name
         closingThisMonth: stats.closingNext7Days
       };
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          stats: statsPayload,
-          pipelineHealth: pipelineHealth.map(p => ({
-            id: p.id,
-            name: p.name,
-            count: p.count,
-            expectedGCI: p.expectedGCI,
-            stalledCount: p.stalledCount
-          })),
-          leadSourceData,
-          monthlyData,
-          upcomingDealsCount: upcomingDeals.length,
-          projectedGCI
-        })
+      const insights = await generateDashboardInsights({
+        stats: statsPayload,
+        pipelineHealth: pipelineHealth.map(p => ({
+          id: p.id,
+          name: p.name,
+          count: p.count,
+          expectedGCI: p.expectedGCI,
+          stalledCount: p.stalledCount
+        })),
+        leadSourceData,
+        monthlyData,
+        upcomingDealsCount: upcomingDeals.length,
+        projectedGCI
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Failed to fetch AI insights:', errorText);
-        return;
-      }
-
-      const data = await response.json();
-      const insights = data.insights || [];
       setAiInsights(insights);
       if (!lockedAiInsights && insights.length) {
         setLockedAiInsights(insights);
@@ -948,7 +930,7 @@ export default function Dashboard() {
       isDealClosedWithinRange(deal, range.start, range.end)
     );
 
-    filteredClosedDeals.forEach(deal => {
+    filteredClosedDeals.forEach((deal: any) => {
       const salePrice = deal.actual_sale_price || 0;
       totalVolume += salePrice;
       totalGCI += calculateGCI(deal);
@@ -1006,9 +988,9 @@ export default function Dashboard() {
 
     const stageMap = new Map<string, StageAccumulator>();
 
-    deals.forEach((deal) => {
+    deals.forEach((deal: any) => {
       const stageId = deal.pipeline_statuses?.id || deal.pipeline_status_id || `status:${deal.status}`;
-      const stageName = deal.pipeline_statuses?.name || STATUS_LABELS[deal.status] || deal.status;
+      const stageName = deal.pipeline_statuses?.name || STATUS_LABELS[deal.status as keyof typeof STATUS_LABELS] || deal.status;
       const stageColor = deal.pipeline_statuses?.color || null;
       const sortOrder = deal.pipeline_statuses?.sort_order ?? null;
       const existing = stageMap.get(stageId) || {
@@ -1053,13 +1035,13 @@ export default function Dashboard() {
       { count: number; gci: number; statusCounts: Record<DealRow['status'], number> }
     >();
 
-    deals.forEach((deal) => {
-      const existing = typeMap.get(deal.deal_type) ?? { count: 0, gci: 0, statusCounts: {} };
+    deals.forEach((deal: any) => {
+      const existing = typeMap.get(deal.deal_type) ?? { count: 0, gci: 0, statusCounts: {} as any };
       existing.count += 1;
       existing.gci += calculateGCI(deal);
       const statusCount = existing.statusCounts[deal.status] || 0;
       existing.statusCounts[deal.status] = statusCount + 1;
-      typeMap.set(deal.deal_type, existing);
+      typeMap.set(deal.deal_type, existing as any);
     });
 
     const totalDeals = deals.length;
@@ -1178,7 +1160,7 @@ export default function Dashboard() {
       .from('deals')
       .select('*')
       .in('status', ACTIVE_CLOSING_STATUSES)
-      .order('close_date', { ascending: true, nullsLast: true })
+      .order('close_date', { ascending: true })
       .limit(200);
 
     upcomingQuery = applyDealFilters(upcomingQuery, userIds);
@@ -1212,7 +1194,7 @@ export default function Dashboard() {
       return;
     }
 
-    const stalled = (data || []).filter(d => isStalled(d.stage_entered_at, 30)).slice(0, 5) as Deal[];
+    const stalled = (data || []).filter((d: any) => isStalled(d.stage_entered_at, 30)).slice(0, 5) as Deal[];
     setStalledDeals(stalled);
   };
 
@@ -1232,8 +1214,8 @@ export default function Dashboard() {
         return;
       }
 
-      if (data && data.widget_order) {
-        setWidgetOrder(normalizeWidgetOrder(data.widget_order as string[]));
+      if (data && (data as any).widget_order) {
+        setWidgetOrder(normalizeWidgetOrder((data as any).widget_order as string[]));
       } else {
         setWidgetOrder([...DEFAULT_WIDGETS]);
       }
@@ -1252,7 +1234,7 @@ export default function Dashboard() {
           user_id: user.id,
           widget_order: order,
           updated_at: new Date().toISOString()
-        }, {
+        } as any, {
           onConflict: 'user_id'
         });
 
@@ -1268,7 +1250,6 @@ export default function Dashboard() {
     const { active, over } = event;
 
     if (!over || active.id === over.id) {
-      setActiveWidget(null);
       return;
     }
 
@@ -1281,15 +1262,10 @@ export default function Dashboard() {
 
     setWidgetOrder(newOrder);
     saveWidgetLayout(newOrder);
-    setActiveWidget(null);
   };
 
   // Quick action handlers
   const handleAddClient = () => {
-    window.location.href = '/pipeline';
-  };
-
-  const handleAddTask = () => {
     window.location.href = '/pipeline';
   };
 
@@ -1410,72 +1386,69 @@ export default function Dashboard() {
   };
 
   const renderLumaInsights = () => (
-    <div className="hig-card p-6 bg-gradient-to-br from-blue-50 to-white border-blue-200/60">
-      <div className="flex items-start gap-4">
-        <div className="flex-shrink-0">
-          <div className="w-12 h-12 rounded-2xl bg-[rgb(0,122,255)] flex items-center justify-center shadow-lg">
-            <Sparkles className="w-6 h-6 text-white" strokeWidth={2} />
-          </div>
+    <div className="hig-card p-4 bg-gradient-to-br from-blue-50 to-white border-blue-200/60">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-lg bg-[rgb(0,122,255)] flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-white" strokeWidth={2} />
         </div>
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="hig-text-heading">Luma Insights</h2>
-            {insightsLoading && (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
-            )}
-          </div>
-          {(lockedAiInsights || aiInsights).length > 0 ? (
-            <div className="space-y-3">
-              {(lockedAiInsights || aiInsights).slice(0, 3).map((insight, index) => (
-                <div key={index} className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
-                  <p className="text-[15px] text-gray-700 leading-relaxed">{insight}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {(lockedGeneratedInsights || generateInsights).slice(0, 3).map((insight, index) => (
-                <div key={index} className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
-                  <p className="text-[15px] text-gray-700 leading-relaxed">{insight}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Luma Insights</h2>
+        {insightsLoading && (
+          <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
+        )}
       </div>
+      {(lockedAiInsights || aiInsights).length > 0 ? (
+        <div className="space-y-2">
+          {(lockedAiInsights || aiInsights).slice(0, 3).map((insight, index) => (
+            <div key={index} className="flex items-start gap-2">
+              <div className="w-1 h-1 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
+              <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(lockedGeneratedInsights || generateInsights).slice(0, 3).map((insight, index) => (
+            <div key={index} className="flex items-start gap-2">
+              <div className="w-1 h-1 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
+              <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
   const renderPipelineHealth = () => (
-    <div className="hig-card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="hig-text-heading">Pipeline Health</h2>
-        <div className="text-right">
-          <div className="text-2xl font-semibold text-gray-900">
-            {totalActiveDeals}
+    <div className="hig-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+            <Target className="w-4 h-4 text-[rgb(0,122,255)]" strokeWidth={2} />
           </div>
-          <div className="text-xs text-gray-500">Active Deals</div>
+          <h2 className="text-sm font-semibold text-gray-900">Pipeline Health</h2>
+        </div>
+        <div className="text-right">
+          <div className="text-lg font-semibold text-gray-900">{totalActiveDeals}</div>
+          <div className="text-xs text-gray-500">Deals</div>
         </div>
       </div>
 
       {pipelineHealth.length === 0 ? (
         <div className="text-sm text-gray-500">
-          No active deals in your pipeline yet. Add a deal to see health metrics here.
+          No active deals in your pipeline yet.
         </div>
       ) : (
         <>
-          <div className="mb-6 p-4 bg-gray-50 rounded-xl">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-600">Total Pipeline Value</span>
-              <span className="text-lg font-semibold text-[rgb(0,122,255)]">
+          <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">Pipeline Value</span>
+              <span className="text-sm font-semibold text-[rgb(0,122,255)]">
                 {formatCurrency(pipelineValue)}
               </span>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {pipelineHealth.map(status => {
               if (status.count === 0) return null;
               const percentage = totalActiveDeals > 0 ? (status.count / totalActiveDeals) * 100 : 0;
@@ -1483,7 +1456,7 @@ export default function Dashboard() {
               return (
                 <div
                   key={status.id}
-                  className="group p-4 rounded-xl border border-gray-200/60 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+                  className="p-3 rounded-lg border border-gray-200/60 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
                   role="button"
                   tabIndex={0}
                   onClick={() => handlePipelineStatusClick(status)}
@@ -1494,37 +1467,27 @@ export default function Dashboard() {
                     }
                   }}
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
                       <div
-                        className="w-3 h-3 rounded-full"
+                        className="w-2 h-2 rounded-full"
                         style={{ backgroundColor: getColorValue(status.color) }}
                       />
-                      <span className="font-medium text-gray-900">
-                        {status.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium text-gray-900">{status.name}</span>
                       {status.stalledCount > 0 && (
-                        <div className="flex items-center gap-1 px-2 py-1 bg-orange-50 rounded-full">
-                          <Clock className="w-3.5 h-3.5 text-orange-600" strokeWidth={2} />
-                          <span className="text-xs font-medium text-orange-700">
-                            {status.stalledCount} stalled
-                          </span>
+                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-50 rounded">
+                          <Clock className="w-3 h-3 text-orange-600" strokeWidth={2} />
+                          <span className="text-xs text-orange-700">{status.stalledCount}</span>
                         </div>
                       )}
-                      <span className="text-lg font-semibold text-gray-900">
-                        {status.count}
-                      </span>
                     </div>
+                    <span className="text-sm font-semibold text-gray-900">{status.count}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-[rgb(0,122,255)] font-medium">
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-sm text-[rgb(0,122,255)] font-medium">
                       {formatCurrency(status.expectedGCI)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {percentage.toFixed(0)}% of pipeline
-                    </div>
+                    </span>
+                    <span className="text-xs text-gray-500">{percentage.toFixed(0)}%</span>
                   </div>
                 </div>
               );
@@ -1532,11 +1495,11 @@ export default function Dashboard() {
           </div>
 
           {totalStalledCount > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-200/60">
-              <div className="flex items-center gap-2 px-4 py-3 bg-orange-50 rounded-xl border border-orange-200/60">
+            <div className="mt-3 pt-3 border-t border-gray-200/60">
+              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-lg">
                 <AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />
-                <span className="text-sm font-medium text-orange-700">
-                  {totalStalledCount} deals need attention (30+ days)
+                <span className="text-sm text-orange-700">
+                  {totalStalledCount} deals stalled 30+ days
                 </span>
               </div>
             </div>
@@ -1547,34 +1510,34 @@ export default function Dashboard() {
   );
 
   const renderAlertsActions = () => (
-    <div className="hig-card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="hig-text-heading">Alerts & Actions</h2>
+    <div className="hig-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
+          <AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />
+        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Alerts & Actions</h2>
       </div>
 
       {stalledDeals.length > 0 ? (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 text-orange-600 mb-3">
-            <AlertCircle className="w-4 h-4" strokeWidth={2} />
-            <span className="text-sm font-medium">Stalled Deals Requiring Attention</span>
-          </div>
+        <div className="mb-3">
+          <div className="text-sm font-medium text-gray-500 mb-2">Stalled Deals</div>
           <div className="space-y-2">
             {stalledDeals.slice(0, 3).map(deal => (
               <div
                 key={deal.id}
-                className="p-3 bg-orange-50 rounded-xl border border-orange-200/60 hover:shadow-sm transition-all cursor-pointer"
+                className="p-3 bg-orange-50 rounded-lg hover:shadow-sm transition-all cursor-pointer"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="font-medium text-gray-900 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-900 text-sm truncate">
                       {deal.client_name}
                     </div>
-                    <div className="text-xs text-gray-600 mt-1">
+                    <div className="text-sm text-gray-600 mt-0.5 truncate">
                       {deal.property_address}
                     </div>
                   </div>
-                  <div className="ml-3 px-2 py-1 bg-orange-100 rounded-lg">
-                    <div className="text-xs text-orange-700 font-semibold">
+                  <div className="px-2 py-1 bg-orange-100 rounded flex-shrink-0">
+                    <div className="text-sm text-orange-700 font-semibold">
                       {getDaysInStage(deal.stage_entered_at)}d
                     </div>
                   </div>
@@ -1584,26 +1547,22 @@ export default function Dashboard() {
           </div>
         </div>
       ) : (
-        <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-200/60">
+        <div className="mb-3 p-3 bg-green-50 rounded-lg">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
-            <span className="text-sm text-green-700">All deals are moving smoothly!</span>
+            <span className="text-sm text-green-700">All deals moving smoothly</span>
           </div>
         </div>
       )}
 
-      <div className="pt-4 border-t border-gray-200/60">
-        <div className="text-sm font-medium text-gray-700 mb-3">Quick Actions</div>
-        <div className="grid grid-cols-2 gap-3">
-          <button className="hig-btn-secondary py-3 text-sm flex items-center justify-center gap-2" onClick={handleAddClient}>
+      <div className="pt-3 border-t border-gray-200/60">
+        <div className="text-sm font-medium text-gray-500 mb-2">Quick Actions</div>
+        <div className="space-y-2">
+          <button className="w-full py-2.5 px-3 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2" onClick={handleAddClient}>
             <Users className="w-4 h-4" strokeWidth={2} />
             <span>New Client</span>
           </button>
-          <button className="hig-btn-secondary py-3 text-sm flex items-center justify-center gap-2" onClick={handleAddTask}>
-            <FileText className="w-4 h-4" strokeWidth={2} />
-            <span>New Task</span>
-          </button>
-          <button className="hig-btn-primary py-3 text-sm flex items-center justify-center gap-2" onClick={handleOpenLuma}>
+          <button className="w-full py-2.5 px-3 text-sm font-medium text-white bg-[rgb(0,122,255)] rounded-lg hover:bg-[rgb(0,106,224)] transition-colors flex items-center justify-center gap-2" onClick={handleOpenLuma}>
             <Sparkles className="w-4 h-4" strokeWidth={2} />
             <span>Ask Luma</span>
           </button>
@@ -1639,23 +1598,22 @@ export default function Dashboard() {
     }));
 
     return (
-      <div className="hig-card p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="hig-text-heading">Monthly Momentum</h2>
-            <p className="text-xs text-gray-500">
-              Track production pace and deal count across recent months.
-            </p>
+      <div className="hig-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 text-emerald-600" strokeWidth={2} />
+            </div>
+            <h2 className="text-sm font-semibold text-gray-900">Monthly Momentum</h2>
           </div>
           {change !== null && (
             <div
-              className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
                 change >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
               }`}
             >
               {change >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-              {change >= 0 ? '+' : ''}
-              {change.toFixed(1)}% vs prev. month
+              {change >= 0 ? '+' : ''}{change.toFixed(1)}%
             </div>
           )}
         </div>
@@ -1693,27 +1651,23 @@ export default function Dashboard() {
                 />
               </LineChart>
             </ResponsiveContainer>
-            <div className="mt-4 flex flex-col items-center gap-2 text-xs text-gray-600">
-              <div className="flex flex-wrap items-center justify-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-6 rounded-full bg-[#0ea5e9]"></span>
-                  <span>Monthly GCI</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-6 rounded-full bg-[#ef4444]"></span>
-                  <span>3-month trailing mean</span>
-                </div>
+            <div className="mt-3 pt-3 border-t border-gray-200/60 flex items-center justify-center gap-4 text-xs text-gray-600">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1 w-4 rounded bg-[#0ea5e9]"></span>
+                <span>Monthly GCI</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-1 w-4 rounded bg-[#ef4444]"></span>
+                <span>Trend</span>
               </div>
               {bestMonth && (
-                <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                  Top month: {bestMonth.month} · {formatCurrency(bestMonth.gci)}
-                </div>
+                <span className="text-gray-400">Best: {bestMonth.month}</span>
               )}
             </div>
           </>
         ) : (
           <div className="text-sm text-gray-500">
-            No closed deals yet in this period. Close your first deal to surface momentum insights.
+            No closed deals yet in this period.
           </div>
         )}
       </div>
@@ -1721,45 +1675,37 @@ export default function Dashboard() {
   };
 
   const renderDealTypeMix = () => (
-    <div className="hig-card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="hig-text-heading">Deal Type Mix</h2>
-        <div className="text-xs text-gray-500">
-          Share of active deals by type & status
+    <div className="hig-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+          <Activity className="w-4 h-4 text-purple-600" strokeWidth={2} />
         </div>
+        <h2 className="text-sm font-semibold text-gray-900">Deal Type Mix</h2>
       </div>
       {dealTypeStats.length > 0 ? (
-        <div className="space-y-4">
+        <div className="space-y-2">
           {dealTypeStats.map((stat) => (
-            <div key={stat.dealType} className="rounded-2xl border border-gray-100 p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-base font-semibold text-gray-900">
-                    {DEAL_TYPE_LABELS[stat.dealType]}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {stat.count} active {stat.count === 1 ? 'deal' : 'deals'}
-                  </p>
-                  <p className="text-sm text-gray-500">{formatCurrency(stat.gci)} expected GCI</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {formatPercent(stat.percentage)}
-                  </p>
-                  <p className="text-xs text-gray-500">of pipeline</p>
-                </div>
+            <div key={stat.dealType} className="p-3 rounded-lg border border-gray-100 bg-gray-50/50">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-semibold text-gray-900">
+                  {DEAL_TYPE_LABELS[stat.dealType]}
+                </span>
+                <span className="text-sm font-semibold text-gray-900">
+                  {formatPercent(stat.percentage)}
+                </span>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="text-sm text-gray-600 mb-2">
+                {stat.count} {stat.count === 1 ? 'deal' : 'deals'} · {formatCurrency(stat.gci)}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
                 {Object.entries(stat.statusCounts)
                   .sort((a, b) => b[1] - a[1])
                   .map(([status, count]) => (
                     <span
                       key={status}
-                      className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+                      className="inline-flex items-center px-2 py-1 rounded bg-white text-xs text-gray-700"
                     >
-                      <span className="h-1.5 w-1.5 rounded-full bg-gray-400"></span>
-                      {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')}
-                      <span className="text-gray-500">({count})</span>
+                      {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')} ({count})
                     </span>
                   ))}
               </div>
@@ -1768,29 +1714,34 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="text-sm text-gray-500">
-          No active deals in your pipeline. Add a deal to see the deal-type mix.
+          No active deals in your pipeline.
         </div>
       )}
     </div>
   );
 
   const renderLeadSource = () => (
-    <div className="hig-card p-6">
-      <h2 className="hig-text-heading mb-6">Lead Source Performance</h2>
+    <div className="hig-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-lg bg-cyan-50 flex items-center justify-center">
+          <Users className="w-4 h-4 text-cyan-600" strokeWidth={2} />
+        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Lead Source Performance</h2>
+      </div>
       {leadSourceData.length > 0 ? (
-        <ResponsiveContainer width="100%" height={250}>
+        <ResponsiveContainer width="100%" height={200}>
           <BarChart data={leadSourceData} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               type="number"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11 }}
               stroke="#6b7280"
               tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
             />
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11 }}
               stroke="#6b7280"
               width={100}
             />
@@ -1803,37 +1754,40 @@ export default function Dashboard() {
         </ResponsiveContainer>
       ) : (
         <div className="text-sm text-gray-500">
-          No closed deals in this period, so lead source performance is not available yet.
+          No closed deals in this period.
         </div>
       )}
     </div>
   );
 
   const renderUpcomingDeals = () => (
-    <div className="hig-card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="hig-text-heading">Forecasted Closings (Next 30 Days)</h2>
-        <div className="text-sm text-gray-600">
-          <span className="font-medium text-gray-900">
-            {formatCurrency(projectedGCI)}
-          </span>{' '}
-          projected GCI
+    <div className="hig-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+            <Calendar className="w-4 h-4 text-indigo-600" strokeWidth={2} />
+          </div>
+          <h2 className="text-sm font-semibold text-gray-900">Forecasted Closings</h2>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-semibold text-gray-900">{formatCurrency(projectedGCI)}</div>
+          <div className="text-xs text-gray-500">30-day</div>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
         {filteredUpcomingDeals.map(deal => (
           <div
             key={deal.id}
-            className="p-4 border border-gray-200/60 rounded-xl hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
+            className="p-3 border border-gray-200/60 rounded-lg hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
           >
-            <div className="font-medium text-gray-900">{deal.client_name}</div>
-            <div className="text-sm text-gray-600 mt-1">
+            <div className="text-sm font-medium text-gray-900 truncate">{deal.client_name}</div>
+            <div className="text-sm text-gray-600 mt-1 truncate">
               {deal.property_address}
             </div>
-            <div className="flex items-center justify-between mt-3">
-              <div className="text-sm font-semibold text-[rgb(0,122,255)]">
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-sm font-semibold text-[rgb(0,122,255)]">
                 {formatCurrency(calculateGCI(deal))}
-              </div>
+              </span>
               <ChevronRight className="w-4 h-4 text-gray-400" strokeWidth={2} />
             </div>
           </div>
@@ -2033,77 +1987,45 @@ export default function Dashboard() {
       )}
 
       {/* KPI cards - not draggable */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div
-          className="hig-card p-6"
-          title="Gross commission income from closed deals in the selected date range."
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 rounded-xl bg-blue-50">
-              <DollarSign className="w-5 h-5 text-[rgb(0,122,255)]" strokeWidth={2} />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="hig-card p-4" title="Gross commission income from closed deals in the selected date range.">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+              <DollarSign className="w-4 h-4 text-[rgb(0,122,255)]" strokeWidth={2} />
             </div>
-            <span
-              className="text-sm text-gray-600"
-              title="Gross commission income from closed deals in the selected date range."
-            >
-              Total GCI
-            </span>
+            <span className="text-sm text-gray-600">Total GCI</span>
           </div>
-          <div className="text-3xl font-semibold text-gray-900">{formatCurrency(stats.ytdGCI)}</div>
+          <div className="text-2xl font-semibold text-gray-900">{formatCurrency(stats.ytdGCI)}</div>
         </div>
 
-        <div
-          className="hig-card p-6"
-          title="Number of deals marked closed within the selected date range."
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 rounded-xl bg-green-50">
-              <CheckCircle className="w-5 h-5 text-green-600" strokeWidth={2} />
+        <div className="hig-card p-4" title="Number of deals marked closed within the selected date range.">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+              <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
             </div>
-            <span
-              className="text-sm text-gray-600"
-              title="Number of deals marked closed within the selected date range."
-            >
-              Closed Deals
-            </span>
+            <span className="text-sm text-gray-600">Closed Deals</span>
           </div>
-          <div className="text-3xl font-semibold text-gray-900">{stats.ytdDeals}</div>
+          <div className="text-2xl font-semibold text-gray-900">{stats.ytdDeals}</div>
         </div>
 
-        <div
-          className="hig-card p-6"
-          title="Active deals scheduled to close in the next 7 days."
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 rounded-xl bg-orange-50">
-              <Calendar className="w-5 h-5 text-orange-600" strokeWidth={2} />
+        <div className="hig-card p-4" title="Active deals scheduled to close in the next 7 days.">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
+              <Calendar className="w-4 h-4 text-orange-600" strokeWidth={2} />
             </div>
-            <span
-              className="text-sm text-gray-600"
-              title="Active deals scheduled to close in the next 7 days."
-            >
-              Closing Soon (7d)
-            </span>
+            <span className="text-sm text-gray-600">Closing Soon (7d)</span>
           </div>
-          <div className="text-3xl font-semibold text-gray-900">{stats.closingNext7Days}</div>
+          <div className="text-2xl font-semibold text-gray-900">{stats.closingNext7Days}</div>
         </div>
 
-        <div
-          className="hig-card p-6"
-          title="Closed deals divided by all deals created in the selected date range."
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 rounded-xl bg-gray-50">
-              <Activity className="w-5 h-5 text-gray-600" strokeWidth={2} />
+        <div className="hig-card p-4" title="Closed deals divided by all deals created in the selected date range.">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
+              <Activity className="w-4 h-4 text-gray-600" strokeWidth={2} />
             </div>
-            <span
-              className="text-sm text-gray-600"
-              title="Closed deals divided by all deals created in the selected date range."
-            >
-              Conv. Rate
-            </span>
+            <span className="text-sm text-gray-600">Conv. Rate</span>
           </div>
-          <div className="text-3xl font-semibold text-gray-900">{formatPercent(stats.conversionRate)}</div>
+          <div className="text-2xl font-semibold text-gray-900">{formatPercent(stats.conversionRate)}</div>
         </div>
       </div>
 
@@ -2112,18 +2034,19 @@ export default function Dashboard() {
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
-        onDragStart={(event) => setActiveWidget(event.active.id as string)}
       >
-        <SortableContext items={widgetOrder} strategy={rectSortingStrategy}>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
+          <div className="columns-1 lg:columns-2 gap-2 space-y-2">
             {widgetOrder.map((widgetId) => {
               const content = renderWidget(widgetId);
               if (!content) return null;
 
               return (
-                <SortableWidget key={widgetId} id={widgetId}>
-                  {content}
-                </SortableWidget>
+                <div key={widgetId} className="break-inside-avoid mb-2">
+                  <SortableWidget id={widgetId}>
+                    {content}
+                  </SortableWidget>
+                </div>
               );
             })}
           </div>
