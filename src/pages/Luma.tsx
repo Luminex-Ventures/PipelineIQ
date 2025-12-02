@@ -35,7 +35,6 @@ export default function Luma() {
     'Which clients need new activity this week?',
     'Summarize my pipeline stage mix.',
     'How is my projected GCI pacing for Q3?',
-    'Who owns the next step on the Torres deal?'
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
