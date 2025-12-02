@@ -1,12 +1,26 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Calendar, CheckCircle, Circle, Clock, MapPin, User, AlertTriangle, ArrowUpRight, Loader2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Calendar,
+  CheckCircle,
+  Circle,
+  Clock,
+  MapPin,
+  User,
+  AlertTriangle,
+  ArrowUpRight,
+  Loader2,
+  Plus,
+  ChevronDown,
+  ChevronRight
+} from 'lucide-react';
 import DealModal from '../components/DealModal';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
 import { getVisibleUserIds } from '../lib/rbac';
 
-const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
+const surfaceClass =
+  'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const filterPillBaseClass =
   'inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition';
 
@@ -15,7 +29,16 @@ type Task = Database['public']['Tables']['tasks']['Row'] & {
 };
 type DealSummary = Pick<
   Database['public']['Tables']['deals']['Row'],
-  'id' | 'user_id' | 'client_name' | 'property_address' | 'city' | 'state' | 'deal_type' | 'status' | 'next_task_due_date' | 'next_task_description'
+  | 'id'
+  | 'user_id'
+  | 'client_name'
+  | 'property_address'
+  | 'city'
+  | 'state'
+  | 'deal_type'
+  | 'status'
+  | 'next_task_due_date'
+  | 'next_task_description'
 >;
 type TaskNote = {
   id: string;
@@ -30,10 +53,29 @@ type AccessibleAgentRow = {
 };
 
 const statusFilterOptions = [
-  { label: 'All tasks', value: 'all', accentClass: 'bg-gray-900 text-white border-gray-900 shadow-sm' },
-  { label: 'Overdue', value: 'overdue', accentClass: 'bg-red-50 text-red-700 border-red-200 shadow-sm ring-1 ring-red-100' },
-  { label: 'Due today', value: 'today', accentClass: 'bg-amber-50 text-amber-700 border-amber-200 shadow-sm ring-1 ring-amber-100' },
-  { label: 'Upcoming', value: 'upcoming', accentClass: 'bg-sky-50 text-sky-700 border-sky-200 shadow-sm ring-1 ring-sky-100' }
+  {
+    label: 'All tasks',
+    value: 'all',
+    accentClass: 'bg-gray-900 text-white border-gray-900 shadow-sm'
+  },
+  {
+    label: 'Overdue',
+    value: 'overdue',
+    accentClass:
+      'bg-red-50 text-red-700 border-red-200 shadow-sm ring-1 ring-red-100'
+  },
+  {
+    label: 'Due today',
+    value: 'today',
+    accentClass:
+      'bg-amber-50 text-amber-700 border-amber-200 shadow-sm ring-1 ring-amber-100'
+  },
+  {
+    label: 'Upcoming',
+    value: 'upcoming',
+    accentClass:
+      'bg-sky-50 text-sky-700 border-sky-200 shadow-sm ring-1 ring-sky-100'
+  }
 ] as const;
 
 type StatusFilterValue = (typeof statusFilterOptions)[number]['value'];
@@ -46,22 +88,36 @@ export default function Tasks() {
   const [agentFilter, setAgentFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+
   const [deals, setDeals] = useState<DealSummary[]>([]);
   const [dealOwners, setDealOwners] = useState<Record<string, string>>({});
   const [dealsLoading, setDealsLoading] = useState(true);
+
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [showDealModal, setShowDealModal] = useState(false);
-  const [selectedDeal, setSelectedDeal] = useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+  const [selectedDeal, setSelectedDeal] =
+    useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDealId, setNewTaskDealId] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const isManagerRole = !!roleInfo && ['sales_manager', 'team_lead', 'admin'].includes(roleInfo.globalRole);
+
+  const isManagerRole =
+    !!roleInfo && ['sales_manager', 'team_lead', 'admin'].includes(roleInfo.globalRole);
   const [agentOptions, setAgentOptions] = useState<{ id: string; label: string }[]>([]);
   const [notesByTask, setNotesByTask] = useState<Record<string, TaskNote[]>>({});
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
+
+  // Local “visual completion” state for animation
+  const [completedVisual, setCompletedVisual] = useState<Record<string, boolean>>({});
+
+  // Completed tasks view
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [completedTasks, setCompletedTasks] = useState<Task[]>([]);
+  const [completedLoading, setCompletedLoading] = useState(false);
 
   const getOwnerName = (ownerId: string) => {
     if (dealOwners[ownerId]) return dealOwners[ownerId];
@@ -77,7 +133,7 @@ export default function Tasks() {
   };
 
   const taskBase = useMemo(
-    () => (agentFilter === 'all' ? tasks : tasks.filter(task => task.user_id === agentFilter)),
+    () => (agentFilter === 'all' ? tasks : tasks.filter((task) => task.user_id === agentFilter)),
     [tasks, agentFilter]
   );
 
@@ -125,10 +181,10 @@ export default function Tasks() {
       unscheduled,
       nextTask: datedTasks[0] || null
     };
-  }, [taskBase]);
+  }, [taskBase, tasks.length]);
 
   const selectedDealOption = useMemo(
-    () => deals.find(deal => deal.id === newTaskDealId),
+    () => deals.find((deal) => deal.id === newTaskDealId),
     [deals, newTaskDealId]
   );
 
@@ -154,28 +210,29 @@ export default function Tasks() {
 
   useEffect(() => {
     const loadAgents = async () => {
-    if (!user || !roleInfo) return;
-    if (!isManagerRole) {
-      setAgentOptions([]);
-      setAgentFilter('all');
-      return;
-    }
+      if (!user || !roleInfo) return;
+      if (!isManagerRole) {
+        setAgentOptions([]);
+        setAgentFilter('all');
+        return;
+      }
       try {
         const visibleIds = await getVisibleUserIds(roleInfo);
         const { data, error } = await supabase.rpc('get_accessible_agents');
         if (!error && data) {
           const opts = (data as any[])
-            .filter(agent =>
-              visibleIds.includes(agent.user_id) &&
-              agent.global_role !== 'admin' &&
-              agent.global_role !== 'sales_manager'
+            .filter(
+              (agent) =>
+                visibleIds.includes(agent.user_id) &&
+                agent.global_role !== 'admin' &&
+                agent.global_role !== 'sales_manager'
             )
-            .map(agent => ({
+            .map((agent) => ({
               id: agent.user_id,
               label: agent.display_name || agent.email || 'Agent'
             }));
           setAgentOptions(opts);
-          if (agentFilter !== 'all' && !opts.find(opt => opt.id === agentFilter)) {
+          if (agentFilter !== 'all' && !opts.find((opt) => opt.id === agentFilter)) {
             setAgentFilter('all');
           }
         }
@@ -185,7 +242,7 @@ export default function Tasks() {
       }
     };
     loadAgents();
-  }, [user, roleInfo]);
+  }, [user, roleInfo, agentFilter, isManagerRole]);
 
   useEffect(() => {
     if (!user) {
@@ -202,20 +259,20 @@ export default function Tasks() {
     today.setHours(0, 0, 0, 0);
 
     if (statusFilter === 'overdue') {
-      result = result.filter(task => {
+      result = result.filter((task) => {
         if (!task.due_date) return false;
         const dueDate = normalizeDueDate(task.due_date);
         return !!dueDate && dueDate < today;
       });
     } else if (statusFilter === 'today') {
-      result = result.filter(task => {
+      result = result.filter((task) => {
         if (!task.due_date) return false;
         const dueDate = normalizeDueDate(task.due_date);
         if (!dueDate) return false;
         return dueDate.getTime() === today.getTime();
       });
     } else if (statusFilter === 'upcoming') {
-      result = result.filter(task => {
+      result = result.filter((task) => {
         if (!task.due_date) return false;
         const dueDate = normalizeDueDate(task.due_date);
         return !!dueDate && dueDate > today;
@@ -223,15 +280,16 @@ export default function Tasks() {
     }
 
     if (agentFilter !== 'all') {
-      result = result.filter(task => task.user_id === agentFilter);
+      result = result.filter((task) => task.user_id === agentFilter);
     }
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(task =>
-        task.title.toLowerCase().includes(query) ||
-        task.deals.client_name.toLowerCase().includes(query) ||
-        task.deals.property_address.toLowerCase().includes(query)
+      result = result.filter(
+        (task) =>
+          task.title.toLowerCase().includes(query) ||
+          task.deals.client_name.toLowerCase().includes(query) ||
+          task.deals.property_address.toLowerCase().includes(query)
       );
     }
 
@@ -241,7 +299,7 @@ export default function Tasks() {
   useEffect(() => {
     if (agentFilter === 'all') return;
     const validDealIds = new Set(
-      deals.filter(deal => deal.user_id === agentFilter).map(deal => deal.id)
+      deals.filter((deal) => deal.user_id === agentFilter).map((deal) => deal.id)
     );
     if (newTaskDealId && !validDealIds.has(newTaskDealId)) {
       setNewTaskDealId('');
@@ -273,7 +331,7 @@ export default function Tasks() {
     const { data, error } = await query;
 
     if (!error && data) {
-      const taskList = data.filter((task) => task.deals).map(task => task as Task);
+      const taskList = data.filter((task) => task.deals).map((task) => task as Task);
       setTasks(taskList);
       await fetchTaskNotes(taskList);
     }
@@ -286,18 +344,20 @@ export default function Tasks() {
     setDealsLoading(true);
 
     try {
-    let visibleUserIds: string[] = [user.id];
+      let visibleUserIds: string[] = [user.id];
 
-    if (roleInfo) {
-      visibleUserIds = await getVisibleUserIds(roleInfo);
-      if (!visibleUserIds.length) {
-        visibleUserIds = [user.id];
+      if (roleInfo) {
+        visibleUserIds = await getVisibleUserIds(roleInfo);
+        if (!visibleUserIds.length) {
+          visibleUserIds = [user.id];
+        }
       }
-    }
 
       let query = supabase
         .from('deals')
-        .select('id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description')
+        .select(
+          'id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description'
+        )
         .neq('status', 'closed')
         .neq('status', 'dead')
         .order('updated_at', { ascending: false });
@@ -316,11 +376,13 @@ export default function Tasks() {
       } else {
         setDeals(data || []);
         const ownerMap: Record<string, string> = {};
-        const { data: agents, error: agentError } = await supabase.rpc('get_accessible_agents');
+        const { data: agents, error: agentError } =
+          await supabase.rpc('get_accessible_agents');
         if (!agentError && Array.isArray(agents)) {
-          (agents as AccessibleAgentRow[]).forEach(agent => {
+          (agents as AccessibleAgentRow[]).forEach((agent) => {
             if (visibleUserIds.includes(agent.user_id)) {
-              ownerMap[agent.user_id] = agent.display_name || agent.email || 'Agent';
+              ownerMap[agent.user_id] =
+                agent.display_name || agent.email || 'Agent';
             }
           });
         }
@@ -340,7 +402,7 @@ export default function Tasks() {
       setNotesByTask({});
       return;
     }
-    const taskIds = taskList.map(t => t.id);
+    const taskIds = taskList.map((t) => t.id);
     const { data, error } = await supabase
       .from('deal_notes')
       .select('id, task_id, content, created_at')
@@ -360,6 +422,43 @@ export default function Tasks() {
       map[note.task_id].push(note as TaskNote);
     });
     setNotesByTask(map);
+  };
+
+  const fetchCompletedTasks = async () => {
+    if (!user) return;
+    setCompletedLoading(true);
+
+    try {
+      let visibleIds: string[] = [user.id];
+      if (roleInfo) {
+        visibleIds = await getVisibleUserIds(roleInfo);
+        if (!visibleIds.length) visibleIds = [user.id];
+      }
+
+      let query = supabase
+        .from('tasks')
+        .select(`*, deals(*)`)
+        .eq('completed', true)
+        .order('updated_at', { ascending: false })
+        .limit(30);
+
+      if (visibleIds.length === 1) {
+        query = query.eq('user_id', visibleIds[0]);
+      } else if (visibleIds.length > 1) {
+        query = query.in('user_id', visibleIds);
+      }
+
+      const { data, error } = await query;
+
+      if (!error && data) {
+        const list = data.filter((t) => t.deals).map((t) => t as Task);
+        setCompletedTasks(list);
+      }
+    } catch (err) {
+      console.error('Error loading completed tasks', err);
+    } finally {
+      setCompletedLoading(false);
+    }
   };
 
   const formatDate = (date?: string | null) => {
@@ -394,7 +493,6 @@ export default function Tasks() {
     setSelectedDeal(task.deals);
     setShowDealModal(true);
   };
-
 
   const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -440,7 +538,6 @@ export default function Tasks() {
         let { error: noteError } = await attemptNoteInsert(user.id);
 
         if (noteError && selectedDealOption?.user_id && selectedDealOption.user_id !== user.id) {
-          // RLS only allows the deal owner to create notes; fall back to owner to avoid blocking task creation.
           ({ error: noteError } = await attemptNoteInsert(selectedDealOption.user_id));
         }
 
@@ -467,27 +564,10 @@ export default function Tasks() {
     }
   };
 
-  const groupedTasksByAgent = useMemo(() => {
-    if (!isManagerRole || agentFilter !== 'all') return null;
-    const groups = new Map<string, Task[]>();
-    filteredTasks.forEach(task => {
-      const ownerId = task.user_id;
-      if (!groups.has(ownerId)) groups.set(ownerId, []);
-      groups.get(ownerId)!.push(task);
-    });
-
-    return Array.from(groups.entries())
-      .map(([agentId, tasksForAgent]) => ({
-        agentId,
-        agentName: dealOwners[agentId] || getOwnerName(agentId),
-        tasks: tasksForAgent
-      }))
-      .sort((a, b) => a.agentName.localeCompare(b.agentName));
-  }, [filteredTasks, agentFilter, isManagerRole, dealOwners]);
-
   const handleToggleComplete = async (task: Task, event: React.MouseEvent) => {
     event.stopPropagation();
     if (!user) return;
+
     setCompletingId(task.id);
     try {
       const { error } = await supabase
@@ -497,12 +577,33 @@ export default function Tasks() {
 
       if (error) throw error;
 
-      setTasks(prev => prev.filter(t => t.id !== task.id));
-      setFilteredTasks(prev => prev.filter(t => t.id !== task.id));
+      // Stop spinner, start animation
+      setCompletingId(null);
+      setCompletedVisual((prev) => ({ ...prev, [task.id]: true }));
+
+      // After animation completes, remove from list
+      setTimeout(() => {
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setFilteredTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setCompletedVisual((prev) => {
+          const next = { ...prev };
+          delete next[task.id];
+          return next;
+        });
+
+        // If completed panel is open, refresh it so the new one appears there
+        if (showCompleted) {
+          fetchCompletedTasks();
+        }
+      }, 650);
     } catch (err) {
       console.error('Error completing task', err);
-    } finally {
       setCompletingId(null);
+      setCompletedVisual((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
     }
   };
 
@@ -510,7 +611,178 @@ export default function Tasks() {
     setShowDealModal(false);
     setSelectedDeal(null);
     fetchTasks();
+    if (showCompleted) fetchCompletedTasks();
   };
+
+  const renderTaskRow = (task: Task) => {
+    const notes = notesByTask[task.id] || [];
+    const expanded = !!expandedNotes[task.id];
+    const isVisuallyCompleted = !!completedVisual[task.id];
+
+    return (
+      <tr
+        key={task.id}
+        className={`hover:bg-[var(--app-surface-muted)]/60 cursor-pointer transition-opacity duration-300 ${
+          isVisuallyCompleted ? 'opacity-60 pointer-events-none' : 'opacity-100'
+        }`}
+        onClick={() => handleRowClick(task)}
+      >
+        <td className="px-5 py-4">
+          <div className="flex items-start gap-3">
+            <button
+              type="button"
+              className="pt-1"
+              onClick={(event) => handleToggleComplete(task, event)}
+              disabled={completingId === task.id}
+              aria-label="Mark task complete"
+            >
+              {completingId === task.id ? (
+                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+              ) : (
+                <span
+                  className={`relative flex h-5 w-5 items-center justify-center rounded-full border transition-all duration-300 ${
+                    isVisuallyCompleted
+                      ? 'border-emerald-500 bg-emerald-50 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]'
+                      : 'border-gray-300 bg-white'
+                  }`}
+                >
+                  <Circle
+                    className={`absolute h-4 w-4 text-gray-300 transition-opacity duration-200 ${
+                      isVisuallyCompleted ? 'opacity-0' : 'opacity-100'
+                    }`}
+                  />
+                  <CheckCircle
+                    className={`absolute h-4 w-4 text-emerald-500 origin-center transition-all duration-500 ${
+                      isVisuallyCompleted ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
+                    }`}
+                  />
+                </span>
+              )}
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <p
+                  className={`font-medium transition-all duration-300 ${
+                    isVisuallyCompleted ? 'text-gray-400' : 'text-gray-900'
+                  }`}
+                >
+                  <span className="relative inline-block">
+                    <span className="relative z-10">{task.title}</span>
+                    {isVisuallyCompleted && (
+                      <span className="pointer-events-none absolute inset-x-0 top-1/2 h-[1px] bg-gray-400 task-strike" />
+                    )}
+                  </span>
+                </p>
+                {notes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedNotes((prev) => ({
+                        ...prev,
+                        [task.id]: !expanded
+                      }));
+                    }}
+                    className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
+                    aria-label="Toggle task notes"
+                  >
+                    {expanded ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                    <span>Notes</span>
+                  </button>
+                )}
+              </div>
+              {task.deals?.next_task_description && (
+                <p className="text-xs text-gray-500">
+                  Related: {task.deals.next_task_description}
+                </p>
+              )}
+              {expanded && notes.length > 0 && (
+                <div className="mt-2 rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
+                  {notes.slice(0, 3).map((note) => (
+                    <p key={note.id} className="text-sm text-gray-700">
+                      {note.content}
+                    </p>
+                  ))}
+                  {notes.length > 3 && (
+                    <p className="text-xs text-gray-500">
+                      {notes.length - 3} more note
+                      {notes.length - 3 === 1 ? '' : 's'} in Deal notes
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </td>
+        <td className="px-5 py-4 text-sm text-gray-700">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-gray-400" />
+            <span>{formatDate(task.due_date)}</span>
+          </div>
+        </td>
+        <td className="px-5 py-4 text-sm text-gray-700">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <User className="h-3.5 w-3.5 text-gray-400" />
+              <span className="font-medium text-gray-900">
+                {task.deals.client_name}
+              </span>
+            </div>
+            {task.deals.property_address && (
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <MapPin className="h-3 w-3" />
+                <span className="truncate">
+                  {task.deals.property_address}
+                  {task.deals.city ? `, ${task.deals.city}` : ''}
+                </span>
+              </div>
+            )}
+          </div>
+        </td>
+        <td className="px-5 py-4 text-sm text-gray-700">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-gray-400" />
+            {getTaskStatusBadge(task)}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const renderCompletedRow = (task: Task) => (
+    <tr
+      key={task.id}
+      className="hover:bg-gray-100/80 cursor-pointer text-xs sm:text-sm"
+      onClick={() => handleRowClick(task)}
+    >
+      <td className="px-5 py-2">
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5">
+            <CheckCircle className="h-4 w-4 text-emerald-500" />
+          </span>
+          <div>
+            <p className="font-medium text-gray-700 line-through decoration-gray-400">
+              {task.title}
+            </p>
+            <p className="text-[11px] text-gray-500">
+              {task.deals.client_name}
+              {task.deals.property_address ? ` • ${task.deals.property_address}` : ''}
+            </p>
+          </div>
+        </div>
+      </td>
+      <td className="px-5 py-2">
+        <span className="flex items-center gap-1 text-gray-500">
+          <Calendar className="h-3.5 w-3.5" />
+          <span>{formatDate(task.due_date)}</span>
+        </span>
+      </td>
+    </tr>
+  );
 
   return (
     <div className="space-y-6">
@@ -550,15 +822,37 @@ export default function Tasks() {
                 </button>
               )}
             </div>
-            {isManagerRole && (
-              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                Agent
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {isManagerRole && (
+                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                  Agent
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowCompleted((prev) => {
+                    const next = !prev;
+                    if (next && completedTasks.length === 0) {
+                      fetchCompletedTasks();
+                    }
+                    return next;
+                  });
+                }}
+                className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-[11px] font-semibold tracking-[0.05em] shadow-sm transition ${
+                  showCompleted
+                    ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)]'
+                    : 'border-gray-200/80 bg-white/90 text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }`}
+              >
+                <CheckCircle className="h-3.5 w-3.5" />
+                {showCompleted ? 'Hide completed' : 'View recently completed'}
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              {statusFilterOptions.map(option => {
+              {statusFilterOptions.map((option) => {
                 const isActive = statusFilter === option.value;
                 return (
                   <button
@@ -582,11 +876,16 @@ export default function Tasks() {
                 className="hig-input w-52"
               >
                 <option value="all">All agents</option>
-                {(agentOptions.length ? agentOptions : Array.from(new Set(tasks.map(t => t.user_id))).map(id => ({
-                  id,
-                  label: dealOwners[id] || getOwnerName(id)
-                }))).map(agent => (
-                  <option key={agent.id} value={agent.id}>{agent.label}</option>
+                {(agentOptions.length
+                  ? agentOptions
+                  : Array.from(new Set(tasks.map((t) => t.user_id))).map((id) => ({
+                      id,
+                      label: dealOwners[id] || getOwnerName(id)
+                    }))
+                ).map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.label}
+                  </option>
                 ))}
               </select>
             )}
@@ -600,16 +899,23 @@ export default function Tasks() {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
               Add a task
             </p>
-            <h2 className="text-2xl font-semibold text-gray-900 mt-1">Assign the next move</h2>
+            <h2 className="text-2xl font-semibold text-gray-900 mt-1">
+              Assign the next move
+            </h2>
             <p className="text-sm text-gray-600 mt-1">
-              Attach a next step to any deal without leaving this page. Keep it short, clear, and actionable.
+              Attach a next step to any deal without leaving this page. Keep it short,
+              clear, and actionable.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-4 py-2 text-xs font-semibold text-gray-700 shadow-inner">
             <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] shadow-[0_0_0_4px_rgba(0,122,255,0.12)]" />
             {dealsLoading
               ? 'Loading deals…'
-              : `${(agentFilter === 'all' ? deals.length : deals.filter(d => d.user_id === agentFilter).length)} deals available`}
+              : `${
+                  agentFilter === 'all'
+                    ? deals.length
+                    : deals.filter((d) => d.user_id === agentFilter).length
+                } deals available`}
           </div>
         </div>
 
@@ -639,11 +945,16 @@ export default function Tasks() {
               className="hig-input task-deal-select"
               disabled={dealsLoading || deals.length === 0}
             >
-              <option value="">{dealsLoading ? 'Loading deals…' : 'Choose a deal'}</option>
+              <option value="">
+                {dealsLoading ? 'Loading deals…' : 'Choose a deal'}
+              </option>
               {shouldGroupDeals && groupedDeals
                 ? Object.entries(groupedDeals)
                     .map(([ownerId, ownerDeals]) => {
-                      const filtered = agentFilter === 'all' ? ownerDeals : ownerDeals.filter(d => d.user_id === agentFilter);
+                      const filtered =
+                        agentFilter === 'all'
+                          ? ownerDeals
+                          : ownerDeals.filter((d) => d.user_id === agentFilter);
                       return [ownerId, filtered] as const;
                     })
                     .filter(([, ownerDeals]) => ownerDeals.length > 0)
@@ -655,7 +966,9 @@ export default function Tasks() {
                     .map(([ownerId, ownerDeals]) => (
                       <optgroup
                         key={ownerId}
-                        label={`— ${getOwnerName(ownerId).toUpperCase()} · ${ownerDeals.length} deal${ownerDeals.length === 1 ? '' : 's'} —`}
+                        label={`— ${getOwnerName(ownerId).toUpperCase()} · ${
+                          ownerDeals.length
+                        } deal${ownerDeals.length === 1 ? '' : 's'} —`}
                       >
                         {ownerDeals.map((deal) => (
                           <option key={deal.id} value={deal.id}>
@@ -664,17 +977,22 @@ export default function Tasks() {
                         ))}
                       </optgroup>
                     ))
-                : (agentFilter === 'all' ? deals : deals.filter(deal => deal.user_id === agentFilter)).map((deal) => (
-                  <option key={deal.id} value={deal.id}>
-                    {deal.client_name} — {deal.property_address || 'Address TBD'}
-                  </option>
-                ))}
+                : (agentFilter === 'all'
+                    ? deals
+                    : deals.filter((deal) => deal.user_id === agentFilter)
+                  ).map((deal) => (
+                    <option key={deal.id} value={deal.id}>
+                      {deal.client_name} — {deal.property_address || 'Address TBD'}
+                    </option>
+                  ))}
             </select>
             {selectedDealOption && (
               <p className="mt-1 text-xs text-gray-500">
                 {selectedDealOption.city && selectedDealOption.state
                   ? `${selectedDealOption.city}, ${selectedDealOption.state}`
-                  : selectedDealOption.city || selectedDealOption.state || 'No location on file'}
+                  : selectedDealOption.city ||
+                    selectedDealOption.state ||
+                    'No location on file'}
               </p>
             )}
           </div>
@@ -720,15 +1038,14 @@ export default function Tasks() {
             <div className="h-full rounded-xl border border-gray-200/70 bg-gray-50/80 px-4 py-3 text-sm text-gray-700 shadow-inner">
               <p className="font-semibold text-gray-900">Give it clarity</p>
               <p className="mt-1 text-gray-600">
-                Use short verbs, include the who/where, and set a date so it shows up in the right bucket.
+                Use short verbs, include the who/where, and set a date so it shows up
+                in the right bucket.
               </p>
             </div>
           </div>
 
           {createError && (
-            <div className="lg:col-span-12 text-sm text-red-600">
-              {createError}
-            </div>
+            <div className="lg:col-span-12 text-sm text-red-600">{createError}</div>
           )}
         </form>
       </div>
@@ -747,223 +1064,106 @@ export default function Tasks() {
             <tbody className="divide-y divide-gray-100 bg-white/90">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-gray-500 text-sm">
+                  <td
+                    colSpan={4}
+                    className="px-5 py-8 text-center text-gray-500 text-sm"
+                  >
                     Loading tasks…
                   </td>
                 </tr>
               ) : filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-12 text-center text-gray-500 text-sm">
+                  <td
+                    colSpan={4}
+                    className="px-5 py-12 text-center text-gray-500 text-sm"
+                  >
                     Nothing to show here — take a moment to plan your next steps.
                   </td>
                 </tr>
-              ) : groupedTasksByAgent && groupedTasksByAgent.length > 0 ? (
-                groupedTasksByAgent.map((group) => (
-                  <React.Fragment key={group.agentId}>
-                    <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
-                      <td colSpan={4} className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                        {group.agentName} • {group.tasks.length} task{group.tasks.length === 1 ? '' : 's'}
-                      </td>
-                    </tr>
-                    {group.tasks.map((task) => {
-                      const notes = notesByTask[task.id] || [];
-                      const expanded = !!expandedNotes[task.id];
-                      return (
-                      <tr
-                        key={task.id}
-                        className="hover:bg-[var(--app-surface-muted)]/60 cursor-pointer"
-                        onClick={() => handleRowClick(task)}
-                      >
-                        <td className="px-5 py-4">
-                          <div className="flex items-start gap-3">
-                            <button
-                              type="button"
-                              className="pt-1"
-                              onClick={(event) => handleToggleComplete(task, event)}
-                              disabled={completingId === task.id}
-                              aria-label="Mark task complete"
-                            >
-                              {completingId === task.id ? (
-                                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
-                              ) : task.completed ? (
-                                <CheckCircle className="h-4 w-4 text-emerald-500" />
-                              ) : (
-                                <Circle className="h-4 w-4 text-gray-300" />
-                              )}
-                            </button>
-                            <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-gray-900">{task.title}</p>
-                            {notes.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedNotes(prev => ({ ...prev, [task.id]: !expanded }));
-                                }}
-                                className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
-                                aria-label="Toggle task notes"
-                              >
-                                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                <span>Notes</span>
-                              </button>
-                            )}
-                          </div>
-                          {task.deals?.next_task_description && (
-                            <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
-                          )}
-                          {expanded && notes.length > 0 && (
-                            <div className="mt-2 rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
-                              {notes.slice(0, 3).map(note => (
-                                <p key={note.id} className="text-sm text-gray-700">
-                                  {note.content}
-                                </p>
-                              ))}
-                              {notes.length > 3 && (
-                                <p className="text-xs text-gray-500">
-                                  {notes.length - 3} more note{notes.length - 3 === 1 ? '' : 's'} in Deal notes
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                        <td className="px-5 py-4 text-sm text-gray-700">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-gray-400" />
-                            <span>{formatDate(task.due_date)}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-sm text-gray-700">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <User className="h-3.5 w-3.5 text-gray-400" />
-                              <span className="font-medium text-gray-900">{task.deals.client_name}</span>
-                            </div>
-                            {task.deals.property_address && (
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <MapPin className="h-3 w-3" />
-                                <span className="truncate">
-                                  {task.deals.property_address}
-                                  {task.deals.city ? `, ${task.deals.city}` : ''}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-sm text-gray-700">
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4 text-gray-400" />
-                            {getTaskStatusBadge(task)}
-                          </div>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                ))
-              ) : (
-                filteredTasks.map((task) => {
-                  const notes = notesByTask[task.id] || [];
-                  const expanded = !!expandedNotes[task.id];
+              ) : (() => {
+                const groups =
+                  isManagerRole && agentFilter === 'all'
+                    ? (() => {
+                        const g = new Map<string, Task[]>();
+                        filteredTasks.forEach((task) => {
+                          const ownerId = task.user_id;
+                          if (!g.has(ownerId)) g.set(ownerId, []);
+                          g.get(ownerId)!.push(task);
+                        });
+                        return Array.from(g.entries())
+                          .map(([agentId, tasksForAgent]) => ({
+                            agentId,
+                            agentName:
+                              dealOwners[agentId] || getOwnerName(agentId),
+                            tasks: tasksForAgent
+                          }))
+                          .sort((a, b) =>
+                            a.agentName.localeCompare(b.agentName)
+                          );
+                      })()
+                    : null;
+
+                if (groups && groups.length > 0) {
                   return (
-                  <tr
-                    key={task.id}
-                    className="hover:bg-[var(--app-surface-muted)]/60 cursor-pointer"
-                    onClick={() => handleRowClick(task)}
-                  >
-                    <td className="px-5 py-4">
-                      <div className="flex items-start gap-3">
-                        <button
-                          type="button"
-                          className="pt-1"
-                          onClick={(event) => handleToggleComplete(task, event)}
-                          disabled={completingId === task.id}
-                          aria-label="Mark task complete"
-                        >
-                          {completingId === task.id ? (
-                            <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
-                          ) : task.completed ? (
-                            <CheckCircle className="h-4 w-4 text-emerald-500" />
-                          ) : (
-                            <Circle className="h-4 w-4 text-gray-300" />
-                          )}
-                        </button>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-gray-900">{task.title}</p>
-                            {notes.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedNotes(prev => ({ ...prev, [task.id]: !expanded }));
-                                }}
-                                className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
-                                aria-label="Toggle task notes"
-                              >
-                                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                <span>Notes</span>
-                              </button>
-                            )}
-                          </div>
-                          {task.deals?.next_task_description && (
-                            <p className="text-xs text-gray-500">Related: {task.deals.next_task_description}</p>
-                          )}
-                          {expanded && notes.length > 0 && (
-                            <div className="mt-2 rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
-                              {notes.slice(0, 3).map(note => (
-                                <p key={note.id} className="text-sm text-gray-700">
-                                  {note.content}
-                                </p>
-                              ))}
-                              {notes.length > 3 && (
-                                <p className="text-xs text-gray-500">
-                                  {notes.length - 3} more note{notes.length - 3 === 1 ? '' : 's'} in Deal notes
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-700">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-gray-400" />
-                        <span>{formatDate(task.due_date)}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-700">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <User className="h-3.5 w-3.5 text-gray-400" />
-                          <span className="font-medium text-gray-900">{task.deals.client_name}</span>
-                        </div>
-                        {task.deals.property_address && (
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <MapPin className="h-3 w-3" />
-                            <span className="truncate">
-                              {task.deals.property_address}
-                              {task.deals.city ? `, ${task.deals.city}` : ''}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-700">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-gray-400" />
-                        {getTaskStatusBadge(task)}
-                      </div>
-                    </td>
-                  </tr>
+                    <>
+                      {groups.map((group) => (
+                        <React.Fragment key={group.agentId}>
+                          <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
+                            <td
+                              colSpan={4}
+                              className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide"
+                            >
+                              {group.agentName} • {group.tasks.length} task
+                              {group.tasks.length === 1 ? '' : 's'}
+                            </td>
+                          </tr>
+                          {group.tasks.map((task) => renderTaskRow(task))}
+                        </React.Fragment>
+                      ))}
+                    </>
                   );
-                })
-              )}
+                }
+
+                return <>{filteredTasks.map((task) => renderTaskRow(task))}</>;
+              })()}
             </tbody>
           </table>
         </div>
+
+        {showCompleted && (
+          <div className="border-t border-gray-100 bg-gray-50/80">
+            <div className="flex items-center justify-between px-5 py-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
+                  Recently completed
+                </p>
+                <p className="text-xs text-gray-500">
+                  Last 30 completed tasks in your scope.
+                </p>
+              </div>
+              <div className="text-xs text-gray-500">
+                {completedLoading
+                  ? 'Loading…'
+                  : `${completedTasks.length} item${
+                      completedTasks.length === 1 ? '' : 's'
+                    }`}
+              </div>
+            </div>
+            {completedLoading ? (
+              <div className="px-5 pb-4 text-xs text-gray-500">Loading…</div>
+            ) : completedTasks.length === 0 ? (
+              <div className="px-5 pb-4 text-xs text-gray-500">
+                Nothing completed yet.
+              </div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto">
+                <table className="min-w-full text-left">
+                  <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <section className={`${surfaceClass} p-6`}>
@@ -972,7 +1172,9 @@ export default function Tasks() {
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
               Focus cues
             </p>
-            <h2 className="text-xl font-semibold text-gray-900">Where attention is needed</h2>
+            <h2 className="text-xl font-semibold text-gray-900">
+              Where attention is needed
+            </h2>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -981,7 +1183,9 @@ export default function Tasks() {
               <AlertTriangle className="h-4 w-4" />
               Overdue
             </div>
-            <p className="mt-2 text-2xl font-semibold text-red-700">{taskStats.overdue}</p>
+            <p className="mt-2 text-2xl font-semibold text-red-700">
+              {taskStats.overdue}
+            </p>
             <p className="text-xs text-red-600">Tasks waiting on you</p>
           </div>
           <div className="rounded-2xl border border-amber-100/70 bg-amber-50/60 p-4">
@@ -989,7 +1193,9 @@ export default function Tasks() {
               <Clock className="h-4 w-4" />
               Due today
             </div>
-            <p className="mt-2 text-2xl font-semibold text-amber-700">{taskStats.dueToday}</p>
+            <p className="mt-2 text-2xl font-semibold text-amber-700">
+              {taskStats.dueToday}
+            </p>
             <p className="text-xs text-amber-600">Expected before midnight</p>
           </div>
           <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/60 p-4">
@@ -997,7 +1203,9 @@ export default function Tasks() {
               <ArrowUpRight className="h-4 w-4" />
               Upcoming
             </div>
-            <p className="mt-2 text-2xl font-semibold text-emerald-700">{taskStats.upcoming}</p>
+            <p className="mt-2 text-2xl font-semibold text-emerald-700">
+              {taskStats.upcoming}
+            </p>
             <p className="text-xs text-emerald-600">On the horizon</p>
           </div>
           <div className="rounded-2xl border border-gray-100/70 bg-gray-50/80 p-4">
@@ -1005,8 +1213,12 @@ export default function Tasks() {
               <Circle className="h-4 w-4" />
               Unscheduled
             </div>
-            <p className="mt-2 text-2xl font-semibold text-gray-700">{taskStats.unscheduled}</p>
-            <p className="text-xs text-gray-500">Add due dates to keep momentum</p>
+            <p className="mt-2 text-2xl font-semibold text-gray-700">
+              {taskStats.unscheduled}
+            </p>
+            <p className="text-xs text-gray-500">
+              Add due dates to keep momentum
+            </p>
           </div>
         </div>
 
@@ -1017,8 +1229,12 @@ export default function Tasks() {
           {taskStats.nextTask ? (
             <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-lg font-semibold text-gray-900">{taskStats.nextTask.title}</p>
-                <p className="text-sm text-gray-600">{taskStats.nextTask.deals.client_name}</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {taskStats.nextTask.title}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {taskStats.nextTask.deals.client_name}
+                </p>
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Calendar className="h-4 w-4 text-gray-400" />
@@ -1027,7 +1243,8 @@ export default function Tasks() {
             </div>
           ) : (
             <p className="mt-2 text-sm text-gray-600">
-              No dated tasks remain. Assign due dates to keep focus on high-leverage work.
+              No dated tasks remain. Assign due dates to keep focus on high-leverage
+              work.
             </p>
           )}
         </div>
