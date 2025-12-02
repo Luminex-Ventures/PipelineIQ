@@ -32,7 +32,7 @@ export default function ProfileSettings() {
     setSaving(false);
   };
 
-  const initials = (name || user?.email || 'PI').split(' ').map(part => part.charAt(0).toUpperCase()).slice(0, 2).join('');
+  const initials = (name || user?.email || 'PI').split(' ').map((part: string) => part.charAt(0).toUpperCase()).slice(0, 2).join('');
   const roleLabel = getRoleLabel(roleInfo?.globalRole);
 
   return (

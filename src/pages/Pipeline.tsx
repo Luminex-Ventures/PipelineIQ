@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -298,7 +298,7 @@ export default function Pipeline() {
           console.error('Error loading team members', error);
           return [];
         }
-        return (data || []).map(member => member.user_id);
+        return ((data || []) as any[]).map(member => member.user_id);
       };
 
       let visibleUserIds: string[] = [];
@@ -345,7 +345,7 @@ export default function Pipeline() {
         setDeals([]);
       } else {
         const currentYear = new Date().getFullYear();
-        const filtered = (data || []).filter(deal => {
+        const filtered = ((data || []) as any[]).filter(deal => {
           if (deal.status !== 'closed') return true;
           const closedDate = deal.close_date || deal.closed_at;
           if (!closedDate) return false;
@@ -423,8 +423,8 @@ export default function Pipeline() {
       updates.closed_at = new Date().toISOString();
     }
 
-    const { error } = await supabase
-      .from('deals')
+    const { error } = await (supabase
+      .from('deals') as any)
       .update(updates)
       .eq('id', dealId);
 
@@ -553,8 +553,8 @@ export default function Pipeline() {
       }
     }
 
-    const { error } = await supabase
-      .from('deals')
+    const { error } = await (supabase
+      .from('deals') as any)
       .update(updateData)
       .in('id', dealIds);
 
@@ -616,35 +616,6 @@ export default function Pipeline() {
     setSelectedStageIds([]);
     setSelectedDealTypeIds([]);
   };
-
-  const getStageLabel = useCallback((stageId: string) => {
-    if (stageId === 'all') return 'All stages';
-    const statusMatch = combinedStatuses.find(status => status.id === stageId);
-    if (statusMatch) return statusMatch.name;
-    const dealMatch = deals.find(deal => (deal.pipeline_status_id || `status:${deal.status}`) === stageId);
-    if (dealMatch) {
-      const rawStatus = dealMatch.status || '';
-      return dealMatch.pipeline_statuses?.name || (rawStatus ? rawStatus.replace(/_/g, ' ') : 'Selected stage');
-    }
-    const paramLabel = searchParams.get('statusName');
-    return paramLabel || 'Selected stage';
-  }, [combinedStatuses, deals, searchParams]);
-
-  const statusFilterLabel = useMemo(
-    () => getStageLabel(statusFilter),
-    [statusFilter, getStageLabel]
-  );
-
-  const statusOptions = useMemo(() => {
-    const base = combinedStatuses.map(status => ({
-      id: status.id,
-      name: status.name
-    }));
-    if (statusFilter !== 'all' && !base.some(option => option.id === statusFilter)) {
-      base.push({ id: statusFilter, name: statusFilterLabel });
-    }
-    return base;
-  }, [combinedStatuses, statusFilter, statusFilterLabel]);
 
   const showFilterPanel = viewMode === 'table' || (isSalesManager && viewMode === 'kanban');
   const showStageFilter = viewMode === 'table';
@@ -710,24 +681,6 @@ export default function Pipeline() {
     selectedStageIds,
     showStageFilter
   ]);
-
-  const handleStatusFilterChange = (nextStatusId: string) => {
-    setStatusFilter(nextStatusId);
-    const nextParams = new URLSearchParams(searchParams);
-    if (nextStatusId === 'all') {
-      nextParams.delete('statusId');
-      nextParams.delete('statusName');
-    } else {
-      nextParams.set('statusId', nextStatusId);
-      const selectedStatus = combinedStatuses.find(status => status.id === nextStatusId);
-      if (selectedStatus?.name) {
-        nextParams.set('statusName', selectedStatus.name);
-      }
-      nextParams.set('view', 'table');
-      setViewMode('table');
-    }
-    setSearchParams(nextParams, { replace: true });
-  };
 
   if (loading || statusesLoading) {
     return (

@@ -41,7 +41,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           .eq('user_id', user.id)
           .order('sort_order');
 
-    const statusNames = statuses?.map(s => s.name) || [];
+    const statusNames = (statuses as any)?.map((s: any) => s.name) || [];
     const csvContent = generateExampleCSV(statusNames);
     downloadCSV(csvContent, 'deals-import-example.csv');
   };
@@ -90,7 +90,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
             .eq('user_id', user.id);
 
       const leadSourceMap = new Map(
-        leadSources?.map(ls => [ls.name.toLowerCase(), ls.id]) || []
+        (leadSources as any)?.map((ls: any) => [ls.name.toLowerCase(), ls.id]) || []
       );
 
       const { data: teamPipelineStatuses } = teamId
@@ -108,7 +108,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
             .eq('user_id', user.id);
 
       const pipelineStatusMap = new Map(
-        pipelineStatuses?.map(ps => [ps.name.toLowerCase(), ps.id]) || []
+        (pipelineStatuses as any)?.map((ps: any) => [ps.name.toLowerCase(), ps.id]) || []
       );
 
       const { data: userSettings } = await supabase
@@ -117,7 +117,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
         .eq('user_id', user.id)
         .single();
 
-      const defaultBrokerageSplit = userSettings?.default_brokerage_split_rate || 0.2;
+      const defaultBrokerageSplit = (userSettings as any)?.default_brokerage_split_rate || 0.2;
 
       let successCount = 0;
       let failedCount = 0;
@@ -125,7 +125,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
 
       for (let i = 0; i < dataRows.length; i++) {
         const rowData = csvRowToObject(headers, dataRows[i]);
-        const validation = validateDealRow(rowData, Array.from(pipelineStatusMap.keys()));
+        const validation = validateDealRow(rowData, Array.from(pipelineStatusMap.keys()) as string[]);
 
         if (!validation.valid) {
           failedCount++;
@@ -206,8 +206,8 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           closed_at: status === 'closed' ? new Date().toISOString() : null
         };
 
-        const { error } = await supabase
-          .from('deals')
+        const { error } = await (supabase
+          .from('deals') as any)
           .insert(dealData);
 
         if (error) {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Check, Loader2, Plus, Trash2 } from 'lucide-react';
+import { X, Check, Plus, Trash2 } from 'lucide-react';
 import { usePipelineTemplates } from '../hooks/usePipelineStatuses';
 
 interface TemplateSelectionModalProps {
@@ -30,7 +30,7 @@ export default function TemplateSelectionModal({
   onCreateCustomWorkflow,
   title = 'Choose Your Pipeline Workflow'
 }: TemplateSelectionModalProps) {
-  const { templates, loading } = usePipelineTemplates();
+  const { templates } = usePipelineTemplates();
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [showCustomBuilder, setShowCustomBuilder] = useState(false);
   const [customStages, setCustomStages] = useState<string[]>(['New Lead', 'Contacted', 'Closed']);

@@ -30,9 +30,9 @@ export default function PersonalPreferencesSettings() {
 
     if (data) {
       setFormData({
-        annual_gci_goal: data.annual_gci_goal,
-        default_tax_rate: data.default_tax_rate * 100,
-        default_brokerage_split_rate: data.default_brokerage_split_rate * 100
+        annual_gci_goal: (data as any).annual_gci_goal,
+        default_tax_rate: (data as any).default_tax_rate * 100,
+        default_brokerage_split_rate: (data as any).default_brokerage_split_rate * 100
       });
     }
 
@@ -46,8 +46,8 @@ export default function PersonalPreferencesSettings() {
     setSaving(true);
     setMessage(null);
 
-    const { error } = await supabase
-      .from('user_settings')
+    const { error } = await (supabase
+      .from('user_settings') as any)
       .upsert({
         user_id: user.id,
         annual_gci_goal: formData.annual_gci_goal,

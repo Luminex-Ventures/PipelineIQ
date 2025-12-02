@@ -77,8 +77,8 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
     async ({ email, intendedRole, teamId }: CreateInvitePayload) => {
       if (!workspaceId) return { error: new Error('Workspace is required') };
       if (!teamId) return { error: new Error('Team is required for invites') };
-      const { data, error } = await supabase
-        .from('workspace_invitations')
+      const { data, error} = await (supabase
+        .from('workspace_invitations') as any)
         .insert({
           email,
           intended_role: intendedRole,
@@ -88,7 +88,7 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
         .select('*')
         .single();
       if (!error && data) {
-        await sendInviteEmail(data.id);
+        await sendInviteEmail((data as any).id);
         await fetchInvites();
       }
       return { error };
@@ -98,8 +98,8 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
 
   const cancelInvite = useCallback(
     async (inviteId: string) => {
-      const { error } = await supabase
-        .from('workspace_invitations')
+      const { error } = await (supabase
+        .from('workspace_invitations') as any)
         .update({ status: 'canceled' })
         .eq('id', inviteId);
       if (!error) {
@@ -112,8 +112,8 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
 
   const resendInvite = useCallback(
     async (inviteId: string) => {
-      const { data, error } = await supabase
-        .from('workspace_invitations')
+      const { data, error } = await (supabase
+        .from('workspace_invitations') as any)
         .update({
           status: 'pending',
           expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
@@ -122,7 +122,7 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
         .select('*')
         .single();
       if (!error && data) {
-        await sendInviteEmail(data.id);
+        await sendInviteEmail((data as any).id);
         await fetchInvites();
       }
       return { error };

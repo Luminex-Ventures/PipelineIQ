@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error };
     }
 
-    const { error: acceptError } = await supabase.rpc('accept_workspace_invite', {
+    const { error: acceptError } = await (supabase.rpc as any)('accept_workspace_invite', {
       invite_token: inviteToken
     });
 

@@ -169,7 +169,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       .limit(1);
 
     if (!error && data && data.length) {
-      const note = data[0].content || '';
+      const note = (data[0] as any).content || '';
       const parsed = note.replace(/^Archive reason:\s*/i, '').trim();
       setArchivedReason(parsed);
     }
@@ -259,7 +259,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     const { data } = await query;
 
     if (data) {
-      const sortedTasks = data.sort((a, b) => {
+      const sortedTasks = (data as any).sort((a: any, b: any) => {
         if (!a.due_date && !b.due_date) return 0;
         if (!a.due_date) return -1;
         if (!b.due_date) return 1;
@@ -327,28 +327,28 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
 
     try {
       if (deal) {
-        const { error } = await supabase
-          .from('deals')
+        const { error } = await (supabase
+          .from('deals') as any)
           .update(dealData)
           .eq('id', deal.id);
 
         if (error) throw error;
         dealId = deal.id;
       } else {
-        const { data: insertData, error: insertError } = await supabase
-          .from('deals')
+        const { data: insertData, error: insertError } = await (supabase
+          .from('deals') as any)
           .insert(dealData)
           .select('id')
           .single();
 
         if (insertError) throw insertError;
-        if (insertData?.id) {
-          dealId = insertData.id;
+        if ((insertData as any)?.id) {
+          dealId = (insertData as any).id;
         }
       }
 
       if (archived && dealId) {
-        const { error: noteError } = await supabase.from('deal_notes').insert({
+        const { error: noteError } = await (supabase.from('deal_notes') as any).insert({
           deal_id: dealId,
           user_id: user.id,
           content: `Archive reason: ${archivedReason}`
@@ -381,7 +381,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
 
     const taskOwnerId = deal.user_id || user.id;
 
-    await supabase.from('tasks').insert({
+    await (supabase.from('tasks') as any).insert({
       deal_id: deal.id,
       user_id: taskOwnerId,
       title: newTaskTitle,
@@ -396,8 +396,8 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   };
 
   const toggleTaskComplete = async (taskId: string, completed: boolean) => {
-    await supabase
-      .from('tasks')
+    await (supabase
+      .from('tasks') as any)
       .update({ completed: !completed })
       .eq('id', taskId);
 
@@ -413,8 +413,8 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const handleUpdateTask = async () => {
     if (!editingTaskTitle.trim() || !editingTaskId) return;
 
-    await supabase
-      .from('tasks')
+    await (supabase
+      .from('tasks') as any)
       .update({
         title: editingTaskTitle,
         due_date: editingTaskDueDate || null

@@ -68,7 +68,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
             .from('lead_sources')
             .select('*')
             .eq('team_id', teamId)
-            .order('sort_order', { ascending: true, nullsLast: true })
+            .order('sort_order', { ascending: true })
             .order('name', { ascending: true })
         : ({ data: null, error: null } as any);
 
@@ -81,7 +81,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
             .from('lead_sources')
             .select('*')
             .eq('user_id', user.id)
-            .order('sort_order', { ascending: true, nullsLast: true })
+            .order('sort_order', { ascending: true })
             .order('name', { ascending: true });
 
       if (fetchError) {
@@ -110,8 +110,8 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
         setSources(normalized);
         await Promise.all(
           normalized.map((source, index) =>
-            supabase
-              .from('lead_sources')
+            (supabase
+              .from('lead_sources') as any)
               .update({ sort_order: index + 1 })
               .eq('id', source.id)
           )
@@ -142,7 +142,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     setError(null);
 
     try {
-      const brokerageSplitRaw = parseFloat(formData.brokerage_split_rate || '');
+      const brokerageSplitRaw = parseFloat(String(formData.brokerage_split_rate || ''));
       const brokerageSplit = Number.isNaN(brokerageSplitRaw) ? 0 : brokerageSplitRaw;
       const partnershipSplitRaw = formData.partnership_split_rate ?? 0;
       const partnershipSplit = Number.isNaN(partnershipSplitRaw) ? 0 : partnershipSplitRaw;
@@ -157,16 +157,16 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       };
 
       if (editingSource) {
-        const { error: updateError } = await supabase
-          .from('lead_sources')
+        const { error: updateError } = await (supabase
+          .from('lead_sources') as any)
           .update(payload)
           .eq('id', editingSource.id);
 
         if (updateError) throw updateError;
       } else {
         const maxSort = sources.reduce((max, src) => Math.max(max, src.sort_order ?? 0), 0);
-        const { error: insertError } = await supabase
-          .from('lead_sources')
+        const { error: insertError } = await (supabase
+          .from('lead_sources') as any)
           .insert({
             user_id: user.id,
             sort_order: maxSort + 1,
@@ -289,8 +289,8 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       if (updates.length > 0) {
         await Promise.all(
           updates.map((source) =>
-            supabase
-              .from('lead_sources')
+            (supabase
+              .from('lead_sources') as any)
               .update({ sort_order: source.sort_order })
               .eq('id', source.id)
           )

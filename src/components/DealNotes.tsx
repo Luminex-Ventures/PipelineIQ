@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Trash2, Edit2, X, Loader2, MessageSquare } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2, MessageSquare } from 'lucide-react';
 
 interface Note {
   id: string;
   deal_id: string;
   user_id: string;
   content: string;
+  task_id: string | null;
   created_at: string;
   updated_at: string;
   user_email?: string;
@@ -67,8 +68,8 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
     setSaving(true);
     try {
       if (editingNote) {
-        const { error } = await supabase
-          .from('deal_notes')
+        const { error } = await (supabase
+          .from('deal_notes') as any)
           .update({
             content: noteContent,
             updated_at: new Date().toISOString()
@@ -77,8 +78,8 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
 
         if (error) throw error;
       } else {
-        const { error } = await supabase
-          .from('deal_notes')
+        const { error } = await (supabase
+          .from('deal_notes') as any)
           .insert({
             deal_id: dealId,
             user_id: user.id,

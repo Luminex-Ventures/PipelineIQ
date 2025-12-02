@@ -55,7 +55,7 @@ export default function IntegrationsSettings({ canEdit }: IntegrationsSettingsPr
         lastSync: nextState === 'connected' ? new Date().toISOString() : undefined
       }
     };
-    setIntegrations(payload);
+    setIntegrations(payload as Record<string, IntegrationState>);
     await updateWorkspace({ integration_settings: payload });
     setSavingKey(null);
   };

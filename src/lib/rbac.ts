@@ -27,11 +27,11 @@ export async function getUserRoleInfo(userId: string): Promise<UserRoleInfo | nu
 
   return {
     userId,
-    globalRole: settings.global_role,
-    teamId: teamData?.team_id || null,
-    teamRole: teamData?.role || null,
-    workspaceId: settings.workspace_id || null,
-    isActive: settings.is_active ?? true
+    globalRole: (settings as any).global_role,
+    teamId: (teamData as any)?.team_id || null,
+    teamRole: (teamData as any)?.role || null,
+    workspaceId: (settings as any).workspace_id || null,
+    isActive: (settings as any).is_active ?? true
   };
 }
 
@@ -46,7 +46,7 @@ export async function getVisibleUserIds(roleInfo: UserRoleInfo): Promise<string[
   // Fallback: admins/managers try direct user_settings; otherwise self
   if (roleInfo.globalRole === 'admin' || roleInfo.globalRole === 'sales_manager') {
     const { data: allUsers } = await supabase.from('user_settings').select('user_id');
-    const ids = allUsers?.map(u => u.user_id).filter(Boolean);
+    const ids = (allUsers as any)?.map((u: any) => u.user_id).filter(Boolean);
     if (ids && ids.length) return ids;
   }
 

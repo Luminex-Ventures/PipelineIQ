@@ -1,18 +1,6 @@
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
-import { TrendingUp, DollarSign, Target } from 'lucide-react';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
@@ -258,12 +246,6 @@ export default function Analytics() {
     selectedPipelineStages,
     user?.id
   ]);
-
-  const selectAllAgents = () => {
-    if (availableAgents.length) {
-      setSelectedAgentIds(availableAgents.map((agent) => agent.id));
-    }
-  };
 
   const selectMyData = () => {
     if (user) {
@@ -658,7 +640,7 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       allDealsQuery
     ]);
 
-    if (settingsResp.data) setGciGoal(settingsResp.data.annual_gci_goal || 0);
+    if (settingsResp.data) setGciGoal((settingsResp.data as any).annual_gci_goal || 0);
 
     const closedDeals = closedResp.data;
     const archivedDeals = archivedResp.data;
@@ -690,10 +672,6 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
       const monthlyGCI: { [key: string]: number } = {};
       const monthlyDeals: { [key: string]: number } = {};
-
-      const now = new Date();
-      const currentMonthIndex = now.getMonth();
-      const isCurrentYear = now.getFullYear() === selectedYear;
 
       closedDeals.forEach((deal: any) => {
         const closedParts =
@@ -944,7 +922,6 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         return 'under_contract';
       case 'offer_submitted':
       case 'showing_scheduled':
-      case 'in_progress':
       case 'contacted':
         return 'in_progress';
       default:
@@ -985,8 +962,6 @@ const parseDateValue = (value?: string | null): DateParts | null => {
 
   // Goal & pace calculations
   const goalProgress = gciGoal > 0 ? (yearlyStats.totalGCI / gciGoal) * 100 : 0;
-  const goalColor =
-    goalProgress < 75 ? 'bg-green-500' : goalProgress < 90 ? 'bg-yellow-500' : 'bg-red-500';
 
   const now = new Date();
   const isCurrentYear = selectedYear === now.getFullYear();

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { Home, TrendingUp, Calendar, DollarSign, Clock, Trash2, Edit3, Search, Upload, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { Home, TrendingUp, Calendar, Clock, Trash2, Edit3, Search, Upload, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { getColorByName } from '../lib/colors';
 import type { Database } from '../lib/database.types';
 import ImportDealsModal from './ImportDealsModal';
@@ -571,7 +571,7 @@ export default function PipelineTable({
         case 'status':
           return stringValue(deal.status);
         case 'leadSource':
-          return stringValue(deal.lead_sources?.name || deal.lead_source_name);
+          return stringValue(deal.lead_sources?.name);
         case 'expectedPrice':
           return deal.expected_sale_price ?? null;
         case 'actualPrice':

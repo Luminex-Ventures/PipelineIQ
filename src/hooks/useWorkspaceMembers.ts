@@ -22,7 +22,7 @@ export function useWorkspaceMembers(workspaceId?: string | null) {
     if (!workspaceId) return;
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase.rpc('get_workspace_members', {
+    const { data, error } = await (supabase.rpc as any)('get_workspace_members', {
       p_workspace_id: workspaceId,
     });
     if (error) {
@@ -44,7 +44,7 @@ export function useWorkspaceMembers(workspaceId?: string | null) {
       action: 'update_role' | 'deactivate' | 'reactivate' | 'delete',
       newRole?: GlobalRole
     ) => {
-      const { error } = await supabase.rpc('manage_workspace_member', {
+      const { error } = await (supabase.rpc as any)('manage_workspace_member', {
         target_user: targetUser,
         action,
         new_role: newRole ?? null,
@@ -72,8 +72,8 @@ export function useWorkspaceMembers(workspaceId?: string | null) {
       const { error: deleteError } = await supabase.from('user_teams').delete().eq('user_id', userId);
       if (deleteError) return { error: deleteError };
 
-      const { error: insertError } = await supabase
-        .from('user_teams')
+      const { error: insertError } = await (supabase
+        .from('user_teams') as any)
         .upsert({ user_id: userId, team_id: teamId, role: 'agent' });
       if (insertError) return { error: insertError };
 

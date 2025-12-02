@@ -60,8 +60,8 @@ export function AppHeader() {
     const { data, error } = await query;
 
     if (!error && data) {
-      const mapped = data
-        .map((row) => ({
+      const mapped = (data as any)
+        .map((row: any) => ({
           id: row.id,
           eventType: row.event_type as ActivityEventType,
           actorId: row.actor_id,
@@ -71,9 +71,9 @@ export function AppHeader() {
           payload: (row.payload || {}) as Record<string, any>,
           timestamp: new Date(row.created_at),
         }))
-        .filter((item) => item.timestamp.getTime() > lastClearedAt.getTime());
+        .filter((item: any) => item.timestamp.getTime() > lastClearedAt.getTime());
       setNotifications(mapped);
-      if (mapped.some((n) => n.timestamp.getTime() > lastViewedAt.getTime())) {
+      if (mapped.some((n: any) => n.timestamp.getTime() > lastViewedAt.getTime())) {
         setHasUnread(true);
       }
     }
