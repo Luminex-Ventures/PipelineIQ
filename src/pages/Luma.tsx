@@ -18,6 +18,11 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   supportingData?: SupportingData;
+  debugInfo?: {
+    step1_intent: string;
+    step2_query: string;
+    step3_data: any;
+  };
 }
 
 const surfaceClass =
@@ -29,6 +34,7 @@ export default function Luma() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   const suggestedQueries = [
     'Show me the deals expected to close this month.',
@@ -90,13 +96,25 @@ export default function Luma() {
   return (
     <div className="flex h-full flex-col gap-6">
       <section className={`${surfaceClass} space-y-4 bg-white/95 px-6 py-6 sm:px-8 sm:py-8`}>
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-gray-500">Luma AI</p>
-          <h1 className="text-3xl font-semibold text-gray-900">Chat with your data-aware copilot</h1>
-          <p className="max-w-3xl text-sm text-gray-600">
-            Ask natural questions about deals, tasks, lead sources, or performance and get calm answers without breaking your
-            workflow. Luma keeps context from your workspace so you can move quickly.
-          </p>
+        <div className="flex items-start justify-between">
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-gray-500">Luma AI</p>
+            <h1 className="text-3xl font-semibold text-gray-900">Chat with your data-aware copilot</h1>
+            <p className="max-w-3xl text-sm text-gray-600">
+              Ask natural questions about deals, tasks, lead sources, or performance and get calm answers without breaking your
+              workflow. Luma keeps context from your workspace so you can move quickly.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowDebug(!showDebug)}
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${
+              showDebug
+                ? 'bg-[var(--app-accent)] text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {showDebug ? '🔍 Hide Debug' : '🔍 Show Debug'}
+          </button>
         </div>
       </section>
 
@@ -172,6 +190,31 @@ export default function Luma() {
                       {message.supportingData.team_members !== undefined && (
                         <SupportingStat label="Team Members" value={message.supportingData.team_members} accent="teal" />
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {message.debugInfo && showDebug && (
+                  <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Debug Info</div>
+                    
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <div className="text-xs font-semibold text-blue-900">Step 1: Intent Understanding</div>
+                      <div className="mt-1 text-xs text-blue-800">{message.debugInfo.step1_intent}</div>
+                    </div>
+                    
+                    <div className="rounded-lg bg-purple-50 p-3">
+                      <div className="text-xs font-semibold text-purple-900">Step 2: SQL Query</div>
+                      <pre className="mt-1 overflow-x-auto text-[10px] text-purple-800">{message.debugInfo.step2_query}</pre>
+                    </div>
+                    
+                    <div className="rounded-lg bg-green-50 p-3">
+                      <div className="text-xs font-semibold text-green-900">
+                        Step 3: Data Retrieved ({Array.isArray(message.debugInfo.step3_data) ? message.debugInfo.step3_data.length : 0} records)
+                      </div>
+                      <pre className="mt-1 max-h-40 overflow-auto text-[10px] text-green-800">
+                        {JSON.stringify(message.debugInfo.step3_data, null, 2)}
+                      </pre>
                     </div>
                   </div>
                 )}
