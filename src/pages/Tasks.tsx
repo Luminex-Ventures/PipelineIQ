@@ -808,7 +808,7 @@ export default function Tasks() {
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
                 Task status
@@ -822,36 +822,34 @@ export default function Tasks() {
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-3">
-              {isManagerRole && (
+            {isManagerRole && (
+              <div className="flex items-center gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
                   Agent
                 </span>
-              )}
-              <button
-                type="button"
-                onClick={async () => {
-                  setShowCompleted((prev) => {
-                    const next = !prev;
-                    if (next && completedTasks.length === 0) {
-                      fetchCompletedTasks();
-                    }
-                    return next;
-                  });
-                }}
-                className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-[11px] font-semibold tracking-[0.05em] shadow-sm transition ${
-                  showCompleted
-                    ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)]'
-                    : 'border-gray-200/80 bg-white/90 text-gray-600 hover:text-gray-900 hover:border-gray-300'
-                }`}
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-                {showCompleted ? 'Hide completed' : 'View recently completed'}
-              </button>
-            </div>
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className="hig-input w-52"
+                >
+                  <option value="all">All agents</option>
+                  {(agentOptions.length
+                    ? agentOptions
+                    : Array.from(new Set(tasks.map((t) => t.user_id))).map((id) => ({
+                        id,
+                        label: dealOwners[id] || getOwnerName(id)
+                      }))
+                  ).map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {statusFilterOptions.map((option) => {
                 const isActive = statusFilter === option.value;
                 return (
@@ -869,26 +867,27 @@ export default function Tasks() {
                 );
               })}
             </div>
-            {isManagerRole && (
-              <select
-                value={agentFilter}
-                onChange={(e) => setAgentFilter(e.target.value)}
-                className="hig-input w-52"
-              >
-                <option value="all">All agents</option>
-                {(agentOptions.length
-                  ? agentOptions
-                  : Array.from(new Set(tasks.map((t) => t.user_id))).map((id) => ({
-                      id,
-                      label: dealOwners[id] || getOwnerName(id)
-                    }))
-                ).map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <span className="h-6 w-px bg-gray-200/80" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={async () => {
+                setShowCompleted((prev) => {
+                  const next = !prev;
+                  if (next && completedTasks.length === 0) {
+                    fetchCompletedTasks();
+                  }
+                  return next;
+                });
+              }}
+              className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
+                showCompleted
+                  ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
+                  : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
+              }`}
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              {showCompleted ? 'Hide completed' : 'View recently completed'}
+            </button>
           </div>
         </div>
       </div>
