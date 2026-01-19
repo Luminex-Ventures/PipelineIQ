@@ -290,6 +290,9 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     setSubmitError(null);
 
     const selectedStatus = pipelineStatuses.find(s => s.id === formData.pipeline_status_id);
+    const lifecycleStage = archived
+      ? 'dead'
+      : (selectedStatus?.lifecycle_stage || 'new');
 
     if (!formData.lead_source_id) {
       alert('Please select a lead source');
@@ -308,18 +311,17 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       user_id: user.id,
       lead_source_id: formData.lead_source_id,
       pipeline_status_id: archived ? null : (formData.pipeline_status_id || null),
-      status: archived
-        ? 'dead'
-        : selectedStatus
-          ? (selectedStatus.slug || selectedStatus.name || 'new_lead').toLowerCase()
-          : 'new_lead',
+      status: lifecycleStage,
       expected_sale_price: Number(formData.expected_sale_price) || 0,
       actual_sale_price: formData.actual_sale_price ? Number(formData.actual_sale_price) : null,
       referral_out_rate: formData.referral_out_rate ? Number(formData.referral_out_rate) : null,
       referral_in_rate: formData.referral_in_rate ? Number(formData.referral_in_rate) : null,
       transaction_fee: Number(formData.transaction_fee) || 0,
       close_date: formData.close_date || null,
-      closed_at: archived ? new Date().toISOString() : deal?.closed_at || null,
+      closed_at:
+        lifecycleStage === 'closed' || archived
+          ? (deal?.closed_at || new Date().toISOString())
+          : null,
       archived_reason: archived ? archivedReason : null
     };
 

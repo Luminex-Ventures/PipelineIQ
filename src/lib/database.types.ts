@@ -7,7 +7,7 @@ export type Json =
   | Json[]
 
 export type DealType = 'buyer' | 'seller' | 'buyer_and_seller' | 'renter' | 'landlord';
-export type DealStatus = 'new_lead' | 'contacted' | 'showing_scheduled' | 'offer_submitted' | 'under_contract' | 'pending' | 'closed' | 'dead';
+export type DealStatus = 'new' | 'in_progress' | 'closed' | 'dead' | 'new_lead' | 'contacted' | 'showing_scheduled' | 'offer_submitted' | 'under_contract' | 'pending';
 export type GlobalRole = 'agent' | 'team_lead' | 'sales_manager' | 'admin';
 export type TeamRole = 'agent' | 'team_lead';
 
@@ -405,6 +405,7 @@ export interface Database {
           sort_order: number;
           color: string | null;
           is_default: boolean;
+          lifecycle_stage: 'new' | 'in_progress' | 'closed' | 'dead';
           created_at: string;
           updated_at: string;
         };
@@ -418,6 +419,7 @@ export interface Database {
           sort_order?: number;
           color?: string | null;
           is_default?: boolean;
+          lifecycle_stage?: 'new' | 'in_progress' | 'closed' | 'dead';
           created_at?: string;
           updated_at?: string;
         };
@@ -431,6 +433,7 @@ export interface Database {
           sort_order?: number;
           color?: string | null;
           is_default?: boolean;
+          lifecycle_stage?: 'new' | 'in_progress' | 'closed' | 'dead';
           created_at?: string;
           updated_at?: string;
         };

@@ -9,7 +9,7 @@ interface SupportingData {
   total_gci?: number;
   closed_deals?: number;
   active_deals?: number;
-  under_contract?: number;
+  in_progress?: number;
   team_members?: number;
   [key: string]: number | undefined;
 }
@@ -165,8 +165,8 @@ export default function Luma() {
                       {message.supportingData.active_deals !== undefined && (
                         <SupportingStat label="Active Deals" value={message.supportingData.active_deals} accent="orange" />
                       )}
-                      {message.supportingData.under_contract !== undefined && (
-                        <SupportingStat label="Under Contract" value={message.supportingData.under_contract} accent="purple" />
+                      {message.supportingData.in_progress !== undefined && (
+                        <SupportingStat label="In Progress" value={message.supportingData.in_progress} accent="purple" />
                       )}
                       {message.supportingData.team_members !== undefined && (
                         <SupportingStat label="Team Members" value={message.supportingData.team_members} accent="teal" />

@@ -18,7 +18,7 @@ export interface LumaResponse {
     total_gci?: number;
     closed_deals?: number;
     active_deals?: number;
-    under_contract?: number;
+    in_progress?: number;
     team_members?: number;
     [key: string]: number | undefined;
   };
@@ -65,7 +65,7 @@ When your answer includes key metrics, extract them into structured data. Return
   "total_gci": 50000,
   "closed_deals": 5,
   "active_deals": 5,
-  "under_contract": 2,
+  "in_progress": 4,
   "team_members": 3
 }
 <<<END_SUPPORTING_DATA>>>
@@ -121,4 +121,3 @@ Only include the metrics that are relevant to the user's query. If no metrics ar
     throw new Error('Failed to get response from Luma. Please try again.');
   }
 }
-

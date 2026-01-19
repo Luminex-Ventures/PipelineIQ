@@ -434,19 +434,19 @@ async function handlePipelineQuery(supabase: any, visibleUserIds: string[], quer
     .neq('status', 'closed')
     .neq('status', 'dead');
 
-  const underContract = deals?.filter((d: any) => d.status === 'under_contract') || [];
-  const pending = deals?.filter((d: any) => d.status === 'pending') || [];
+  const newDeals = deals?.filter((d: any) => d.status === 'new') || [];
+  const inProgress = deals?.filter((d: any) => d.status === 'in_progress') || [];
 
   let answer = `Pipeline Summary:\n\n`;
-  answer += `• ${underContract.length} deal${underContract.length !== 1 ? 's' : ''} under contract\n`;
-  answer += `• ${pending.length} deal${pending.length !== 1 ? 's' : ''} pending\n`;
+  answer += `• ${newDeals.length} new deal${newDeals.length !== 1 ? 's' : ''}\n`;
+  answer += `• ${inProgress.length} deal${inProgress.length !== 1 ? 's' : ''} in progress\n`;
   answer += `• ${deals?.length || 0} total active deals`;
 
   return {
     answer,
     data: {
-      under_contract: underContract.length,
-      pending: pending.length,
+      new: newDeals.length,
+      in_progress: inProgress.length,
       total_active: deals?.length || 0,
     },
   };

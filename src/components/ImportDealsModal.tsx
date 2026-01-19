@@ -96,7 +96,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
       const { data: teamPipelineStatuses } = teamId
         ? await supabase
             .from('pipeline_statuses')
-            .select('id, name')
+            .select('id, name, lifecycle_stage')
             .eq('team_id', teamId)
         : ({ data: null } as any);
 
@@ -104,11 +104,11 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
         ? ({ data: teamPipelineStatuses } as any)
         : await supabase
             .from('pipeline_statuses')
-            .select('id, name')
+            .select('id, name, lifecycle_stage')
             .eq('user_id', user.id);
 
       const pipelineStatusMap = new Map(
-        (pipelineStatuses as any)?.map((ps: any) => [ps.name.toLowerCase(), ps.id]) || []
+        (pipelineStatuses as any)?.map((ps: any) => [ps.name.toLowerCase(), { id: ps.id, lifecycle_stage: ps.lifecycle_stage }]) || []
       );
 
       const { data: userSettings } = await supabase
@@ -141,14 +141,13 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
         }
 
         let pipelineStatusId = null;
-        let status: any = 'new_lead';
+        let status: any = 'new';
         if (rowData.pipeline_status && rowData.pipeline_status.trim() !== '') {
-          pipelineStatusId = pipelineStatusMap.get(rowData.pipeline_status.toLowerCase().trim()) || null;
-          const statusName = rowData.pipeline_status.toLowerCase().trim();
-          if (statusName === 'closed') {
-            status = 'closed';
-          } else if (statusName === 'dead') {
-            status = 'dead';
+          const normalizedStatusName = rowData.pipeline_status.toLowerCase().trim();
+          const mappedStatus = pipelineStatusMap.get(normalizedStatusName);
+          pipelineStatusId = mappedStatus?.id || null;
+          if (mappedStatus?.lifecycle_stage) {
+            status = mappedStatus.lifecycle_stage;
           }
         }
 

@@ -406,21 +406,17 @@ export default function Pipeline() {
       return;
     }
 
+    const lifecycleStage = newStatus.lifecycle_stage || 'in_progress';
     const updates: any = {
       pipeline_status_id: potentialStatusId,
-      // fall back to name if slug is null
-      status: (newStatus.slug || newStatus.name || '').toLowerCase() as any,
+      status: lifecycleStage,
       stage_entered_at: new Date().toISOString()
     };
 
-    // Check if new status is a "closed" type (robust to null slug)
-    const closedMatchSource =
-      typeof newStatus.slug === 'string' && newStatus.slug.length > 0
-        ? newStatus.slug.toLowerCase()
-        : (newStatus.name || '').toLowerCase();
-
-    if (closedMatchSource.includes('closed')) {
+    if (lifecycleStage === 'closed') {
       updates.closed_at = new Date().toISOString();
+    } else {
+      updates.closed_at = null;
     }
 
     const { error } = await (supabase
@@ -545,11 +541,12 @@ export default function Pipeline() {
       updateData.stage_entered_at = new Date().toISOString();
 
       const newStatus = combinedStatuses.find(s => s.id === updates.pipeline_status_id);
-      if (newStatus?.name.toLowerCase() === 'closed') {
-        updateData.status = 'closed';
+      const lifecycleStage = newStatus?.lifecycle_stage || 'in_progress';
+      updateData.status = lifecycleStage;
+      if (lifecycleStage === 'closed') {
         updateData.closed_at = new Date().toISOString();
-      } else if (newStatus?.name.toLowerCase() === 'dead') {
-        updateData.status = 'dead';
+      } else {
+        updateData.closed_at = null;
       }
     }
 

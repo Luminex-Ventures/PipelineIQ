@@ -3,7 +3,7 @@ import { Plus, GripVertical, Pencil, Trash2, RotateCcw, Loader2, X, AlertCircle 
 import { DndContext, DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { usePipelineStatuses } from '../../hooks/usePipelineStatuses';
+import { usePipelineStatuses, LIFECYCLE_STAGE_OPTIONS } from '../../hooks/usePipelineStatuses';
 import TemplateSelectionModal from '../../components/TemplateSelectionModal';
 import { ColorPicker, DEFAULT_STATUS_COLOR } from '../../components/ui/ColorPicker';
 import { getColorByName, getColorValue } from '../../lib/colors';
@@ -149,6 +149,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
   const [editingStatus, setEditingStatus] = useState<PipelineStatus | null>(null);
   const [statusName, setStatusName] = useState('');
   const [selectedColor, setSelectedColor] = useState(DEFAULT_STATUS_COLOR);
+  const [selectedLifecycleStage, setSelectedLifecycleStage] = useState<PipelineStatus['lifecycle_stage']>('in_progress');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [personalizingStatus, setPersonalizingStatus] = useState<PipelineStatus | null>(null);
@@ -195,10 +196,11 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
       if (editingStatus) {
         await updateStatus(editingStatus.id, {
           name: statusName.trim(),
-          color: selectedColor
+          color: selectedColor,
+          lifecycle_stage: selectedLifecycleStage
         });
       } else {
-        await addStatus(statusName.trim(), selectedColor);
+        await addStatus(statusName.trim(), selectedColor, selectedLifecycleStage);
       }
 
       resetFormAndClose();
@@ -215,6 +217,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
     setEditingStatus(null);
     setStatusName('');
     setSelectedColor(DEFAULT_STATUS_COLOR);
+    setSelectedLifecycleStage('in_progress');
     setError(null);
   };
 
@@ -235,6 +238,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
     setEditingStatus(status);
     setStatusName(status.name);
     setSelectedColor(getColorValue(status.color) || DEFAULT_STATUS_COLOR);
+    setSelectedLifecycleStage(status.lifecycle_stage || 'in_progress');
     setShowAddModal(true);
   };
 
@@ -415,6 +419,34 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
                   value={selectedColor}
                   onChange={setSelectedColor}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Top-level status mapping
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Map this stage to one of the four canonical lifecycle buckets so reports stay accurate.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {LIFECYCLE_STAGE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSelectedLifecycleStage(option.value)}
+                      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
+                        selectedLifecycleStage === option.value
+                          ? 'border-[var(--app-accent)] bg-[var(--app-accent)]/5 text-[var(--app-accent)]'
+                          : 'border-gray-200 text-gray-700 hover:border-[var(--app-accent)]/40 hover:text-[var(--app-accent)]'
+                      }`}
+                    >
+                      <span>{option.label}</span>
+                      {selectedLifecycleStage === option.value && (
+                        <span className="text-[var(--app-accent)] text-xs font-semibold">Selected</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

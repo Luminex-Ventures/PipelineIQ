@@ -64,7 +64,7 @@ interface ArchiveStats {
   }[];
 }
 
-type FunnelStage = 'lead' | 'in_progress' | 'under_contract' | 'closed_won' | 'archived';
+type FunnelStage = 'lead' | 'in_progress' | 'closed_won' | 'archived';
 
 interface FunnelTransition {
   from: FunnelStage;
@@ -74,7 +74,38 @@ interface FunnelTransition {
   rate: number;
 }
 
-const CLOSING_STATUSES: DealRow['status'][] = ['under_contract', 'pending', 'closed'];
+interface AnalyticsSummaryResponse {
+  yearly_stats: {
+    closed_deals: number;
+    total_volume: number;
+    total_gci: number;
+    avg_sale_price: number;
+    avg_commission: number;
+    buyer_deals: number;
+    seller_deals: number;
+    avg_days_to_close: number;
+  };
+  monthly_rollup: Array<{ month: string; gci: number; deals: number }>;
+  lead_source_stats: Array<{
+    name: string;
+    total_deals: number;
+    closed_deals: number;
+    conversion_rate: number;
+    total_commission: number;
+  }>;
+  archive_stats: {
+    total: number;
+    reasons: Array<{ reason: ArchiveReason; count: number; percentage: number }>;
+  };
+  closing_this_month: { count: number; gci: number };
+  funnel_transitions?: FunnelTransition[];
+  filter_context?: {
+    lead_sources?: Array<{ id: string; name: string }>;
+    pipeline_stages?: Array<{ id: string; name: string; sort_order?: number | null }>;
+    deal_types?: DealRow['deal_type'][];
+  };
+  annual_gci_goal?: number;
+}
 
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   buyer: 'Buyer',
@@ -284,156 +315,8 @@ export default function Analytics() {
     setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
   }, [availableDealTypes]);
 
-  const withUserScope = (query: any, userIds: string[]) => {
-    if (!userIds.length) {
-      return query;
-    }
-    if (userIds.length === 1) {
-      return query.eq('user_id', userIds[0]);
-    }
-    return query.in('user_id', userIds);
-  };
-
-  const applyDealFilters = (query: any, userIds: string[]) => {
-    query = withUserScope(query, userIds);
-    if (selectedLeadSources.length) {
-      query = query.in('lead_source_id', selectedLeadSources);
-    }
-    if (selectedPipelineStages.length) {
-      const stages = selectedPipelineStages.filter(Boolean);
-      if (stages.length) {
-        query = query.in('pipeline_status_id', stages);
-      }
-    }
-    if (selectedDealTypes.length) {
-      query = query.in('deal_type', selectedDealTypes);
-    }
-    return query;
-  };
-
   const canShowFilterPanel =
     (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
-
-  const loadFilterContext = async (agentIds: string[], year: number) => {
-    const ids = agentIds.length ? agentIds : availableAgents.map(a => a.id);
-    if (!ids.length) return;
-    const startOfYearISO = new Date(year, 0, 1).toISOString();
-    const endOfYearISO = new Date(year, 11, 31, 23, 59, 59).toISOString();
-
-    let contextQuery = supabase
-      .from('deals')
-      .select(`
-        id,
-        deal_type,
-        lead_source_id,
-        lead_sources (id, name),
-        pipeline_status_id,
-        pipeline_statuses (id, name, sort_order)
-      `)
-      .gte('created_at', startOfYearISO)
-      .lte('created_at', endOfYearISO);
-
-    contextQuery = withUserScope(contextQuery, ids);
-
-    const { data, error } = await contextQuery;
-    if (error) {
-      console.error('Unable to load analytics filter context', error);
-      return;
-    }
-
-    const leadMap = new Map<string, { id: string; name: string }>();
-    const stageMap = new Map<string, StageOption>();
-    const dealTypeSet = new Set<DealRow['deal_type']>();
-
-    (data || []).forEach((deal: any) => {
-      if (deal.lead_sources?.id) {
-        leadMap.set(deal.lead_sources.id, {
-          id: deal.lead_sources.id,
-          name: deal.lead_sources.name || 'Unknown'
-        });
-      }
-      if (deal.pipeline_statuses?.id) {
-        stageMap.set(deal.pipeline_statuses.id, {
-          id: deal.pipeline_statuses.id,
-          label: deal.pipeline_statuses.name,
-          sortOrder: deal.pipeline_statuses.sort_order
-        });
-      }
-
-      if (deal.deal_type) {
-        dealTypeSet.add(deal.deal_type as DealRow['deal_type']);
-      }
-    });
-
-    setAvailableLeadSources(Array.from(leadMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
-    setAvailableStages(
-      Array.from(stageMap.values()).sort((a, b) => {
-        const orderA = a.sortOrder ?? 999;
-        const orderB = b.sortOrder ?? 999;
-        if (orderA === orderB) {
-          return a.label.localeCompare(b.label);
-        }
-        return orderA - orderB;
-      })
-    );
-    const sortedDealTypes = Array.from(dealTypeSet).sort((a, b) => {
-      const labelA = DEAL_TYPE_LABELS[a as DealRow['deal_type']] ?? a;
-      const labelB = DEAL_TYPE_LABELS[b as DealRow['deal_type']] ?? b;
-      return labelA.localeCompare(labelB);
-    });
-    setAvailableDealTypes(
-      sortedDealTypes.length ? sortedDealTypes : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][])
-    );
-  };
-
-type DateParts = {
-  year: number;
-  month: number; // 0-based
-  date: Date;
-};
-
-const parseDateValue = (value?: string | null): DateParts | null => {
-  if (!value) return null;
-
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const year = Number(dateOnlyMatch[1]);
-    const month = Number(dateOnlyMatch[2]) - 1;
-    const day = Number(dateOnlyMatch[3]);
-    if (
-      Number.isNaN(year) ||
-      Number.isNaN(month) ||
-      Number.isNaN(day) ||
-      month < 0 ||
-      month > 11 ||
-      day < 1 ||
-      day > 31
-    ) {
-      return null;
-    }
-    const date = new Date(Date.UTC(year, month, day));
-    return { year, month, date };
-  }
-
-  const sanitized = trimmed
-    .replace(' ', 'T')
-    .replace(/(\+\d{2})(\d{2})$/, '$1:$2')
-    .replace(/(-\d{2})(\d{2})$/, '$1:$2');
-
-  const parsed = new Date(sanitized);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return {
-    year: parsed.getUTCFullYear(),
-    month: parsed.getUTCMonth(),
-    date: parsed,
-  };
-};
 
   useEffect(() => {
     if (!user) return;
@@ -543,13 +426,6 @@ const parseDateValue = (value?: string | null): DateParts | null => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, availableAgents]);
 
-  useEffect(() => {
-    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
-    if (!user || ids.length === 0) return;
-    loadFilterContext(ids, selectedYear);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgentIds, selectedYear, availableAgents]);
-
   const loadAnalytics = async () => {
     if (!user || availableAgents.length === 0) return;
     const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
@@ -581,165 +457,18 @@ const parseDateValue = (value?: string | null): DateParts | null => {
       setRefreshing(true);
     }
 
-    const startOfYear = new Date(selectedYear, 0, 1).toISOString();
-    const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59).toISOString();
+    const { data, error } = await supabase.rpc('get_analytics_summary', {
+      p_year: selectedYear,
+      p_user_ids: ids,
+      p_lead_source_ids: selectedLeadSources,
+      p_pipeline_status_ids: selectedPipelineStages,
+      p_deal_types: selectedDealTypes,
+      p_requesting_user_id: user.id
+    });
 
-    const dealColumns = `
-      id,
-      user_id,
-      deal_type,
-      status,
-      created_at,
-      stage_entered_at,
-      close_date,
-      closed_at,
-      expected_sale_price,
-      actual_sale_price,
-      gross_commission_rate,
-      brokerage_split_rate,
-      referral_out_rate,
-      transaction_fee,
-      lead_source_id,
-      lead_sources (name),
-      pipeline_status_id,
-      pipeline_statuses (id, name, sort_order)
-    `;
-
-    const closedQuery = applyDealFilters(
-      supabase.from('deals').select(dealColumns).eq('status', 'closed'),
-      ids
-    );
-
-    const archivedQuery = applyDealFilters(
-      supabase
-        .from('deals')
-        .select('id, created_at, close_date, closed_at, lead_source_id, pipeline_status_id, archived_reason')
-        .eq('status', 'dead')
-        .gte('created_at', startOfYear)
-        .lte('created_at', endOfYear),
-      ids
-    );
-
-    const allDealsQuery = applyDealFilters(
-      supabase
-        .from('deals')
-        .select(dealColumns)
-        .gte('created_at', startOfYear)
-        .lte('created_at', endOfYear),
-      ids
-    );
-
-    const [settingsResp, closedResp, archivedResp, allResp] = await Promise.all([
-      supabase
-        .from('user_settings')
-        .select('annual_gci_goal')
-        .eq('user_id', user.id)
-        .maybeSingle(),
-      closedQuery,
-      archivedQuery,
-      allDealsQuery
-    ]);
-
-    if (settingsResp.data) setGciGoal((settingsResp.data as any).annual_gci_goal || 0);
-
-    const closedDeals = closedResp.data;
-    const archivedDeals = archivedResp.data;
-    const allDeals = allResp.data;
-
-    if (closedDeals) {
-      const monthNames = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-
-      let totalVolume = 0;
-      let totalGCI = 0;
-      let buyerCount = 0;
-      let sellerCount = 0;
-      let totalDaysToClose = 0;
-      let dealsWithDuration = 0;
-      let countedClosedDeals = 0;
-
-      const monthlyGCI: { [key: string]: number } = {};
-      const monthlyDeals: { [key: string]: number } = {};
-
-      closedDeals.forEach((deal: any) => {
-        const closedParts =
-          parseDateValue(deal.close_date) ||
-          parseDateValue(deal.closed_at);
-
-        if (!closedParts) return;
-        if (closedParts.year !== selectedYear) return;
-
-        countedClosedDeals += 1;
-
-        const salePrice = deal.actual_sale_price || deal.expected_sale_price || 0;
-        totalVolume += salePrice;
-
-        const grossCommission = salePrice * (deal.gross_commission_rate || 0);
-        const afterBrokerageSplit = grossCommission * (1 - (deal.brokerage_split_rate || 0));
-        const afterReferral = deal.referral_out_rate
-          ? afterBrokerageSplit * (1 - deal.referral_out_rate)
-          : afterBrokerageSplit;
-        const netCommission = afterReferral - (deal.transaction_fee || 0);
-        totalGCI += netCommission;
-
-        if (deal.deal_type === 'buyer') buyerCount++;
-        if (deal.deal_type === 'seller') sellerCount++;
-        if (deal.deal_type === 'buyer_and_seller') {
-          buyerCount++;
-          sellerCount++;
-        }
-
-        const createdAtDate = parseDateValue(deal.created_at);
-        if (createdAtDate) {
-          const diffMs = closedParts.date.getTime() - createdAtDate.date.getTime();
-          const diffDays = diffMs / (1000 * 60 * 60 * 24);
-          if (!Number.isNaN(diffDays) && diffDays >= 0) {
-            totalDaysToClose += diffDays;
-            dealsWithDuration++;
-          }
-        }
-
-        const monthIndex = closedParts.month;
-        const monthShort = monthNames[monthIndex];
-        monthlyGCI[monthShort] = (monthlyGCI[monthShort] || 0) + netCommission;
-        monthlyDeals[monthShort] = (monthlyDeals[monthShort] || 0) + 1;
-      });
-
-      const avgDaysToClose =
-        dealsWithDuration > 0 ? totalDaysToClose / dealsWithDuration : 0;
-
+    if (error) {
+      console.error('Unable to load analytics summary', error);
       setYearlyStats({
-        closedDeals: countedClosedDeals,
-        totalVolume,
-        totalGCI,
-        avgSalePrice: countedClosedDeals > 0 ? totalVolume / countedClosedDeals : 0,
-        avgCommission: countedClosedDeals > 0 ? totalGCI / countedClosedDeals : 0,
-        buyerDeals: buyerCount,
-        sellerDeals: sellerCount,
-        avgDaysToClose,
-      });
-
-    const monthlyDataArray = monthNames.map((month) => ({
-      month,
-      gci: monthlyGCI[month] || 0,
-      deals: monthlyDeals[month] || 0,
-    }));
-      setMonthlyData(monthlyDataArray);
-    } else {
-      setYearlyStats((prev) => ({
-        ...prev,
         closedDeals: 0,
         totalVolume: 0,
         totalGCI: 0,
@@ -748,134 +477,66 @@ const parseDateValue = (value?: string | null): DateParts | null => {
         buyerDeals: 0,
         sellerDeals: 0,
         avgDaysToClose: 0,
-      }));
-      setMonthlyData([]);
-      setClosingThisMonthStats({ count: 0, gci: 0 });
-    }
-
-    if (archivedDeals) {
-      const reasonCounts: Record<ArchiveReason, number> = {
-        'No Response / Ghosted': 0,
-        'Client Not Ready / Timeline Changed': 0,
-        'Chose Another Agent': 0,
-        'Financing Didn’t Work Out': 0,
-        'Deal Fell Through': 0,
-        Other: 0
-      };
-
-      const archivedIds = archivedDeals.map((d: any) => d.id).filter(Boolean);
-
-      if (archivedIds.length) {
-        archivedDeals.forEach((deal: any) => {
-          const raw = (deal.archived_reason || '').trim();
-          const match = ARCHIVE_REASON_OPTIONS.find(
-            (reason) => raw && reason.toLowerCase() === raw.toLowerCase()
-          );
-          const bucket: ArchiveReason = match || 'Other';
-          reasonCounts[bucket] = (reasonCounts[bucket] || 0) + 1;
-        });
-
-        const totalArchived = archivedIds.length;
-        const reasonsArray = Object.entries(reasonCounts)
-          .filter(([, count]) => count > 0)
-          .map(([reason, count]) => ({
-            reason: reason as ArchiveReason,
-            count,
-            percentage: totalArchived > 0 ? (count / totalArchived) * 100 : 0
-          }))
-          .sort((a, b) => b.count - a.count);
-
-        setArchiveStats({
-          total: totalArchived,
-          reasons: reasonsArray
-        });
-      } else {
-        setArchiveStats({ total: 0, reasons: [] });
-      }
-    } else {
-      setArchiveStats({ total: 0, reasons: [] });
-    }
-
-    const now = new Date();
-    const isCurrentYear = now.getFullYear() === selectedYear;
-    const closingThisMonth: ClosingThisMonthStats = { count: 0, gci: 0 };
-
-    if (allDeals) {
-      if (isCurrentYear) {
-        allDeals.forEach((deal: any) => {
-          const closeParts =
-            parseDateValue(deal.close_date) ||
-            parseDateValue(deal.closed_at);
-
-          if (!closeParts) return;
-          const sameMonth = closeParts.year === now.getFullYear() && closeParts.month === now.getMonth();
-          if (!sameMonth) return;
-
-          if (!CLOSING_STATUSES.includes(deal.status)) return;
-
-          const salePrice = deal.actual_sale_price || deal.expected_sale_price || 0;
-          const grossCommission = salePrice * (deal.gross_commission_rate || 0);
-          const afterBrokerageSplit = grossCommission * (1 - (deal.brokerage_split_rate || 0));
-          const afterReferral = deal.referral_out_rate
-            ? afterBrokerageSplit * (1 - deal.referral_out_rate)
-            : afterBrokerageSplit;
-          const netCommission = afterReferral - (deal.transaction_fee || 0);
-
-          closingThisMonth.count += 1;
-          closingThisMonth.gci += netCommission;
-        });
-      }
-
-      const sourceMap: {
-        [key: string]: { total: number; closed: number; commission: number };
-      } = {};
-
-      allDeals.forEach((deal: any) => {
-        const sourceName = deal.lead_sources?.name || 'Unknown';
-        if (!sourceMap[sourceName]) {
-          sourceMap[sourceName] = { total: 0, closed: 0, commission: 0 };
-        }
-        sourceMap[sourceName].total++;
-
-        if (deal.status === 'closed') {
-          sourceMap[sourceName].closed++;
-          const salePrice = deal.actual_sale_price || deal.expected_sale_price || 0;
-          const grossCommission = salePrice * (deal.gross_commission_rate || 0);
-          const afterBrokerageSplit = grossCommission * (1 - (deal.brokerage_split_rate || 0));
-          const afterReferral = deal.referral_out_rate
-            ? afterBrokerageSplit * (1 - deal.referral_out_rate)
-            : afterBrokerageSplit;
-          const netCommission = afterReferral - (deal.transaction_fee || 0);
-          sourceMap[sourceName].commission += netCommission;
-        }
       });
-
-      const sourceStats: LeadSourceStat[] = Object.entries(sourceMap).map(
-        ([name, stats]) => ({
-          name,
-          totalDeals: stats.total,
-          closedDeals: stats.closed,
-          conversionRate: stats.total > 0 ? (stats.closed / stats.total) * 100 : 0,
-          totalCommission: stats.commission,
-        })
-      );
-
-      setLeadSourceStats(
-        sourceStats.sort((a, b) => b.totalCommission - a.totalCommission)
-      );
-    } else {
-      setClosingThisMonthStats({ count: 0, gci: 0 });
+      setMonthlyData([]);
       setLeadSourceStats([]);
-    }
-
-    if (allDeals) {
-      const funnel = computeFunnelTransitions(allDeals, selectedYear);
-      setFunnelTransitions(funnel);
-    } else {
+      setClosingThisMonthStats({ count: 0, gci: 0 });
+      setArchiveStats({ total: 0, reasons: [] });
       setFunnelTransitions([]);
-    }
+      setGciGoal(0);
+    } else {
+      const summary = data as AnalyticsSummaryResponse | null;
+      if (summary) {
+        setYearlyStats({
+          closedDeals: summary.yearly_stats?.closed_deals ?? 0,
+          totalVolume: summary.yearly_stats?.total_volume ?? 0,
+          totalGCI: summary.yearly_stats?.total_gci ?? 0,
+          avgSalePrice: summary.yearly_stats?.avg_sale_price ?? 0,
+          avgCommission: summary.yearly_stats?.avg_commission ?? 0,
+          buyerDeals: summary.yearly_stats?.buyer_deals ?? 0,
+          sellerDeals: summary.yearly_stats?.seller_deals ?? 0,
+          avgDaysToClose: summary.yearly_stats?.avg_days_to_close ?? 0,
+        });
+        setMonthlyData(summary.monthly_rollup ?? []);
+        setLeadSourceStats(
+          (summary.lead_source_stats ?? []).map((item) => ({
+            name: item.name,
+            totalDeals: item.total_deals,
+            closedDeals: item.closed_deals,
+            conversionRate: item.conversion_rate,
+            totalCommission: item.total_commission,
+          }))
+        );
+        setArchiveStats(summary.archive_stats ?? { total: 0, reasons: [] });
+        setClosingThisMonthStats(summary.closing_this_month ?? { count: 0, gci: 0 });
+        setFunnelTransitions(summary.funnel_transitions ?? []);
 
-    setClosingThisMonthStats(closingThisMonth);
+        const filterLeadSources = summary.filter_context?.lead_sources ?? [];
+        const filterStages = summary.filter_context?.pipeline_stages ?? [];
+        const filterDealTypes = summary.filter_context?.deal_types ?? [];
+
+        setAvailableLeadSources(
+          filterLeadSources.map((source) => ({
+            id: source.id,
+            name: source.name || 'Unknown'
+          }))
+        );
+        setAvailableStages(
+          filterStages.map((stage) => ({
+            id: stage.id,
+            label: stage.name,
+            sortOrder: stage.sort_order ?? null
+          }))
+        );
+        setAvailableDealTypes(
+          filterDealTypes.length
+            ? filterDealTypes
+            : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][])
+        );
+
+        setGciGoal(summary.annual_gci_goal ?? 0);
+      }
+    }
 
     if (isInitialLoad) {
       setLoading(false);
@@ -895,69 +556,11 @@ const parseDateValue = (value?: string | null): DateParts | null => {
   const formatNumber = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
 
-  const stageOrder: Record<FunnelStage, number> = {
-    lead: 1,
-    in_progress: 2,
-    under_contract: 3,
-    closed_won: 4,
-    archived: 5,
-  };
-
   const stageLabel: Record<FunnelStage, string> = {
     lead: 'Lead',
     in_progress: 'In Progress',
-    under_contract: 'Under Contract',
     closed_won: 'Closed Won',
     archived: 'Archived (Closed Lost)',
-  };
-
-  const getStageForStatus = (status: DealRow['status']): FunnelStage => {
-    switch (status) {
-      case 'closed':
-        return 'closed_won';
-      case 'dead':
-        return 'archived';
-      case 'under_contract':
-      case 'pending':
-        return 'under_contract';
-      case 'offer_submitted':
-      case 'showing_scheduled':
-      case 'contacted':
-        return 'in_progress';
-      default:
-        return 'lead';
-    }
-  };
-
-  const isDateInYear = (date: Date | null, year: number) => {
-    if (!date) return false;
-    return date.getFullYear() === year;
-  };
-
-  const computeFunnelTransitions = (deals: any[], year: number): FunnelTransition[] => {
-    const transitionsConfig: { from: FunnelStage; to: FunnelStage }[] = [
-      { from: 'lead', to: 'in_progress' },
-      { from: 'in_progress', to: 'under_contract' },
-      { from: 'under_contract', to: 'closed_won' },
-    ];
-
-    const yearDeals = deals.filter((deal: any) => isDateInYear(parseDateValue(deal.created_at)?.date || null, year));
-
-    return transitionsConfig.map(({ from, to }) => {
-      const entered = yearDeals.filter((deal: any) => {
-        const stage = getStageForStatus(deal.status);
-        return stageOrder[stage] >= stageOrder[from];
-      }).length;
-
-      const advanced = yearDeals.filter((deal: any) => {
-        const stage = getStageForStatus(deal.status);
-        if (stage === 'archived') return false;
-        return stageOrder[stage] >= stageOrder[to];
-      }).length;
-
-      const rate = entered > 0 ? (advanced / entered) * 100 : 0;
-      return { from, to, entered, advanced, rate };
-    });
   };
 
   // Goal & pace calculations

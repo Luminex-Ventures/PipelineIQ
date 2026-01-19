@@ -6,6 +6,7 @@ import { COLOR_SWATCHES } from '../components/ui/ColorPicker';
 
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 type PipelineTemplate = Database['public']['Tables']['pipeline_templates']['Row'];
+type LifecycleStage = PipelineStatus['lifecycle_stage'];
 
 type ColorOverrides = Record<string, string>;
 
@@ -37,6 +38,26 @@ const getColorForStatus = (name: string, index: number): string => {
   if (mapped) return mapped;
   return getPaletteColor(index);
 };
+
+const inferLifecycleStage = (name: string, index = 0, totalCount = 1): LifecycleStage => {
+  const normalized = name.trim().toLowerCase();
+  if (normalized.includes('close')) return 'closed';
+  if (normalized.includes('won')) return 'closed';
+  if (normalized.includes('lost') || normalized.includes('dead') || normalized.includes('archive') || normalized.includes('cancel')) {
+    return 'dead';
+  }
+  if (normalized.includes('new') || normalized.includes('lead')) return 'new';
+  if (index === 0) return 'new';
+  if (index === totalCount - 1) return 'closed';
+  return 'in_progress';
+};
+
+export const LIFECYCLE_STAGE_OPTIONS: Array<{ value: LifecycleStage; label: string }> = [
+  { value: 'new', label: 'New' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'closed', label: 'Closed' },
+  { value: 'dead', label: 'Dead/Lost' }
+];
 
 const getOverrideStorageKey = (userId: string) => `pipeline-status-color-overrides:${userId}`;
 
@@ -150,12 +171,13 @@ export function usePipelineStatuses() {
     loadStatuses();
   }, [loadStatuses]);
 
-  const addStatus = async (name: string, color?: string) => {
+  const addStatus = async (name: string, color?: string, lifecycleStage?: LifecycleStage) => {
     if (!user) return;
 
     const maxSort = Math.max(...statuses.map(s => s.sort_order), 0);
     const slug = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const resolvedColor = color?.trim() || getColorForStatus(name, maxSort);
+    const resolvedLifecycle = lifecycleStage || inferLifecycleStage(name, maxSort, statuses.length + 1);
 
     const { data, error: insertError } = await (supabase
       .from('pipeline_statuses') as any)
@@ -166,7 +188,8 @@ export function usePipelineStatuses() {
         slug,
         sort_order: maxSort + 1,
         color: resolvedColor,
-        is_default: false
+        is_default: false,
+        lifecycle_stage: resolvedLifecycle
       })
       .select()
       .single();
@@ -287,7 +310,8 @@ export function usePipelineStatuses() {
       slug: name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
       sort_order: index + 1,
       color: getColorForStatus(name, index),
-      is_default: index === 0
+      is_default: index === 0,
+      lifecycle_stage: inferLifecycleStage(name, index, cleanedStages.length)
     }));
 
     const { error: insertError } = await (supabase.from('pipeline_statuses') as any).insert(inserts);

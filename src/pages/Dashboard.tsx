@@ -105,7 +105,7 @@ interface StageOption {
 }
 
 // This file uses DB status values, not UI labels
-const ACTIVE_CLOSING_STATUSES = ['under_contract', 'pending'] as const;
+const OPEN_STATUSES = ['new', 'in_progress'] as const;
 const NON_ACTIVE_STATUSES = ['closed', 'dead'] as const;
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
@@ -912,7 +912,7 @@ export default function Dashboard() {
     let closingQuery = supabase
       .from('deals')
       .select('id')
-      .in('status', ACTIVE_CLOSING_STATUSES)
+      .in('status', OPEN_STATUSES)
       .gte('close_date', startOfToday.toISOString())
       .lte('close_date', endOfWindow.toISOString());
     closingQuery = applyDealFilters(closingQuery, userIds);
@@ -1159,7 +1159,7 @@ export default function Dashboard() {
     let upcomingQuery = supabase
       .from('deals')
       .select('*')
-      .in('status', ACTIVE_CLOSING_STATUSES)
+      .in('status', OPEN_STATUSES)
       .order('close_date', { ascending: true })
       .limit(200);
 

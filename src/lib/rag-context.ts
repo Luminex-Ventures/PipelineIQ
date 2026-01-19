@@ -94,7 +94,7 @@ export async function buildRAGContext(): Promise<string> {
     // Calculate statistics
     const closedDeals = (deals as any)?.filter((d: any) => d.status === 'closed') || [];
     const activeDeals = (deals as any)?.filter((d: any) => d.status !== 'closed' && d.status !== 'dead') || [];
-    const underContractDeals = (deals as any)?.filter((d: any) => d.status === 'under_contract') || [];
+    const inProgressDeals = (deals as any)?.filter((d: any) => d.status === 'in_progress') || [];
     
     const totalGCI = closedDeals.reduce((sum: number, deal: any) => sum + calculateDealGCI(deal), 0);
     const avgDealValue = closedDeals.length > 0 
@@ -124,7 +124,7 @@ ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', mon
 Total Deals: ${deals?.length || 0}
 Closed Deals: ${closedDeals.length}
 Active Deals: ${activeDeals.length}
-Under Contract: ${underContractDeals.length}
+In Progress: ${inProgressDeals.length}
 Total GCI (Closed): $${totalGCI.toLocaleString('en-US', { maximumFractionDigits: 2 })}
 Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
 
@@ -211,4 +211,3 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
     throw error;
   }
 }
-

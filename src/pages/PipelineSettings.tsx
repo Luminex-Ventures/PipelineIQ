@@ -3,7 +3,7 @@ import { Plus, GripVertical, Pencil, Trash2, RotateCcw, Loader2, X } from 'lucid
 import { DndContext, DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
+import { usePipelineStatuses, LIFECYCLE_STAGE_OPTIONS } from '../hooks/usePipelineStatuses';
 import TemplateSelectionModal from '../components/TemplateSelectionModal';
 import { ColorPicker, DEFAULT_STATUS_COLOR } from '../components/ui/ColorPicker';
 import { getColorByName } from '../lib/colors';
@@ -91,7 +91,7 @@ export default function PipelineSettings() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStatus, setEditingStatus] = useState<PipelineStatus | null>(null);
-  const [formData, setFormData] = useState({ name: '', color: DEFAULT_STATUS_COLOR });
+  const [formData, setFormData] = useState({ name: '', color: DEFAULT_STATUS_COLOR, lifecycle_stage: 'in_progress' as PipelineStatus['lifecycle_stage'] });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -136,15 +136,16 @@ export default function PipelineSettings() {
       if (editingStatus) {
         await updateStatus(editingStatus.id, {
           name: formData.name,
-          color: formData.color
+          color: formData.color,
+          lifecycle_stage: formData.lifecycle_stage
         });
       } else {
-        await addStatus(formData.name, formData.color);
+        await addStatus(formData.name, formData.color, formData.lifecycle_stage);
       }
 
       setShowAddModal(false);
       setEditingStatus(null);
-      setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
+      setFormData({ name: '', color: DEFAULT_STATUS_COLOR, lifecycle_stage: 'in_progress' });
     } catch (err) {
       console.error('Error saving status:', err);
       setError(err instanceof Error ? err.message : 'Failed to save status');
@@ -168,7 +169,11 @@ export default function PipelineSettings() {
 
   const handleEdit = (status: PipelineStatus) => {
     setEditingStatus(status);
-    setFormData({ name: status.name, color: status.color || DEFAULT_STATUS_COLOR });
+    setFormData({
+      name: status.name,
+      color: status.color || DEFAULT_STATUS_COLOR,
+      lifecycle_stage: status.lifecycle_stage || 'in_progress'
+    });
     setShowAddModal(true);
   };
 
@@ -209,7 +214,7 @@ export default function PipelineSettings() {
           <button
             onClick={() => {
               setEditingStatus(null);
-                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
+                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR, lifecycle_stage: 'in_progress' });
               setShowAddModal(true);
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center space-x-2 transition text-sm"
@@ -273,7 +278,7 @@ export default function PipelineSettings() {
                 onClick={() => {
                   setShowAddModal(false);
                   setEditingStatus(null);
-                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
+                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR, lifecycle_stage: 'in_progress' });
                   setError(null);
                 }}
                 className="text-gray-400 hover:text-gray-600 transition"
@@ -305,6 +310,34 @@ export default function PipelineSettings() {
                   onChange={(color) => setFormData({ ...formData, color })}
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Top-level status mapping
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Choose the lifecycle bucket this stage belongs to (New, In Progress, Closed, Dead).
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {LIFECYCLE_STAGE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, lifecycle_stage: option.value })}
+                      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
+                        formData.lifecycle_stage === option.value
+                          ? 'border-blue-500 bg-blue-50 text-blue-600'
+                          : 'border-gray-200 text-gray-700 hover:border-blue-200 hover:text-blue-600'
+                      }`}
+                    >
+                      <span>{option.label}</span>
+                      {formData.lifecycle_stage === option.value && (
+                        <span className="text-blue-600 text-xs font-semibold">Selected</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50">
@@ -312,7 +345,7 @@ export default function PipelineSettings() {
                 onClick={() => {
                   setShowAddModal(false);
                   setEditingStatus(null);
-                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR });
+                  setFormData({ name: '', color: DEFAULT_STATUS_COLOR, lifecycle_stage: 'in_progress' });
                   setError(null);
                 }}
                 disabled={saving}
