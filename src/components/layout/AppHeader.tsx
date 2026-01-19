@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getRoleLabel, getVisibleUserIds } from '../../lib/rbac';
+import type { Database } from '../../lib/database.types';
 
 interface SearchResult {
   id: string;
@@ -16,6 +17,8 @@ interface SearchResult {
 }
 
 type ActivityEventType = 'deal_status_change' | 'deal_deleted' | 'task_created';
+type ActivityEventRow = Database['public']['Tables']['activity_events']['Row'];
+type ActivityPayload = ActivityEventRow['payload'];
 
 interface NotificationItem {
   id: string;
@@ -24,7 +27,7 @@ interface NotificationItem {
   targetUserId: string;
   dealId?: string | null;
   taskId?: string | null;
-  payload?: Record<string, any> | null;
+  payload?: ActivityPayload | null;
   timestamp: Date;
 }
 
@@ -60,20 +63,20 @@ export function AppHeader() {
     const { data, error } = await query;
 
     if (!error && data) {
-      const mapped = (data as any)
-        .map((row: any) => ({
+      const mapped: NotificationItem[] = (data ?? [])
+        .map((row) => ({
           id: row.id,
           eventType: row.event_type as ActivityEventType,
           actorId: row.actor_id,
           targetUserId: row.target_user_id,
           dealId: row.deal_id,
           taskId: row.task_id,
-          payload: (row.payload || {}) as Record<string, any>,
+          payload: row.payload,
           timestamp: new Date(row.created_at),
         }))
-        .filter((item: any) => item.timestamp.getTime() > lastClearedAt.getTime());
+        .filter((item) => item.timestamp.getTime() > lastClearedAt.getTime());
       setNotifications(mapped);
-      if (mapped.some((n: any) => n.timestamp.getTime() > lastViewedAt.getTime())) {
+      if (mapped.some((n) => n.timestamp.getTime() > lastViewedAt.getTime())) {
         setHasUnread(true);
       }
     }
@@ -177,7 +180,7 @@ export function AppHeader() {
       channel = supabase.channel('activity-events');
       channel
         .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_events' }, (payload) => {
-          const row: any = payload.new;
+          const row = payload.new as ActivityEventRow;
           if (!row) return;
           if (ids.length && !ids.includes(row.target_user_id) && !ids.includes(row.actor_id)) {
             return;
@@ -194,7 +197,7 @@ export function AppHeader() {
                 targetUserId: row.target_user_id,
                 dealId: row.deal_id,
                 taskId: row.task_id,
-                payload: (row.payload || {}) as Record<string, any>,
+                payload: row.payload,
                 timestamp: new Date(row.created_at),
               },
               ...prev,
@@ -211,7 +214,7 @@ export function AppHeader() {
     return () => {
       if (channel) supabase.removeChannel(channel);
     };
-  }, [roleInfo, fetchRecentNotifications]);
+  }, [roleInfo, fetchRecentNotifications, lastClearedAt]);
 
   const handleResultClick = (dealId: string) => {
     setSearchQuery('');

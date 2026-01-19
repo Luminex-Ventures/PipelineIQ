@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Save, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import type { Database } from '../../../lib/database.types';
+
+type UserSettingsRow = Database['public']['Tables']['user_settings']['Row'];
+type UserSettingsInsert = Database['public']['Tables']['user_settings']['Insert'];
 
 export default function PersonalPreferencesSettings() {
   const { user } = useAuth();
@@ -14,12 +18,7 @@ export default function PersonalPreferencesSettings() {
     default_brokerage_split_rate: 20
   });
 
-  useEffect(() => {
-    loadSettings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     if (!user) return;
 
     const { data } = await supabase
@@ -29,15 +28,20 @@ export default function PersonalPreferencesSettings() {
       .maybeSingle();
 
     if (data) {
+      const settings = data as UserSettingsRow;
       setFormData({
-        annual_gci_goal: (data as any).annual_gci_goal,
-        default_tax_rate: (data as any).default_tax_rate * 100,
-        default_brokerage_split_rate: (data as any).default_brokerage_split_rate * 100
+        annual_gci_goal: settings.annual_gci_goal ?? 0,
+        default_tax_rate: (settings.default_tax_rate ?? 0) * 100,
+        default_brokerage_split_rate: (settings.default_brokerage_split_rate ?? 0) * 100
       });
     }
 
     setLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,14 +50,15 @@ export default function PersonalPreferencesSettings() {
     setSaving(true);
     setMessage(null);
 
-    const { error } = await (supabase
-      .from('user_settings') as any)
-      .upsert({
-        user_id: user.id,
-        annual_gci_goal: formData.annual_gci_goal,
-        default_tax_rate: formData.default_tax_rate / 100,
-        default_brokerage_split_rate: formData.default_brokerage_split_rate / 100
-      });
+    const payload: UserSettingsInsert = {
+      user_id: user.id,
+      annual_gci_goal: formData.annual_gci_goal,
+      default_tax_rate: formData.default_tax_rate / 100,
+      default_brokerage_split_rate: formData.default_brokerage_split_rate / 100
+    };
+    const { error } = await supabase
+      .from('user_settings')
+      .upsert(payload);
 
     if (error) {
       setMessage({ type: 'error', text: 'Failed to save preferences. Please try again.' });

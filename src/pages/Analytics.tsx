@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
+import { runAnalyticsDateChecks } from '../lib/analyticsDateRules';
+import { useAnalyticsFilterPersistence } from '../hooks/useAnalyticsFilterPersistence';
 type DealRow = Database['public']['Tables']['deals']['Row'];
+
+// Date basis rules:
+// - Closed-year datasets (yearly stats, monthly rollup, avg days, closing-this-month) use close_ts.
+// - Created-year datasets (lead source totals for created cohort, archive reasons, funnel) use created_at.
+// - Lead source closed counts/commission are based on the created-year cohort, not closed-year.
+// - UTC grouping is enforced to avoid timezone drift at month/year boundaries.
+// Example: a deal created Dec 2024 and closed Jan 2025 counts in 2025 closed stats.
 
 interface YearlyStats {
   closedDeals: number;
@@ -18,6 +28,7 @@ interface YearlyStats {
 }
 
 interface LeadSourceStat {
+  id: string | null;
   name: string;
   totalDeals: number;
   closedDeals: number;
@@ -87,6 +98,7 @@ interface AnalyticsSummaryResponse {
   };
   monthly_rollup: Array<{ month: string; gci: number; deals: number }>;
   lead_source_stats: Array<{
+    id: string | null;
     name: string;
     total_deals: number;
     closed_deals: number;
@@ -107,6 +119,51 @@ interface AnalyticsSummaryResponse {
   annual_gci_goal?: number;
 }
 
+const Skeleton = ({ className = '' }: { className?: string }) => (
+  <div className={`animate-pulse rounded-xl bg-gray-100 ${className}`} />
+);
+
+const StatCardsSkeleton = () => (
+  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <div key={`stat-skeleton-${index}`} className="rounded-2xl border border-gray-200/70 bg-white/90 p-5">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="mt-4 h-7 w-24" />
+        <Skeleton className="mt-3 h-3 w-28" />
+        <Skeleton className="mt-3 h-3 w-36" />
+      </div>
+    ))}
+  </div>
+);
+
+const TileSkeleton = () => (
+  <div className="rounded-xl border border-gray-100/80 bg-white px-4 py-3">
+    <Skeleton className="h-3 w-20" />
+    <Skeleton className="mt-3 h-5 w-24" />
+    <Skeleton className="mt-2 h-3 w-28" />
+  </div>
+);
+
+const TableSkeleton = ({ rows, cols }: { rows: number; cols: number }) => (
+  <div className="space-y-3">
+    {Array.from({ length: rows }).map((_, rowIndex) => (
+      <div key={`row-${rowIndex}`} className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        {Array.from({ length: cols }).map((__, colIndex) => (
+          <Skeleton key={`cell-${rowIndex}-${colIndex}`} className="h-4 w-full" />
+        ))}
+      </div>
+    ))}
+  </div>
+);
+
+const ListSkeleton = ({ lines = 3 }: { lines?: number }) => (
+  <div className="space-y-3">
+    {Array.from({ length: lines }).map((_, index) => (
+      <Skeleton key={`line-${index}`} className="h-4 w-full" />
+    ))}
+  </div>
+);
+
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   buyer: 'Buyer',
   seller: 'Seller',
@@ -115,14 +172,13 @@ const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   landlord: 'Landlord'
 };
 
-const ARCHIVE_REASON_OPTIONS = [
-  'No Response / Ghosted',
-  'Client Not Ready / Timeline Changed',
-  'Chose Another Agent',
-  'Financing Didn’t Work Out',
-  'Deal Fell Through'
-] as const;
-type ArchiveReason = (typeof ARCHIVE_REASON_OPTIONS)[number] | 'Other';
+type ArchiveReason =
+  | 'No Response / Ghosted'
+  | 'Client Not Ready / Timeline Changed'
+  | 'Chose Another Agent'
+  | 'Financing Didn’t Work Out'
+  | 'Deal Fell Through'
+  | 'Other';
 
 export default function Analytics() {
   const { user, roleInfo } = useAuth();
@@ -142,6 +198,7 @@ export default function Analytics() {
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [closingThisMonthStats, setClosingThisMonthStats] =
     useState<ClosingThisMonthStats>({ count: 0, gci: 0 });
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [gciGoal, setGciGoal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -155,6 +212,18 @@ export default function Analytics() {
   const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
   const [archiveStats, setArchiveStats] = useState<ArchiveStats>({ total: 0, reasons: [] });
   const [funnelTransitions, setFunnelTransitions] = useState<FunnelTransition[]>([]);
+  const { hydrated: filtersHydrated } = useAnalyticsFilterPersistence({
+    year: selectedYear,
+    agents: selectedAgentIds,
+    stages: selectedPipelineStages,
+    sources: selectedLeadSources,
+    types: selectedDealTypes,
+    setYear: setSelectedYear,
+    setAgents: setSelectedAgentIds,
+    setStages: setSelectedPipelineStages,
+    setSources: setSelectedLeadSources,
+    setTypes: setSelectedDealTypes,
+  });
   const agentScopeKey = useMemo(
     () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
     [selectedAgentIds]
@@ -175,6 +244,90 @@ export default function Analytics() {
   const isAllAgentsSelected =
     selectedAgentIds.length === 0 || selectedAgentIds.length === availableAgents.length;
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user?.id;
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+
+    if (selectedAgentIds.length > 0) {
+      const agentLabel =
+        selectedAgentIds.length === 1
+          ? `Agent: ${
+              availableAgents.find((agent) => agent.id === selectedAgentIds[0])?.label || 'Agent'
+            }`
+          : `Agents: ${selectedAgentIds.length}`;
+      chips.push({ key: 'agents', label: agentLabel, onRemove: () => setSelectedAgentIds([]) });
+    }
+
+    if (selectedPipelineStages.length > 0) {
+      const stageLabel =
+        selectedPipelineStages.length === 1
+          ? `Stage: ${
+              availableStages.find((stage) => stage.id === selectedPipelineStages[0])?.label || 'Stage'
+            }`
+          : `Stages: ${selectedPipelineStages.length}`;
+      chips.push({ key: 'stages', label: stageLabel, onRemove: () => setSelectedPipelineStages([]) });
+    }
+
+    if (selectedDealTypes.length > 0) {
+      const typeLabel =
+        selectedDealTypes.length === 1
+          ? `Type: ${DEAL_TYPE_LABELS[selectedDealTypes[0]] ?? selectedDealTypes[0]}`
+          : `Types: ${selectedDealTypes.length}`;
+      chips.push({ key: 'types', label: typeLabel, onRemove: () => setSelectedDealTypes([]) });
+    }
+
+    if (selectedLeadSources.length > 0) {
+      const sourceLabel =
+        selectedLeadSources.length === 1
+          ? `Source: ${
+              availableLeadSources.find((source) => source.id === selectedLeadSources[0])?.name || 'Source'
+            }`
+          : `Sources: ${selectedLeadSources.length}`;
+      chips.push({ key: 'sources', label: sourceLabel, onRemove: () => setSelectedLeadSources([]) });
+    }
+
+    return chips;
+  }, [
+    availableAgents,
+    availableLeadSources,
+    availableStages,
+    selectedAgentIds,
+    selectedDealTypes,
+    selectedLeadSources,
+    selectedPipelineStages,
+  ]);
+  const agentOptions = useMemo(
+    () =>
+      availableAgents.map((agent) => ({
+        value: agent.id,
+        label: agent.label,
+        subLabel: agent.email || undefined
+      })),
+    [availableAgents]
+  );
+  const stageOptions = useMemo(
+    () =>
+      availableStages.map((stage) => ({
+        value: stage.id,
+        label: stage.label
+      })),
+    [availableStages]
+  );
+  const leadSourceOptions = useMemo(
+    () =>
+      availableLeadSources.map((source) => ({
+        value: source.id,
+        label: source.name
+      })),
+    [availableLeadSources]
+  );
+  const dealTypeOptions = useMemo(
+    () =>
+      availableDealTypes.map((dealType) => ({
+        value: dealType,
+        label: DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')
+      })),
+    [availableDealTypes]
+  );
   const scopeDescription = useMemo(() => {
     const formatList = (items: string[], fallbackLabel: string) => {
       if (items.length === 0) return fallbackLabel;
@@ -274,8 +427,7 @@ export default function Analytics() {
     selectedAgentIds,
     selectedDealTypes,
     selectedLeadSources,
-    selectedPipelineStages,
-    user?.id
+    selectedPipelineStages
   ]);
 
   const selectMyData = () => {
@@ -286,28 +438,6 @@ export default function Analytics() {
 
   const resetAgents = () => {
     setSelectedAgentIds([]);
-  };
-
-  const handleAgentSelectionChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setSelectedAgentIds(values);
-  };
-
-  const handlePipelineFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setSelectedPipelineStages(values);
-  };
-
-  const handleLeadSourceFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setSelectedLeadSources(values);
-  };
-
-  const handleDealTypeFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map(
-      (option) => option.value as DealRow['deal_type']
-    );
-    setSelectedDealTypes(values);
   };
 
   useEffect(() => {
@@ -413,18 +543,38 @@ export default function Analytics() {
 
       setAvailableAgents(agentOptions);
       const initialIds = agentOptions.map(a => a.id);
-      setSelectedAgentIds(initialIds.length ? [] : [user.id]);
+      const defaultId = user?.id;
+      if (defaultId && initialIds.includes(defaultId)) {
+        setSelectedAgentIds([defaultId]);
+      } else if (initialIds.length === 1) {
+        setSelectedAgentIds([initialIds[0]]);
+      } else {
+        setSelectedAgentIds([]);
+      }
     };
 
     bootstrapAgents();
-  }, [user, roleInfo?.globalRole, roleInfo?.teamId]);
+  }, [user, roleInfo, roleInfo?.globalRole, roleInfo?.teamId]);
 
   useEffect(() => {
     if (!user) return;
     if (availableAgents.length === 0) return;
+    if (!filtersHydrated) return;
+    if (import.meta.env.DEV) {
+      runAnalyticsDateChecks();
+    }
     loadAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, availableAgents]);
+  }, [
+    user?.id,
+    selectedYear,
+    agentScopeKey,
+    leadFilterKey,
+    stageFilterKey,
+    dealTypeFilterKey,
+    availableAgents,
+    filtersHydrated
+  ]);
 
   const loadAnalytics = async () => {
     if (!user || availableAgents.length === 0) return;
@@ -457,7 +607,7 @@ export default function Analytics() {
       setRefreshing(true);
     }
 
-    const { data, error } = await supabase.rpc('get_analytics_summary', {
+    const { data, error } = await supabase.rpc<AnalyticsSummaryResponse>('get_analytics_summary', {
       p_year: selectedYear,
       p_user_ids: ids,
       p_lead_source_ids: selectedLeadSources,
@@ -500,6 +650,10 @@ export default function Analytics() {
         setMonthlyData(summary.monthly_rollup ?? []);
         setLeadSourceStats(
           (summary.lead_source_stats ?? []).map((item) => ({
+            id:
+              item.id ??
+              availableLeadSources.find((source) => source.name === item.name)?.id ??
+              null,
             name: item.name,
             totalDeals: item.total_deals,
             closedDeals: item.closed_deals,
@@ -535,6 +689,7 @@ export default function Analytics() {
         );
 
         setGciGoal(summary.annual_gci_goal ?? 0);
+        setLastRefreshedAt(new Date());
       }
     }
 
@@ -556,12 +711,83 @@ export default function Analytics() {
   const formatNumber = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
 
+  const formatLastUpdated = (value: Date | null) => {
+    if (!value) return null;
+    const nowLocal = new Date();
+    const isToday = value.toDateString() === nowLocal.toDateString();
+    return new Intl.DateTimeFormat('en-US', {
+      month: isToday ? undefined : 'short',
+      day: isToday ? undefined : 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(value);
+  };
+
+  const downloadCsv = (filename: string, rows: Array<Record<string, string | number>>) => {
+    if (!rows.length) return;
+    const headers = Object.keys(rows[0]);
+    const escape = (value: string | number) => {
+      const stringValue = String(value ?? '');
+      if (/["\\n,]/.test(stringValue)) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) => headers.map((header) => escape(row[header])).join(','))
+    ].join('\\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const handleLeadSourceClick = (source: LeadSourceStat) => {
+    if (source.id) {
+      setSelectedLeadSources([source.id]);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  };
+
+  const handleMonthlyExport = () => {
+    const rows = monthlyData.map((month) => ({
+      Year: selectedYear,
+      Month: month.month,
+      Deals: month.deals,
+      'GCI (USD)': month.gci,
+      'Avg GCI / Deal (USD)': month.deals > 0 ? month.gci / month.deals : 0,
+      'Share of Year GCI (%)': yearlyStats.totalGCI > 0 ? (month.gci / yearlyStats.totalGCI) * 100 : 0,
+    }));
+    downloadCsv(`monthly-ledger-${selectedYear}.csv`, rows);
+  };
+
+  const handleLeadSourceExport = () => {
+    const rows = leadSourceStats.map((source) => ({
+      Year: selectedYear,
+      'Lead Source': source.name,
+      'Total Deals': source.totalDeals,
+      'Closed Deals': source.closedDeals,
+      'Conversion Rate (%)': source.conversionRate,
+      'Total Commission (USD)': source.totalCommission,
+    }));
+    downloadCsv(`lead-sources-${selectedYear}.csv`, rows);
+  };
+
   const stageLabel: Record<FunnelStage, string> = {
     lead: 'Lead',
     in_progress: 'In Progress',
     closed_won: 'Closed Won',
     archived: 'Archived (Closed Lost)',
   };
+  // Funnel transition definitions (event-based):
+  // - Entered = deals that entered the "from" stage during the selected year.
+  // - Advanced = those same deals that later entered the "to" stage.
+  // - Conversion = advanced / entered for the selected-year entry cohort.
 
   // Goal & pace calculations
   const goalProgress = gciGoal > 0 ? (yearlyStats.totalGCI / gciGoal) * 100 : 0;
@@ -581,12 +807,11 @@ export default function Analytics() {
     yearProgress > 0 ? (yearlyStats.totalGCI / yearProgress) : yearlyStats.totalGCI;
 
   const remainingGciToGoal = Math.max(0, gciGoal - yearlyStats.totalGCI);
-  const remainingMonths =
-    isCurrentYear && now.getFullYear() === selectedYear
-      ? 12 - now.getMonth()
+  const remainingMonths = isCurrentYear ? 12 - now.getMonth() : 0;
+  const neededMonthlyGciToHitGoal =
+    gciGoal > 0 && remainingGciToGoal > 0 && remainingMonths > 0
+      ? remainingGciToGoal / remainingMonths
       : 0;
-  const neededPerMonth =
-    gciGoal > 0 && remainingMonths > 0 ? remainingGciToGoal / remainingMonths : 0;
 
   // Best / worst months
   const { bestMonth, worstMonth } = useMemo(() => {
@@ -641,18 +866,71 @@ export default function Analytics() {
           .filter((s) => s.totalDeals >= 3)
           .sort((a, b) => a.conversionRate - b.conversionRate)[0]
       : null;
+  const topArchiveReason = archiveStats.reasons[0] || null;
+  const funnelBottleneck = useMemo(() => {
+    if (!funnelTransitions.length) return null;
+    return [...funnelTransitions].sort((a, b) => a.rate - b.rate)[0];
+  }, [funnelTransitions]);
+  const insights = useMemo(() => {
+    const items: string[] = [];
+
+    if (topLeadSource) {
+      items.push(
+        `Top source: ${topLeadSource.name} — ${topLeadSource.conversionRate.toFixed(1)}% conversion, ${formatCurrency(
+          topLeadSource.totalCommission
+        )} GCI. Recommendation: double down on follow-up + budget here.`
+      );
+    }
+
+    if (underperformingSource) {
+      items.push(
+        `Underperformer: ${underperformingSource.name} — ${underperformingSource.conversionRate.toFixed(1)}% conversion on ${
+          underperformingSource.totalDeals
+        } deals. Recommendation: revise script or pause spend.`
+      );
+    }
+
+    if (yearlyStats.avgDaysToClose >= 45) {
+      items.push(
+        `Avg days to close is ${yearlyStats.avgDaysToClose.toFixed(
+          0
+        )} days. Recommendation: tighten pre-qual and weekly follow-ups to reduce cycle time.`
+      );
+    }
+
+    if (funnelBottleneck && funnelBottleneck.entered > 0) {
+      items.push(
+        `Largest drop-off is ${stageLabel[funnelBottleneck.from]} → ${stageLabel[funnelBottleneck.to]} (${
+          funnelBottleneck.rate.toFixed(1)
+        }%). Recommendation: focus on faster handoffs + tighter next-step commitments.`
+      );
+    }
+
+    if (archiveStats.total >= 3 && topArchiveReason) {
+      items.push(
+        `Most common loss reason: ${topArchiveReason.reason} (${topArchiveReason.percentage.toFixed(
+          1
+        )}%). Recommendation: add a targeted countermeasure in your process.`
+      );
+    }
+
+    return items.slice(0, 4);
+  }, [
+    archiveStats,
+    funnelBottleneck,
+    stageLabel,
+    topArchiveReason,
+    topLeadSource,
+    underperformingSource,
+    yearlyStats.avgDaysToClose
+  ]);
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
   const yearOptions = years.map((year) => ({ value: year.toString(), label: year.toString() }));
   const timeframeDescription = `Jan 1 – Dec 31, ${selectedYear}${isCurrentYear ? ' · In progress' : ''}`;
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  const isInitialLoading = loading;
+  const isRefreshing = refreshing;
 
   return (
     <div className="space-y-8">
@@ -667,16 +945,17 @@ export default function Analytics() {
           </p>
         </div>
         <div className="flex flex-col gap-3 items-start sm:items-end">
-          <div className="flex items-center gap-3 text-left sm:text-right">
-            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 min-h-[20px]">
-              {refreshing ? (
-                <>
+            <div className="flex items-center gap-3 text-left sm:text-right">
+            <div className="min-h-[20px] flex flex-col items-start gap-1 text-xs font-semibold text-gray-500">
+              {isRefreshing ? (
+                <span className="inline-flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
                   Updating…
-                </>
-              ) : (
-                <span className="invisible">Updating…</span>
-              )}
+                </span>
+              ) : null}
+              {!isRefreshing && lastRefreshedAt ? (
+                <span>Last updated {formatLastUpdated(lastRefreshedAt)}</span>
+              ) : null}
             </div>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400">
@@ -695,134 +974,96 @@ export default function Analytics() {
       </section>
       {canShowFilterPanel && (
         <section className={`${surfaceClass} p-5 space-y-4`}>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-2">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Scope</p>
               <p className="text-sm text-gray-700">{scopeDescription}</p>
             </div>
           </div>
+          {(activeFilterChips.length > 0 || showFocusOnMe) && (
+            <div className="flex flex-wrap items-center gap-2 -mt-1">
+              {showFocusOnMe && (
+                <button
+                  type="button"
+                  onClick={selectMyData}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    isFocusOnMeActive
+                      ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                  }`}
+                >
+                  Focus On Me
+                </button>
+              )}
+              {activeFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={chip.onRemove}
+                  className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                >
+                  {chip.label}
+                  <span className="text-gray-400">x</span>
+                </button>
+              ))}
+              {activeFilterChips.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetAgents();
+                    setSelectedPipelineStages([]);
+                    setSelectedLeadSources([]);
+                    setSelectedDealTypes([]);
+                  }}
+                  className="text-xs font-semibold text-[var(--app-accent)]"
+                >
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          )}
           {availableAgents.length > 0 && (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
-                    {showFocusOnMe && (
-                      <button
-                        type="button"
-                        onClick={selectMyData}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                          isFocusOnMeActive
-                            ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
-                            : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                        }`}
-                      >
-                        Focus On Me
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {!isAllAgentsSelected && (
-                      <button
-                        type="button"
-                        className="text-xs text-[var(--app-accent)]"
-                        onClick={resetAgents}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <select
-                  multiple
+                {showFocusOnMe ? null : null}
+                <MultiSelectCombobox
+                  label="Agents"
+                  options={agentOptions}
                   value={selectedAgentIds}
-                  onChange={handleAgentSelectionChange}
-                  className="hig-input min-h-[72px] rounded-2xl border-gray-200 bg-white/90 text-sm analytics-multi-select"
-                >
-                  {availableAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedAgentIds}
+                  placeholder="Search agents..."
+                  disabled={agentOptions.length === 0}
+                />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Pipeline Stage</p>
-                  {selectedPipelineStages.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedPipelineStages([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Pipeline Stage"
+                  options={stageOptions}
                   value={selectedPipelineStages}
-                  onChange={handlePipelineFilterChange}
-                  className="hig-input min-h-[64px] mt-2 analytics-multi-select"
-                >
-                  {availableStages.map((stage) => (
-                    <option key={stage.id} value={stage.id}>
-                      {stage.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedPipelineStages}
+                  placeholder="Search stages..."
+                  disabled={stageOptions.length === 0}
+                />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
-                  {selectedDealTypes.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedDealTypes([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Deal Type"
+                  options={dealTypeOptions}
                   value={selectedDealTypes}
-                  onChange={handleDealTypeFilterChange}
-                  className="hig-input min-h-[64px] mt-2 analytics-multi-select"
-                >
-                  {availableDealTypes.map((dealType) => (
-                    <option key={dealType} value={dealType}>
-                      {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(next) => setSelectedDealTypes(next as DealRow['deal_type'][])}
+                  placeholder="Search deal types..."
+                  disabled={dealTypeOptions.length === 0}
+                />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Lead Source</p>
-                  {selectedLeadSources.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedLeadSources([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Lead Source"
+                  options={leadSourceOptions}
                   value={selectedLeadSources}
-                  onChange={handleLeadSourceFilterChange}
-                  className="hig-input min-h-[64px] mt-2 analytics-multi-select"
-                >
-                  {availableLeadSources.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedLeadSources}
+                  placeholder="Search lead sources..."
+                  disabled={leadSourceOptions.length === 0}
+                />
               </div>
             </div>
           )}
@@ -830,56 +1071,60 @@ export default function Analytics() {
       )}
 
       <section>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className={`${surfaceClass} p-5`}>
-            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Pipeline</p>
-            <div className="text-2xl font-semibold text-gray-900 mt-2">
-              {formatNumber(yearlyStats.closedDeals)}
-            </div>
-            <p className="text-sm text-gray-600 mt-1">Closed deals</p>
-            <p className="text-xs text-gray-500 mt-3">
-              {yearlyStats.buyerDeals} buyer • {yearlyStats.sellerDeals} seller
-            </p>
-          </div>
-          <div className={`${surfaceClass} p-5`}>
-            <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Volume</p>
-            <div className="text-2xl font-semibold text-gray-900 mt-2">
-              {formatCurrency(yearlyStats.totalVolume)}
-            </div>
-            <p className="text-sm text-gray-600 mt-1">Total sales volume</p>
-            <p className="text-xs text-gray-500 mt-3">
-              Avg sale price • {formatCurrency(yearlyStats.avgSalePrice)}
-            </p>
-          </div>
-          <div className={`${surfaceClass} p-5`}>
-            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Net GCI</p>
-            <div className="text-2xl font-semibold text-gray-900 mt-2">
-              {formatCurrency(yearlyStats.totalGCI)}
-            </div>
-            <p className="text-sm text-gray-600 mt-1">Total earnings after splits</p>
-            <p className="text-xs text-gray-500 mt-3">
-              Avg commission • {formatCurrency(yearlyStats.avgCommission)}
-            </p>
-          </div>
-          <div className={`${surfaceClass} p-5`}>
-            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Pace</p>
-            <div className="text-2xl font-semibold text-gray-900 mt-2">
-              {formatNumber(closingThisMonthStats.count)}
-            </div>
-            <p className="text-sm text-gray-600 mt-1">Deals closing this month</p>
-            <p className="text-xs text-gray-500 mt-3">
-              GCI this month • {formatCurrency(closingThisMonthStats.gci)}
-            </p>
-            {yearlyStats.avgDaysToClose > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                Avg time to close • {yearlyStats.avgDaysToClose.toFixed(0)} days
+        {isInitialLoading ? (
+          <StatCardsSkeleton />
+        ) : (
+          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
+            <div className={`${surfaceClass} p-5`}>
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Pipeline</p>
+              <div className="text-2xl font-semibold text-gray-900 mt-2">
+                {formatNumber(yearlyStats.closedDeals)}
+              </div>
+              <p className="text-sm text-gray-600 mt-1">Closed deals</p>
+              <p className="text-xs text-gray-500 mt-3">
+                {yearlyStats.buyerDeals} buyer • {yearlyStats.sellerDeals} seller
               </p>
-            )}
+            </div>
+            <div className={`${surfaceClass} p-5`}>
+              <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Volume</p>
+              <div className="text-2xl font-semibold text-gray-900 mt-2">
+                {formatCurrency(yearlyStats.totalVolume)}
+              </div>
+              <p className="text-sm text-gray-600 mt-1">Total sales volume</p>
+              <p className="text-xs text-gray-500 mt-3">
+                Avg sale price • {formatCurrency(yearlyStats.avgSalePrice)}
+              </p>
+            </div>
+            <div className={`${surfaceClass} p-5`}>
+              <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Net GCI</p>
+              <div className="text-2xl font-semibold text-gray-900 mt-2">
+                {formatCurrency(yearlyStats.totalGCI)}
+              </div>
+              <p className="text-sm text-gray-600 mt-1">Total earnings after splits</p>
+              <p className="text-xs text-gray-500 mt-3">
+                Avg commission • {formatCurrency(yearlyStats.avgCommission)}
+              </p>
+            </div>
+            <div className={`${surfaceClass} p-5`}>
+              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Pace</p>
+              <div className="text-2xl font-semibold text-gray-900 mt-2">
+                {formatNumber(closingThisMonthStats.count)}
+              </div>
+              <p className="text-sm text-gray-600 mt-1">Deals closing this month</p>
+              <p className="text-xs text-gray-500 mt-3">
+                GCI this month • {formatCurrency(closingThisMonthStats.gci)}
+              </p>
+              {yearlyStats.avgDaysToClose > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Avg time to close • {yearlyStats.avgDaysToClose.toFixed(0)} days
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <section className={`grid grid-cols-1 lg:grid-cols-2 gap-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
         <div className={`${surfaceClass} p-6`}>
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -897,119 +1142,141 @@ export default function Analytics() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className={tileClass}>
-              <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                Top Month
-              </p>
-              {bestMonth ? (
-                <>
-                  <p className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                    {bestMonth.month}
-                    <span className={pillClass}>{bestMonthDetails?.deals ?? 0} deals</span>
-                  </p>
-                  <p className="text-sm text-gray-600">{formatCurrency(bestMonth.gci)}</p>
-                </>
-              ) : (
-                <p className="text-sm text-gray-500">No producing months yet.</p>
-              )}
+          {isInitialLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <TileSkeleton key={`tile-skeleton-${index}`} />
+              ))}
             </div>
-            <div className={tileClass}>
-              <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                Slow Month
-              </p>
-              {worstMonth && bestMonth && worstMonth.month !== bestMonth.month ? (
-                <>
-                  <p className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                    {worstMonth.month}
-                    <span className={pillClass}>{worstMonthDetails?.deals ?? 0} deals</span>
-                  </p>
-                  <p className="text-sm text-gray-600">{formatCurrency(worstMonth.gci)}</p>
-                </>
-              ) : bestMonth ? (
-                <p className="text-sm text-gray-500">Only one producing month so far.</p>
-              ) : (
-                <p className="text-sm text-gray-500">No data yet.</p>
-              )}
-            </div>
-            <div className={tileClass}>
-              <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                Avg Active Month
-              </p>
-              <p className="text-lg font-semibold text-gray-900">
-                {formatCurrency(avgMonthlyGci || 0)}
-              </p>
-              <p className="text-sm text-gray-600 flex items-center gap-2">
-                {activeMonthsCount || 0} active month{activeMonthsCount === 1 ? '' : 's'}
-                <span className={pillClass}>{avgDealsPerActiveMonth.toFixed(1)} deals/mo</span>
-              </p>
-            </div>
-            <div className={tileClass}>
-              <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                Momentum
-              </p>
-              {momentumDelta !== null && lastActiveMonth ? (
-                <>
-                  <p
-                    className={`text-lg font-semibold ${
-                      momentumDelta >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                    }`}
-                  >
-                    {momentumDelta >= 0 ? '+' : '-'}
-                    {formatCurrency(Math.abs(momentumDelta))}
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    Vs. {prevActiveMonth?.month ?? 'previous month'} GCI
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-gray-500">
-                  Log at least two producing months to see momentum.
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className={tileClass}>
+                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                  Top Month
                 </p>
-              )}
+                {bestMonth ? (
+                  <>
+                    <p className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                      {bestMonth.month}
+                      <span className={pillClass}>{bestMonthDetails?.deals ?? 0} deals</span>
+                    </p>
+                    <p className="text-sm text-gray-600">{formatCurrency(bestMonth.gci)}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">No producing months yet.</p>
+                )}
+              </div>
+              <div className={tileClass}>
+                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                  Slow Month
+                </p>
+                {worstMonth && bestMonth && worstMonth.month !== bestMonth.month ? (
+                  <>
+                    <p className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                      {worstMonth.month}
+                      <span className={pillClass}>{worstMonthDetails?.deals ?? 0} deals</span>
+                    </p>
+                    <p className="text-sm text-gray-600">{formatCurrency(worstMonth.gci)}</p>
+                  </>
+                ) : bestMonth ? (
+                  <p className="text-sm text-gray-500">Only one producing month so far.</p>
+                ) : (
+                  <p className="text-sm text-gray-500">No data yet.</p>
+                )}
+              </div>
+              <div className={tileClass}>
+                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                  Avg Active Month
+                </p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {formatCurrency(avgMonthlyGci || 0)}
+                </p>
+                <p className="text-sm text-gray-600 flex items-center gap-2">
+                  {activeMonthsCount || 0} active month{activeMonthsCount === 1 ? '' : 's'}
+                  <span className={pillClass}>{avgDealsPerActiveMonth.toFixed(1)} deals/mo</span>
+                </p>
+              </div>
+              <div className={tileClass}>
+                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                  Momentum
+                </p>
+                {momentumDelta !== null && lastActiveMonth ? (
+                  <>
+                    <p
+                      className={`text-lg font-semibold ${
+                        momentumDelta >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {momentumDelta >= 0 ? '+' : '-'}
+                      {formatCurrency(Math.abs(momentumDelta))}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Vs. {prevActiveMonth?.month ?? 'previous month'} GCI
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    Log at least two producing months to see momentum.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="mt-6">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-semibold text-gray-900">Monthly Ledger</h4>
-              <span className="text-xs text-gray-500">
-                Peak GCI: {peakMonthlyGci ? formatCurrency(peakMonthlyGci) : '—'} • Peak deals:{' '}
-                {peakMonthlyDeals || '—'}
-              </span>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span>
+                  Peak GCI: {peakMonthlyGci ? formatCurrency(peakMonthlyGci) : '—'} • Peak deals:{' '}
+                  {peakMonthlyDeals || '—'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleMonthlyExport}
+                  disabled={isInitialLoading || monthlyData.length === 0}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Export CSV
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                    <th className="pb-2 pr-4">Month</th>
-                    <th className="pb-2 pr-4">Deals</th>
-                    <th className="pb-2 pr-4">GCI</th>
-                    <th className="pb-2 pr-4">Avg / Deal</th>
-                    <th className="pb-2 text-right">Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlyData.map((month) => {
-                    const avgPerDeal = month.deals > 0 ? month.gci / month.deals : 0;
-                    const share =
-                      yearlyStats.totalGCI > 0 ? (month.gci / yearlyStats.totalGCI) * 100 : 0;
-                    return (
-                      <tr key={month.month} className="border-b border-gray-50">
-                        <td className="py-2 pr-4 font-medium text-gray-900">{month.month}</td>
-                        <td className="py-2 pr-4 text-gray-700">{month.deals}</td>
-                        <td className="py-2 pr-4 text-gray-700">{formatCurrency(month.gci)}</td>
-                        <td className="py-2 pr-4 text-gray-700">
-                          {month.deals > 0 ? formatCurrency(avgPerDeal) : '—'}
-                        </td>
-                        <td className="py-2 text-right text-gray-700">
-                          {yearlyStats.totalGCI > 0 ? `${share.toFixed(1)}%` : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              {isInitialLoading ? (
+                <TableSkeleton rows={6} cols={5} />
+              ) : (
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                      <th className="pb-2 pr-4">Month</th>
+                      <th className="pb-2 pr-4">Deals</th>
+                      <th className="pb-2 pr-4">GCI</th>
+                      <th className="pb-2 pr-4">Avg / Deal</th>
+                      <th className="pb-2 text-right">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyData.map((month) => {
+                      const avgPerDeal = month.deals > 0 ? month.gci / month.deals : 0;
+                      const share =
+                        yearlyStats.totalGCI > 0 ? (month.gci / yearlyStats.totalGCI) * 100 : 0;
+                      return (
+                        <tr key={month.month} className="border-b border-gray-50">
+                          <td className="py-2 pr-4 font-medium text-gray-900">{month.month}</td>
+                          <td className="py-2 pr-4 text-gray-700">{month.deals}</td>
+                          <td className="py-2 pr-4 text-gray-700">{formatCurrency(month.gci)}</td>
+                          <td className="py-2 pr-4 text-gray-700">
+                            {month.deals > 0 ? formatCurrency(avgPerDeal) : '—'}
+                          </td>
+                          <td className="py-2 text-right text-gray-700">
+                            {yearlyStats.totalGCI > 0 ? `${share.toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
@@ -1024,124 +1291,176 @@ export default function Analytics() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-4">
-            <div className="rounded-2xl border border-gray-100/80 bg-gradient-to-br from-white to-[var(--app-bg-start)] p-5 shadow-inner">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Year-over-year pace
-              </p>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {formatCurrency(yearlyStats.totalGCI)}
-                  </p>
-                  <p className="text-sm text-gray-600">Current GCI</p>
+          {isInitialLoading ? (
+            <div className="grid grid-cols-1 gap-4">
+              <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
+                <Skeleton className="h-3 w-32" />
+                <div className="mt-4 flex items-center justify-between gap-4">
+                  <div>
+                    <Skeleton className="h-6 w-24" />
+                    <Skeleton className="mt-2 h-3 w-20" />
+                  </div>
+                  <div>
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="mt-2 h-5 w-24" />
+                    <Skeleton className="mt-3 h-3 w-28" />
+                    <Skeleton className="mt-2 h-5 w-24" />
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500">Pace needed</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {formatCurrency(projectedGciAtCurrentPace)}
-                  </p>
-                </div>
+                <Skeleton className="mt-4 h-3 w-full" />
+                <Skeleton className="mt-2 h-3 w-2/3" />
               </div>
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>Current</span>
-                  <span>Goal</span>
+              <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
+                <Skeleton className="h-3 w-40" />
+                <div className="mt-4 grid grid-cols-2 gap-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
-                <div className="mt-1 h-3 rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all"
-                    style={{ width: `${Math.min(100, (yearlyStats.totalGCI / (gciGoal || 1)) * 100)}%` }}
-                  />
-                </div>
-                <div className="mt-1 text-xs font-semibold text-gray-600">
-                  {goalProgress.toFixed(1)}% of goal • year is {(yearProgress * 100).toFixed(1)}% complete
-                </div>
+                <Skeleton className="mt-4 h-3 w-full" />
               </div>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              <div className="rounded-2xl border border-gray-100/80 bg-gradient-to-br from-white to-[var(--app-bg-start)] p-5 shadow-inner">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Year-over-year pace
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {formatCurrency(yearlyStats.totalGCI)}
+                    </p>
+                    <p className="text-sm text-gray-600">Current GCI</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-500">Projected at current pace</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {formatCurrency(projectedGciAtCurrentPace)}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2">Needed pace to hit goal</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {gciGoal > 0 && remainingGciToGoal > 0 && remainingMonths > 0 ? (
+                        <>
+                          {formatCurrency(neededMonthlyGciToHitGoal)}{' '}
+                          <span className="text-sm font-medium text-gray-500">/mo</span>
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>Current</span>
+                    <span>Goal</span>
+                  </div>
+                  <div className="mt-1 h-3 rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all"
+                      style={{ width: `${Math.min(100, (yearlyStats.totalGCI / (gciGoal || 1)) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-gray-600">
+                    {goalProgress.toFixed(1)}% of goal • year is {(yearProgress * 100).toFixed(1)}% complete
+                    {gciGoal > 0 && isCurrentYear
+                      ? ` • ${remainingMonths} month${remainingMonths === 1 ? '' : 's'} remaining (incl. this month)`
+                      : ''}
+                  </div>
+                </div>
+              </div>
 
-            <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Active pipeline outlook
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {formatNumber(closingThisMonthStats.count)}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">Deals expected to close this month</p>
+              <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Active pipeline outlook
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {formatNumber(closingThisMonthStats.count)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Deals expected to close this month</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {formatCurrency(closingThisMonthStats.gci)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Projected monthly GCI</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {formatCurrency(closingThisMonthStats.gci)}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">Projected monthly GCI</p>
+                <div className="mt-4 rounded-xl bg-[var(--app-surface-muted)] p-4 text-sm text-gray-600">
+                  {momentumDelta !== null && lastActiveMonth ? (
+                    <>
+                      <span className="font-semibold">
+                        {momentumDelta >= 0 ? 'Ahead' : 'Trailing'} pace
+                      </span>{' '}
+                      by {formatCurrency(Math.abs(momentumDelta))} versus {prevActiveMonth?.month ?? 'previous'}.
+                      Keep this cadence to end the year at{' '}
+                      <span className="font-semibold">{formatCurrency(projectedGciAtCurrentPace)}</span>.
+                    </>
+                  ) : (
+                    'Once two months close we’ll highlight whether you are accelerating or slowing down.'
+                  )}
                 </div>
-              </div>
-              <div className="mt-4 rounded-xl bg-[var(--app-surface-muted)] p-4 text-sm text-gray-600">
-                {momentumDelta !== null && lastActiveMonth ? (
-                  <>
-                    <span className="font-semibold">
-                      {momentumDelta >= 0 ? 'Ahead' : 'Trailing'} pace
-                    </span>{' '}
-                    by {formatCurrency(Math.abs(momentumDelta))} versus {prevActiveMonth?.month ?? 'previous'}.
-                    Keep this cadence to end the year at{' '}
-                    <span className="font-semibold">{formatCurrency(projectedGciAtCurrentPace)}</span>.
-                  </>
-                ) : (
-                  'Once two months close we’ll highlight whether you are accelerating or slowing down.'
-                )}
               </div>
             </div>
-          </div>
+          )}
         </div>
       </section>
 
-      <section className={`${surfaceClass} p-6`}>
+      <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Stage Conversion (Funnel)</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Stage Conversion (Transitions)</h3>
             <p className="text-xs text-gray-500 mt-1">
-              How many deals advance between key stages; highlights slowdowns and drop-offs.
+              Based on recorded pipeline stage transitions during {selectedYear}.
             </p>
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                <th className="pb-2 pr-4">From → To</th>
-                <th className="pb-2 pr-4">Entered</th>
-                <th className="pb-2 pr-4">Advanced</th>
-                <th className="pb-2 pr-4">Conversion</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {funnelTransitions.map((row) => (
-                <tr key={`${row.from}-${row.to}`}>
-                  <td className="py-3 pr-4 font-medium text-gray-900">
-                    {stageLabel[row.from]} → {stageLabel[row.to]}
-                  </td>
-                  <td className="py-3 pr-4 text-gray-700">{row.entered}</td>
-                  <td className="py-3 pr-4 text-gray-700">{row.advanced}</td>
-                  <td className="py-3 pr-4 text-gray-900 font-semibold">
-                    {row.rate.toFixed(1)}%
-                  </td>
+          {isInitialLoading ? (
+            <TableSkeleton rows={3} cols={4} />
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                  <th className="pb-2 pr-4">From → To</th>
+                  <th className="pb-2 pr-4">Entered</th>
+                  <th className="pb-2 pr-4">Advanced</th>
+                  <th className="pb-2 pr-4">Conversion</th>
                 </tr>
-              ))}
-              {funnelTransitions.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="py-4 text-sm text-gray-500">
-                    No stage movement recorded in this period.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {funnelTransitions.map((row) => (
+                  <tr key={`${row.from}-${row.to}`}>
+                    <td className="py-3 pr-4 font-medium text-gray-900">
+                      {stageLabel[row.from]} → {stageLabel[row.to]}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-700">{row.entered}</td>
+                    <td className="py-3 pr-4 text-gray-700">{row.advanced}</td>
+                    <td className="py-3 pr-4 text-gray-900 font-semibold">
+                      {row.rate.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+                {funnelTransitions.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-4 text-sm text-gray-500">
+                      No transition data available for this period.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
+        <p className="mt-3 text-xs text-gray-500">
+          Note: Counts are based on stage-change events. Deals that entered a stage before {selectedYear} are not counted as
+          entered in that stage during this period.
+        </p>
       </section>
 
-      <section className={`${surfaceClass} p-6`}>
+      <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Closed Lost Reasons</h3>
@@ -1156,7 +1475,16 @@ export default function Analytics() {
           </div>
         </div>
 
-        {archiveStats.total === 0 ? (
+        {isInitialLoading ? (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={`archive-skeleton-${index}`} className="rounded-xl border border-gray-100/80 bg-white px-4 py-3 shadow-sm">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="mt-2 h-3 w-20" />
+              </div>
+            ))}
+          </div>
+        ) : archiveStats.total === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-600 bg-gray-50/80">
             No archived deals in this period. When you archive with a reason, we’ll summarize them here.
           </div>
@@ -1175,7 +1503,7 @@ export default function Analytics() {
         )}
       </section>
 
-      <section className={`${surfaceClass} overflow-hidden`}>
+      <section className={`${surfaceClass} overflow-hidden ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900">Lead Source Performance</h3>
@@ -1183,146 +1511,185 @@ export default function Analytics() {
               Compare volume, conversion, and commissions by source.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={handleLeadSourceExport}
+            disabled={isInitialLoading || leadSourceStats.length === 0}
+            className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Export CSV
+          </button>
         </div>
-        <table className="min-w-full divide-y divide-gray-100">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Source
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total Deals
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Closed
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Conv. Rate
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total Commission
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Insight
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white/70 divide-y divide-gray-100">
-            {leadSourceStats.map((stat) => {
-              let label = 'Solid';
-              if (stat.conversionRate >= 25 && stat.totalCommission > (yearlyStats.totalGCI || 0) / 4) {
-                label = 'Power Source';
-              } else if (stat.conversionRate < 10 && stat.totalDeals >= 3) {
-                label = 'Underperformer';
-              }
+        {isInitialLoading ? (
+          <div className="px-6 py-6">
+            <TableSkeleton rows={6} cols={6} />
+          </div>
+        ) : (
+          <table className="min-w-full divide-y divide-gray-100">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Source
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total Deals
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Closed
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Conv. Rate
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total Commission
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Insight
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white/70 divide-y divide-gray-100">
+              {leadSourceStats.map((stat) => {
+                let label = 'Solid';
+                if (stat.conversionRate >= 25 && stat.totalCommission > (yearlyStats.totalGCI || 0) / 4) {
+                  label = 'Power Source';
+                } else if (stat.conversionRate < 10 && stat.totalDeals >= 3) {
+                  label = 'Underperformer';
+                }
 
-              return (
-                <tr key={stat.name} className="hover:bg-gray-50">
+                return (
+                  <tr key={stat.name} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {stat.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {stat.totalDeals}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {stat.closedDeals}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {stat.conversionRate.toFixed(1)}%
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                    {formatCurrency(stat.totalCommission)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-xs">
-                    <span
-                      className={
-                        label === 'Power Source'
-                          ? 'inline-flex px-2 py-1 rounded-full bg-green-50 text-green-700'
-                          : label === 'Underperformer'
-                          ? 'inline-flex px-2 py-1 rounded-full bg-amber-50 text-amber-700'
-                          : 'inline-flex px-2 py-1 rounded-full bg-gray-50 text-gray-600'
-                      }
+                    <button
+                      type="button"
+                      onClick={() => handleLeadSourceClick(stat)}
+                      disabled={!stat.id}
+                      className="text-left text-[var(--app-accent)] hover:underline disabled:cursor-default disabled:text-gray-500 disabled:no-underline"
                     >
-                      {label}
-                    </span>
+                      {stat.name}
+                    </button>
+                  </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {stat.totalDeals}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {stat.closedDeals}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {stat.conversionRate.toFixed(1)}%
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                      {formatCurrency(stat.totalCommission)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <span
+                        className={
+                          label === 'Power Source'
+                            ? 'inline-flex px-2 py-1 rounded-full bg-green-50 text-green-700'
+                            : label === 'Underperformer'
+                            ? 'inline-flex px-2 py-1 rounded-full bg-amber-50 text-amber-700'
+                            : 'inline-flex px-2 py-1 rounded-full bg-gray-50 text-gray-600'
+                        }
+                      >
+                        {label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {leadSourceStats.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                    No data available for {selectedYear}
                   </td>
                 </tr>
-              );
-            })}
-            {leadSourceStats.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                  No data available for {selectedYear}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        )}
       </section>
 
-      <section className={`${surfaceClass} p-6`}>
+      <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
         <h3 className="font-semibold text-gray-900 mb-2">Suggested Focus Areas</h3>
         <p className="text-xs text-gray-500 mb-4">
           Practical follow-ups informed by what the data is highlighting this year.
         </p>
-        <ul className="space-y-3 text-sm text-gray-700">
-          {gciGoal > 0 && remainingGciToGoal > 0 && (
-            <li className="leading-relaxed">
-              You need approximately{' '}
-              <span className="font-semibold">
-                {formatCurrency(remainingGciToGoal)}
-              </span>{' '}
-              more GCI to hit your annual goal.
-              {neededPerMonth > 0 && (
-                <>
-                  {' '}
-                  That&apos;s about{' '}
-                  <span className="font-semibold">
-                    {formatCurrency(neededPerMonth)} per month
-                  </span>{' '}
-                  for the rest of the year.
-                </>
-              )}
-            </li>
-          )}
-
-          {topLeadSource && (
-            <li className="leading-relaxed">
-              <span className="font-semibold">{topLeadSource.name}</span> continues to be your most
-              profitable channel with{' '}
-              <span className="font-semibold">
-                {formatCurrency(topLeadSource.totalCommission)}
-              </span>{' '}
-              in GCI. Consider increasing budget or nurture time here.
-            </li>
-          )}
-
-          {underperformingSource && (
-            <li className="leading-relaxed">
-              <span className="font-semibold">{underperformingSource.name}</span> is converting at{' '}
-              {underperformingSource.conversionRate.toFixed(1)}%. Revisit the script or pause the
-              spend until it improves.
-            </li>
-          )}
-
-          {yearlyStats.avgDaysToClose > 0 && (
-            <li className="leading-relaxed">
-              Average time from lead to close is{' '}
-              <span className="font-semibold">
-                {yearlyStats.avgDaysToClose.toFixed(0)} days
-              </span>
-              . Tighten follow-up cadences or pre-qualification steps to reduce the cycle.
-            </li>
-          )}
-
-          {(!topLeadSource || !underperformingSource) &&
-            yearlyStats.closedDeals === 0 && (
+        {isInitialLoading ? (
+          <ListSkeleton lines={4} />
+        ) : (
+          <>
+            {insights.length > 0 && (
+              <div className="mb-4 rounded-xl border border-gray-100/80 bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Insights</p>
+                <ul className="mt-3 space-y-2 text-sm text-gray-700">
+                  {insights.map((item, index) => (
+                    <li key={`insight-${index}`} className="leading-relaxed">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <ul className="space-y-3 text-sm text-gray-700">
+            {gciGoal > 0 && remainingGciToGoal > 0 && (
               <li className="leading-relaxed">
-                Add a few deals to the pipeline this year to unlock richer insight. Once production
-                starts, this dashboard will reveal which channels earn the most.
+                You need approximately{' '}
+                <span className="font-semibold">
+                  {formatCurrency(remainingGciToGoal)}
+                </span>{' '}
+                more GCI to hit your annual goal.
+                {neededMonthlyGciToHitGoal > 0 && (
+                  <>
+                    {' '}
+                    That&apos;s about{' '}
+                    <span className="font-semibold">
+                      {formatCurrency(neededMonthlyGciToHitGoal)} per month
+                    </span>{' '}
+                    including this month.
+                  </>
+                )}
               </li>
             )}
-        </ul>
+
+            {topLeadSource && (
+              <li className="leading-relaxed">
+                <span className="font-semibold">{topLeadSource.name}</span> continues to be your most
+                profitable channel with{' '}
+                <span className="font-semibold">
+                  {formatCurrency(topLeadSource.totalCommission)}
+                </span>{' '}
+                in GCI. Consider increasing budget or nurture time here.
+              </li>
+            )}
+
+            {underperformingSource && (
+              <li className="leading-relaxed">
+                <span className="font-semibold">{underperformingSource.name}</span> is converting at{' '}
+                {underperformingSource.conversionRate.toFixed(1)}%. Revisit the script or pause the
+                spend until it improves.
+              </li>
+            )}
+
+            {yearlyStats.avgDaysToClose > 0 && (
+              <li className="leading-relaxed">
+                Average time from lead to close is{' '}
+                <span className="font-semibold">
+                  {yearlyStats.avgDaysToClose.toFixed(0)} days
+                </span>
+                . Tighten follow-up cadences or pre-qualification steps to reduce the cycle.
+              </li>
+            )}
+
+            {(!topLeadSource || !underperformingSource) &&
+              yearlyStats.closedDeals === 0 && (
+                <li className="leading-relaxed">
+                  Add a few deals to the pipeline this year to unlock richer insight. Once production
+                  starts, this dashboard will reveal which channels earn the most.
+                </li>
+              )}
+            </ul>
+          </>
+        )}
       </section>
     </div>
   );

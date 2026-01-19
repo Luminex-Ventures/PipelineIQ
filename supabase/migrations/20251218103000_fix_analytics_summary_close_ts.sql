@@ -1,8 +1,8 @@
 /*
-  # Update analytics summary RPC
+  # Fix analytics summary close_ts handling
 
-  - Fix deal_type filter casting for enum vs text arrays
-  - Return deal_types as text in filter context
+  - Treat close_date as UTC midnight to avoid timezone drift
+  - Keep deal_type filter cast and deal_types as text
 */
 
 create or replace function public.get_analytics_summary(

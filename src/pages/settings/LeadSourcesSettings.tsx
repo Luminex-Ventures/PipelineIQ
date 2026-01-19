@@ -1,24 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search, Tag } from 'lucide-react';
 import { DndContext, DragEndEvent, DragOverlay, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import type { Database } from '../../lib/database.types';
 
 type PayoutStructure = 'standard' | 'partnership';
 
-interface LeadSource {
-  id: string;
-  name: string;
-  category: string | null;
-  sort_order: number;
-  team_id: string | null;
-  brokerage_split_rate: number;
-  payout_structure: PayoutStructure;
-  partnership_split_rate: number | null;
-  partnership_notes: string | null;
-}
+type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
+type LeadSourceInsert = Database['public']['Tables']['lead_sources']['Insert'];
+type LeadSourceUpdate = Database['public']['Tables']['lead_sources']['Update'];
 
 interface LeadSourceFormState {
   name: string;
@@ -54,11 +47,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
   const [typeFilter, setTypeFilter] = useState<'all' | PayoutStructure>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadSources();
-  }, [user?.id, teamId]);
-
-  const loadSources = async () => {
+  const loadSources = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
@@ -70,13 +59,13 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
             .eq('team_id', teamId)
             .order('sort_order', { ascending: true })
             .order('name', { ascending: true })
-        : ({ data: null, error: null } as any);
+        : { data: null, error: null };
 
       if (teamError) throw teamError;
 
       const shouldUseTeam = !!teamSources?.length;
       const { data, error: fetchError } = shouldUseTeam
-        ? ({ data: teamSources, error: null } as any)
+        ? { data: teamSources, error: null }
         : await supabase
             .from('lead_sources')
             .select('*')
@@ -110,8 +99,8 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
         setSources(normalized);
         await Promise.all(
           normalized.map((source, index) =>
-            (supabase
-              .from('lead_sources') as any)
+            supabase
+              .from('lead_sources')
               .update({ sort_order: index + 1 })
               .eq('id', source.id)
           )
@@ -125,7 +114,11 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     } finally {
       setLoading(false);
     }
-  };
+  }, [teamId, user]);
+
+  useEffect(() => {
+    loadSources();
+  }, [loadSources]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,7 +139,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       const brokerageSplit = Number.isNaN(brokerageSplitRaw) ? 0 : brokerageSplitRaw;
       const partnershipSplitRaw = formData.partnership_split_rate ?? 0;
       const partnershipSplit = Number.isNaN(partnershipSplitRaw) ? 0 : partnershipSplitRaw;
-      const payload = {
+      const payload: LeadSourceUpdate = {
         name: formData.name,
         team_id: teamId,
         brokerage_split_rate: brokerageSplit / 100,
@@ -157,21 +150,22 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       };
 
       if (editingSource) {
-        const { error: updateError } = await (supabase
-          .from('lead_sources') as any)
+        const { error: updateError } = await supabase
+          .from('lead_sources')
           .update(payload)
           .eq('id', editingSource.id);
 
         if (updateError) throw updateError;
       } else {
         const maxSort = sources.reduce((max, src) => Math.max(max, src.sort_order ?? 0), 0);
-        const { error: insertError } = await (supabase
-          .from('lead_sources') as any)
-          .insert({
-            user_id: user.id,
-            sort_order: maxSort + 1,
-            ...payload
-          });
+        const insertPayload: LeadSourceInsert = {
+          user_id: user.id,
+          sort_order: maxSort + 1,
+          ...payload
+        };
+        const { error: insertError } = await supabase
+          .from('lead_sources')
+          .insert(insertPayload);
 
         if (insertError) throw insertError;
       }
@@ -289,8 +283,8 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       if (updates.length > 0) {
         await Promise.all(
           updates.map((source) =>
-            (supabase
-              .from('lead_sources') as any)
+            supabase
+              .from('lead_sources')
               .update({ sort_order: source.sort_order })
               .eq('id', source.id)
           )

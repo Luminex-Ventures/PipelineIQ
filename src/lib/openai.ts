@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -73,7 +74,7 @@ When your answer includes key metrics, extract them into structured data. Return
 Only include the metrics that are relevant to the user's query. If no metrics are needed, don't include the supporting data section.`;
 
     // Build messages array
-    const messages: ChatMessage[] = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...conversationHistory.slice(-6), // Keep last 6 messages for context
       { role: 'user', content: userQuery }
@@ -82,7 +83,7 @@ Only include the metrics that are relevant to the user's query. If no metrics ar
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: messages as any,
+      messages,
       temperature: 0.7,
       max_tokens: 1000,
     });

@@ -22,6 +22,44 @@ interface ConversationContext {
   lastQueryType?: string;
 }
 
+interface UserRoleInfo {
+  userId: string;
+  globalRole: string;
+  teamId: string | null;
+  teamRole?: string | null;
+  workspaceId: string | null;
+}
+
+type SupabaseClient = ReturnType<typeof createClient>;
+
+type DealRow = {
+  id: string;
+  user_id: string;
+  client_name?: string | null;
+  status: string;
+  expected_sale_price?: number | null;
+  actual_sale_price?: number | null;
+  gross_commission_rate?: number | null;
+  brokerage_split_rate?: number | null;
+  referral_out_rate?: number | null;
+  transaction_fee?: number | null;
+  lead_source_id?: string | null;
+  lead_sources?: { name?: string | null } | null;
+  close_date?: string | null;
+  closed_at?: string | null;
+  created_at?: string | null;
+};
+
+type TaskRow = {
+  id: string;
+  title: string;
+  due_date?: string | null;
+  completed?: boolean | null;
+  deals?: { client_name?: string | null } | null;
+};
+
+type SupportingData = Record<string, unknown> | null;
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -70,7 +108,7 @@ Deno.serve(async (req: Request) => {
     const dateRange = extractDateRange(queryLower, context);
 
     let answer = '';
-    let supportingData: any = null;
+    let supportingData: SupportingData = null;
 
     if (queryLower.includes('gci') || queryLower.includes('commission') || queryLower.includes('earnings')) {
       const result = await handleGCIQuery(supabase, visibleUserIds, query, dateRange);
@@ -85,7 +123,7 @@ Deno.serve(async (req: Request) => {
       answer = result.answer;
       supportingData = result.data;
     } else if (queryLower.includes('pipeline') || queryLower.includes('under contract')) {
-      const result = await handlePipelineQuery(supabase, visibleUserIds, query);
+      const result = await handlePipelineQuery(supabase, visibleUserIds);
       answer = result.answer;
       supportingData = result.data;
     } else if (queryLower.includes('task') || queryLower.includes('reminder')) {
@@ -105,7 +143,7 @@ Deno.serve(async (req: Request) => {
       answer = result.answer;
       supportingData = result.data;
     } else if (queryLower.includes('team')) {
-      const result = await handleTeamQuery(supabase, roleInfo, visibleUserIds, query, dateRange);
+      const result = await handleTeamQuery(supabase, roleInfo, visibleUserIds, dateRange);
       answer = result.answer;
       supportingData = result.data;
     } else {
@@ -268,7 +306,7 @@ function extractDateRange(query: string, context: ConversationContext): DateRang
   };
 }
 
-async function getUserRoleInfo(supabase: any, userId: string) {
+async function getUserRoleInfo(supabase: SupabaseClient, userId: string): Promise<UserRoleInfo | null> {
   const { data: settings } = await supabase
     .from('user_settings')
     .select('global_role')
@@ -291,12 +329,12 @@ async function getUserRoleInfo(supabase: any, userId: string) {
   };
 }
 
-async function getVisibleUserIds(supabase: any, roleInfo: any): Promise<string[]> {
+async function getVisibleUserIds(supabase: SupabaseClient, roleInfo: UserRoleInfo): Promise<string[]> {
   if (roleInfo.globalRole === 'admin' || roleInfo.globalRole === 'sales_manager') {
     const { data: allUsers } = await supabase
       .from('user_settings')
       .select('user_id');
-    return allUsers?.map((u: any) => u.user_id) || [];
+    return (allUsers ?? []).map((u: { user_id: string }) => u.user_id);
   }
 
   if (roleInfo.globalRole === 'team_lead' && roleInfo.teamId) {
@@ -304,13 +342,13 @@ async function getVisibleUserIds(supabase: any, roleInfo: any): Promise<string[]
       .from('user_teams')
       .select('user_id')
       .eq('team_id', roleInfo.teamId);
-    return teamMembers?.map((m: any) => m.user_id) || [roleInfo.userId];
+    return (teamMembers ?? []).map((m: { user_id: string }) => m.user_id) || [roleInfo.userId];
   }
 
   return [roleInfo.userId];
 }
 
-async function handleGCIQuery(supabase: any, visibleUserIds: string[], query: string, dateRange: DateRange) {
+async function handleGCIQuery(supabase: SupabaseClient, visibleUserIds: string[], query: string, dateRange: DateRange) {
   const { data: deals } = await supabase
     .from('deals')
     .select('*')
@@ -322,7 +360,7 @@ async function handleGCIQuery(supabase: any, visibleUserIds: string[], query: st
   let totalGCI = 0;
   let dealCount = 0;
 
-  deals?.forEach((deal: any) => {
+  (deals as DealRow[] | null || []).forEach((deal) => {
     const salePrice = deal.actual_sale_price || deal.expected_sale_price;
     const grossCommission = salePrice * deal.gross_commission_rate;
     const afterBrokerageSplit = grossCommission * (1 - deal.brokerage_split_rate);
@@ -348,7 +386,7 @@ async function handleGCIQuery(supabase: any, visibleUserIds: string[], query: st
   };
 }
 
-async function handleDealsQuery(supabase: any, visibleUserIds: string[], query: string, dateRange: DateRange) {
+async function handleDealsQuery(supabase: SupabaseClient, visibleUserIds: string[], query: string, dateRange: DateRange) {
   const { data: deals } = await supabase
     .from('deals')
     .select('*, lead_sources(name)')
@@ -356,8 +394,8 @@ async function handleDealsQuery(supabase: any, visibleUserIds: string[], query: 
     .gte('created_at', dateRange.start)
     .lte('created_at', dateRange.end);
 
-  const closedDeals = deals?.filter((d: any) => d.status === 'closed') || [];
-  const activeDeals = deals?.filter((d: any) => d.status !== 'closed' && d.status !== 'dead') || [];
+  const closedDeals = ((deals as DealRow[] | null) ?? []).filter((d) => d.status === 'closed');
+  const activeDeals = ((deals as DealRow[] | null) ?? []).filter((d) => d.status !== 'closed' && d.status !== 'dead');
 
   const answer = `For ${dateRange.label}, you have ${closedDeals.length} closed deal${closedDeals.length !== 1 ? 's' : ''} and ${activeDeals.length} active deal${activeDeals.length !== 1 ? 's' : ''} in your pipeline.`;
 
@@ -372,7 +410,7 @@ async function handleDealsQuery(supabase: any, visibleUserIds: string[], query: 
   };
 }
 
-async function handleLeadSourceQuery(supabase: any, visibleUserIds: string[], query: string, dateRange: DateRange) {
+async function handleLeadSourceQuery(supabase: SupabaseClient, visibleUserIds: string[], query: string, dateRange: DateRange) {
   const { data: deals } = await supabase
     .from('deals')
     .select('*, lead_sources(name)')
@@ -383,7 +421,7 @@ async function handleLeadSourceQuery(supabase: any, visibleUserIds: string[], qu
 
   const sourceStats: { [key: string]: { count: number; gci: number } } = {};
 
-  deals?.forEach((deal: any) => {
+  ((deals as DealRow[] | null) ?? []).forEach((deal) => {
     const sourceName = deal.lead_sources?.name || 'Unknown';
     const salePrice = deal.actual_sale_price || deal.expected_sale_price;
     const grossCommission = salePrice * deal.gross_commission_rate;
@@ -426,7 +464,7 @@ async function handleLeadSourceQuery(supabase: any, visibleUserIds: string[], qu
   };
 }
 
-async function handlePipelineQuery(supabase: any, visibleUserIds: string[], query: string) {
+async function handlePipelineQuery(supabase: SupabaseClient, visibleUserIds: string[]) {
   const { data: deals } = await supabase
     .from('deals')
     .select('*')
@@ -434,8 +472,8 @@ async function handlePipelineQuery(supabase: any, visibleUserIds: string[], quer
     .neq('status', 'closed')
     .neq('status', 'dead');
 
-  const newDeals = deals?.filter((d: any) => d.status === 'new') || [];
-  const inProgress = deals?.filter((d: any) => d.status === 'in_progress') || [];
+  const newDeals = ((deals as DealRow[] | null) ?? []).filter((d) => d.status === 'new');
+  const inProgress = ((deals as DealRow[] | null) ?? []).filter((d) => d.status === 'in_progress');
 
   let answer = `Pipeline Summary:\n\n`;
   answer += `• ${newDeals.length} new deal${newDeals.length !== 1 ? 's' : ''}\n`;
@@ -452,7 +490,7 @@ async function handlePipelineQuery(supabase: any, visibleUserIds: string[], quer
   };
 }
 
-async function handleTeamQuery(supabase: any, roleInfo: any, visibleUserIds: string[], query: string, dateRange: DateRange) {
+async function handleTeamQuery(supabase: SupabaseClient, roleInfo: UserRoleInfo, visibleUserIds: string[], dateRange: DateRange) {
   if (roleInfo.globalRole === 'agent' && roleInfo.teamRole !== 'team_lead') {
     return {
       answer: "You don't have access to team analytics. This feature is available for Team Leads, Sales Managers, and Admins.",
@@ -470,7 +508,7 @@ async function handleTeamQuery(supabase: any, roleInfo: any, visibleUserIds: str
 
   const userStats: { [key: string]: { deals: number; gci: number } } = {};
 
-  deals?.forEach((deal: any) => {
+  ((deals as DealRow[] | null) ?? []).forEach((deal) => {
     const salePrice = deal.actual_sale_price || deal.expected_sale_price;
     const grossCommission = salePrice * deal.gross_commission_rate;
     const afterBrokerageSplit = grossCommission * (1 - deal.brokerage_split_rate);
@@ -505,7 +543,7 @@ async function handleTeamQuery(supabase: any, roleInfo: any, visibleUserIds: str
   };
 }
 
-async function handleTaskQuery(supabase: any, visibleUserIds: string[]) {
+async function handleTaskQuery(supabase: SupabaseClient, visibleUserIds: string[]) {
   const { data: tasks } = await supabase
     .from('tasks')
     .select('id, title, due_date, deals(client_name, status)')
@@ -521,7 +559,7 @@ async function handleTaskQuery(supabase: any, visibleUserIds: string[]) {
   let dueToday = 0;
   let upcoming = 0;
 
-  (tasks || []).forEach((task: any) => {
+  ((tasks as TaskRow[] | null) ?? []).forEach((task) => {
     if (!task.due_date) {
       upcoming += 1;
       return;
@@ -552,7 +590,7 @@ async function handleTaskQuery(supabase: any, visibleUserIds: string[]) {
       overdue,
       due_today: dueToday,
       upcoming,
-      next_tasks: (tasks || []).map((task: any) => ({
+      next_tasks: ((tasks as TaskRow[] | null) ?? []).map((task) => ({
         title: task.title,
         due_date: task.due_date,
         client: task.deals?.client_name || null,
@@ -562,7 +600,7 @@ async function handleTaskQuery(supabase: any, visibleUserIds: string[]) {
   };
 }
 
-async function handleDealStatusQuery(supabase: any, visibleUserIds: string[], query: string) {
+async function handleDealStatusQuery(supabase: SupabaseClient, visibleUserIds: string[], query: string) {
   const clientName = extractClientName(query);
   if (!clientName) {
     return {
@@ -603,7 +641,7 @@ async function handleDealStatusQuery(supabase: any, visibleUserIds: string[], qu
 }
 
 async function handleTopDealQuery(
-  supabase: any,
+  supabase: SupabaseClient,
   visibleUserIds: string[],
   query: string,
   dateRange: DateRange,
@@ -639,7 +677,7 @@ async function handleTopDealQuery(
   }
 
   const sorted = deals
-    .map((deal: any) => ({ deal, value: getDealValue(deal) }))
+    .map((deal: DealRow) => ({ deal, value: getDealValue(deal) }))
     .filter(entry => entry.value > 0)
     .sort((a, b) => mode === 'highest' ? b.value - a.value : a.value - b.value);
 
@@ -674,7 +712,7 @@ function extractClientName(query: string) {
   return match[1].trim();
 }
 
-function getDealValue(deal: any) {
+function getDealValue(deal: DealRow) {
   return Number(deal.actual_sale_price || deal.expected_sale_price || 0);
 }
 

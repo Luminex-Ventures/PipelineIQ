@@ -1,8 +1,7 @@
 /*
-  # Update analytics summary RPC
+  # Update analytics summary funnel
 
-  - Fix deal_type filter casting for enum vs text arrays
-  - Return deal_types as text in filter context
+  - Compute true stage transitions using deal_stage_events
 */
 
 create or replace function public.get_analytics_summary(
@@ -217,6 +216,41 @@ begin
       and close_ts >= month_start
       and close_ts < month_end
   ),
+  event_deals as (
+    select e.deal_id, e.to_stage, e.changed_at
+    from public.deal_stage_events e
+    join filtered_deals d on d.id = e.deal_id
+  ),
+  lead_entries as (
+    select deal_id, min(changed_at) as entered_at
+    from event_deals
+    where to_stage = 'new'
+      and changed_at >= start_ts
+      and changed_at < end_ts
+    group by deal_id
+  ),
+  lead_advances as (
+    select count(distinct e.deal_id) as advanced
+    from event_deals e
+    join lead_entries le on le.deal_id = e.deal_id
+    where e.to_stage = 'in_progress'
+      and e.changed_at > le.entered_at
+  ),
+  progress_entries as (
+    select deal_id, min(changed_at) as entered_at
+    from event_deals
+    where to_stage = 'in_progress'
+      and changed_at >= start_ts
+      and changed_at < end_ts
+    group by deal_id
+  ),
+  progress_advances as (
+    select count(distinct e.deal_id) as advanced
+    from event_deals e
+    join progress_entries pe on pe.deal_id = e.deal_id
+    where e.to_stage = 'closed'
+      and e.changed_at > pe.entered_at
+  ),
   funnel as (
     select jsonb_agg(
       jsonb_build_object(
@@ -230,36 +264,12 @@ begin
     ) as data
     from (
       select 1 as ord, 'lead' as from_stage, 'in_progress' as to_stage,
-        count(*) filter (where stage_order >= 1) as entered,
-        count(*) filter (where stage_order >= 2 and stage_order <> 4) as advanced
-      from (
-        select
-          case
-            when status = 'closed' then 3
-            when status = 'dead' then 4
-            when status in ('new', 'new_lead') then 1
-            else 2
-          end as stage_order
-        from filtered_deals
-        where created_ts >= start_ts
-          and created_ts < end_ts
-      ) s
+        (select count(*) from lead_entries) as entered,
+        (select advanced from lead_advances) as advanced
       union all
       select 2 as ord, 'in_progress' as from_stage, 'closed_won' as to_stage,
-        count(*) filter (where stage_order >= 2) as entered,
-        count(*) filter (where stage_order >= 3 and stage_order <> 4) as advanced
-      from (
-        select
-          case
-            when status = 'closed' then 3
-            when status = 'dead' then 4
-            when status in ('new', 'new_lead') then 1
-            else 2
-          end as stage_order
-        from filtered_deals
-        where created_ts >= start_ts
-          and created_ts < end_ts
-      ) s2
+        (select count(*) from progress_entries) as entered,
+        (select advanced from progress_advances) as advanced
     ) t
   ),
   filter_context as (

@@ -1,19 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Trash2, Edit2, Loader2, MessageSquare } from 'lucide-react';
+import type { Database } from '../lib/database.types';
 
-interface Note {
-  id: string;
-  deal_id: string;
-  user_id: string;
-  content: string;
-  task_id: string | null;
-  created_at: string;
-  updated_at: string;
+type DealNote = Database['public']['Tables']['deal_notes']['Row'];
+type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
+type DealNoteUpdate = Database['public']['Tables']['deal_notes']['Update'];
+
+type Note = DealNote & {
   user_email?: string;
   user_name?: string;
-}
+};
 
 interface DealNotesProps {
   dealId: string;
@@ -30,11 +28,7 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
   const [showAddForm, setShowAddForm] = useState(false);
   const [noteContent, setNoteContent] = useState('');
 
-  useEffect(() => {
-    loadNotes();
-  }, [dealId, taskId, user?.id]); // reload when context changes
-
-  const loadNotes = async () => {
+  const loadNotes = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('deal_notes')
@@ -44,9 +38,11 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
 
       if (error) throw error;
 
-      const scoped = taskId ? (data || []).filter((note: any) => note.task_id === taskId) : data || [];
+      const scoped = taskId
+        ? (data ?? []).filter((note) => note.task_id === taskId)
+        : data ?? [];
 
-      const notesWithUser = scoped.map((note: any) => ({
+      const notesWithUser: Note[] = scoped.map((note) => ({
         ...note,
         user_email: user?.email,
         user_name: note.user_id === user?.id
@@ -60,7 +56,11 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
     } finally {
       setLoading(false);
     }
-  };
+  }, [dealId, taskId, user?.email, user?.id, user?.user_metadata?.name]);
+
+  useEffect(() => {
+    loadNotes();
+  }, [loadNotes]);
 
   const handleSaveNote = async () => {
     if (!user || !noteContent.trim()) return;
@@ -68,24 +68,26 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
     setSaving(true);
     try {
       if (editingNote) {
-        const { error } = await (supabase
-          .from('deal_notes') as any)
-          .update({
-            content: noteContent,
-            updated_at: new Date().toISOString()
-          })
+        const payload: DealNoteUpdate = {
+          content: noteContent,
+          updated_at: new Date().toISOString()
+        };
+        const { error } = await supabase
+          .from('deal_notes')
+          .update(payload)
           .eq('id', editingNote.id);
 
         if (error) throw error;
       } else {
-        const { error } = await (supabase
-          .from('deal_notes') as any)
-          .insert({
-            deal_id: dealId,
-            user_id: user.id,
-            content: noteContent,
-            task_id: taskId || null
-          });
+        const payload: DealNoteInsert = {
+          deal_id: dealId,
+          user_id: user.id,
+          content: noteContent,
+          task_id: taskId || null
+        };
+        const { error } = await supabase
+          .from('deal_notes')
+          .insert(payload);
 
         if (error) throw error;
       }

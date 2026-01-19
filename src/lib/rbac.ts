@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { GlobalRole } from './database.types';
+import type { Database, GlobalRole } from './database.types';
 
 export interface UserRoleInfo {
   userId: string;
@@ -9,6 +9,9 @@ export interface UserRoleInfo {
   workspaceId: string | null;
   isActive: boolean;
 }
+
+type UserSettingsRow = Database['public']['Tables']['user_settings']['Row'];
+type UserTeamRow = Database['public']['Tables']['user_teams']['Row'];
 
 export async function getUserRoleInfo(userId: string): Promise<UserRoleInfo | null> {
   const { data: settings } = await supabase
@@ -25,13 +28,16 @@ export async function getUserRoleInfo(userId: string): Promise<UserRoleInfo | nu
 
   if (!settings) return null;
 
+  const settingsRow = settings as UserSettingsRow;
+  const teamRow = teamData as UserTeamRow | null;
+
   return {
     userId,
-    globalRole: (settings as any).global_role,
-    teamId: (teamData as any)?.team_id || null,
-    teamRole: (teamData as any)?.role || null,
-    workspaceId: (settings as any).workspace_id || null,
-    isActive: (settings as any).is_active ?? true
+    globalRole: settingsRow.global_role,
+    teamId: teamRow?.team_id || null,
+    teamRole: teamRow?.role || null,
+    workspaceId: settingsRow.workspace_id || null,
+    isActive: settingsRow.is_active ?? true
   };
 }
 
@@ -46,7 +52,9 @@ export async function getVisibleUserIds(roleInfo: UserRoleInfo): Promise<string[
   // Fallback: admins/managers try direct user_settings; otherwise self
   if (roleInfo.globalRole === 'admin' || roleInfo.globalRole === 'sales_manager') {
     const { data: allUsers } = await supabase.from('user_settings').select('user_id');
-    const ids = (allUsers as any)?.map((u: any) => u.user_id).filter(Boolean);
+    const ids = (allUsers ?? [])
+      .map((u: { user_id: string | null }) => u.user_id)
+      .filter((id): id is string => Boolean(id));
     if (ids && ids.length) return ids;
   }
 

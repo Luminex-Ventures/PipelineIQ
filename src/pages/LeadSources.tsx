@@ -1,20 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
+import type { Database } from '../lib/database.types';
 
 type PayoutStructure = 'standard' | 'partnership';
 
-interface LeadSource {
-  id: string;
-  team_id: string | null;
-  name: string;
-  category: string | null;
-  brokerage_split_rate: number;
-  payout_structure: PayoutStructure;
-  partnership_split_rate: number | null;
-  partnership_notes: string | null;
-}
+type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
+type LeadSourceInsert = Database['public']['Tables']['lead_sources']['Insert'];
+type LeadSourceUpdate = Database['public']['Tables']['lead_sources']['Update'];
 
 interface LeadSourceFormState {
   name: string;
@@ -43,11 +37,7 @@ export default function LeadSources() {
   const [editingSource, setEditingSource] = useState<LeadSource | null>(null);
   const [formData, setFormData] = useState<LeadSourceFormState>(createDefaultFormState());
 
-  useEffect(() => {
-    loadSources();
-  }, [user?.id, teamId]);
-
-  const loadSources = async () => {
+  const loadSources = useCallback(async () => {
     if (!user) return;
 
     const { data: teamSources, error: teamError } = teamId
@@ -56,7 +46,7 @@ export default function LeadSources() {
           .select('*')
           .eq('team_id', teamId)
           .order('name')
-      : ({ data: null, error: null } as any);
+      : { data: null, error: null };
 
     if (teamError) {
       setLoading(false);
@@ -64,7 +54,7 @@ export default function LeadSources() {
     }
 
     const { data } = teamSources?.length
-      ? ({ data: teamSources } as any)
+      ? { data: teamSources }
       : await supabase
           .from('lead_sources')
           .select('*')
@@ -73,13 +63,17 @@ export default function LeadSources() {
 
     if (data) setSources(data);
     setLoading(false);
-  };
+  }, [teamId, user]);
+
+  useEffect(() => {
+    loadSources();
+  }, [loadSources]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    const payload = {
+    const payload: LeadSourceUpdate = {
       name: formData.name,
       category: formData.category || null,
       team_id: teamId,
@@ -90,17 +84,18 @@ export default function LeadSources() {
     };
 
     if (editingSource) {
-      await (supabase
-        .from('lead_sources') as any)
+      await supabase
+        .from('lead_sources')
         .update(payload)
         .eq('id', editingSource.id);
     } else {
-      await (supabase
-        .from('lead_sources') as any)
-        .insert({
-          user_id: user.id,
-          ...payload
-        });
+      const insertPayload: LeadSourceInsert = {
+        user_id: user.id,
+        ...payload
+      };
+      await supabase
+        .from('lead_sources')
+        .insert(insertPayload);
     }
 
     setShowModal(false);

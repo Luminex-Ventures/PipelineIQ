@@ -40,7 +40,7 @@ type WorkspaceSectionId =
   | 'workspace.invites';
 
 export default function WorkspaceSettings() {
-  const { user, roleInfo } = useAuth();
+  const { roleInfo } = useAuth();
   const roleLabel = getRoleLabel(roleInfo?.globalRole);
   const canEditWorkspace = isAdmin(roleInfo);
   const canEditTeamScoped = isAdmin(roleInfo) || isSalesManagerOrAdmin(roleInfo) || isTeamLead(roleInfo);
@@ -76,7 +76,7 @@ export default function WorkspaceSettings() {
       });
     }
     return sections;
-  }, [canManageMembers, canInvite]);
+  }, [canManageMembers, canInvite, canEditTeams]);
 
   const renderSection = () => {
     switch (activeSection) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { generateDashboardInsights } from '../lib/openai-insights';
@@ -35,8 +35,11 @@ import {
 } from 'recharts';
 import type { Database } from '../lib/database.types';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
+import { Skeleton } from '../components/ui/Skeleton';
 import { STATUS_LABELS } from '../constants/statusLabels';
 import { getVisibleUserIds } from '../lib/rbac';
+import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
 
 type DealRow = Database['public']['Tables']['deals']['Row'];
 type LeadSourceRow = Database['public']['Tables']['lead_sources']['Row'];
@@ -62,6 +65,12 @@ interface PipelineStatusSummary {
 type Deal = DealRow & {
   // loaded with lead_sources(*) only in lead-source performance query
   lead_sources?: LeadSourceRow | null;
+  pipeline_statuses?: {
+    id: string;
+    name: string;
+    color: string | null;
+    sort_order: number | null;
+  } | null;
 };
 
 interface MonthlyData {
@@ -104,6 +113,15 @@ interface StageOption {
   sortOrder?: number | null;
 }
 
+type DealQuery<T> = PostgrestFilterBuilder<Database['public'], T, T[]>;
+
+type DealContextRow = DealRow & {
+  lead_sources?: { id: string; name: string | null } | null;
+  pipeline_statuses?: { id: string; name: string; color: string | null; sort_order: number | null } | null;
+};
+
+type DashboardLayoutRow = Database['public']['Tables']['dashboard_layouts']['Row'];
+
 // This file uses DB status values, not UI labels
 const OPEN_STATUSES = ['new', 'in_progress'] as const;
 const NON_ACTIVE_STATUSES = ['closed', 'dead'] as const;
@@ -118,6 +136,38 @@ const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   renter: 'Renter',
   landlord: 'Landlord'
 };
+
+const DEAL_BASE_COLUMNS = `
+  id,
+  user_id,
+  status,
+  created_at,
+  close_date,
+  closed_at,
+  stage_entered_at,
+  pipeline_status_id,
+  deal_type,
+  lead_source_id,
+  expected_sale_price,
+  actual_sale_price,
+  gross_commission_rate,
+  brokerage_split_rate,
+  referral_out_rate,
+  transaction_fee,
+  client_name,
+  property_address
+`;
+
+const OPEN_DEALS_SELECT = `
+  ${DEAL_BASE_COLUMNS},
+  pipeline_statuses (id, name, color, sort_order),
+  lead_sources (id, name)
+`;
+
+const CLOSED_DEALS_SELECT = `
+  ${DEAL_BASE_COLUMNS},
+  lead_sources (id, name)
+`;
 
 const INSIGHTS_REFRESH_MS = 30 * 60 * 1000;
 const GREETING_CHECK_INTERVAL_MS = 60 * 1000;
@@ -290,6 +340,7 @@ export default function Dashboard() {
   const [lastInsightsUpdatedAt, setLastInsightsUpdatedAt] = useState<number>(0);
   const [greetingText, setGreetingText] = useState<string>('');
   const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const requestIdRef = useRef(0);
   const [dealTypeStats, setDealTypeStats] = useState<DealTypeBreakdown[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGETS]);
   const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
@@ -329,7 +380,7 @@ export default function Dashboard() {
 
       const resolveTeamUserIds = async () => {
         if (!roleInfo?.teamId) return [] as string[];
-        const { data, error } = await supabase
+      const { data, error } = await supabase
           .from('user_teams')
           .select('user_id')
           .eq('team_id', roleInfo.teamId);
@@ -337,7 +388,7 @@ export default function Dashboard() {
           console.error('Unable to load team members', error);
           return [];
         }
-        return (data || []).map((member: any) => member.user_id);
+        return (data || []).map((member: { user_id: string }) => member.user_id);
       };
 
       const resolveVisibleAgentIds = async () => {
@@ -431,7 +482,7 @@ export default function Dashboard() {
     };
 
     bootstrapAgents();
-  }, [user, roleInfo?.globalRole, roleInfo?.teamId]);
+  }, [user, roleInfo, roleInfo?.globalRole, roleInfo?.teamId]);
 
   // Derived metrics (memoized)
   const agentScopeKey = useMemo(
@@ -566,32 +617,95 @@ export default function Dashboard() {
     setSelectedAgentIds([]);
   };
 
-  const handleAgentSelectionChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setSelectedAgentIds(values);
-  };
-
   useEffect(() => {
     if (!availableDealTypes.length) return;
     setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
   }, [availableDealTypes]);
 
-  const handlePipelineFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setSelectedPipelineStages(values);
-  };
+  const agentOptions = useMemo(
+    () =>
+      availableAgents.map((agent) => ({
+        value: agent.id,
+        label: agent.label,
+        subLabel: agent.email || undefined
+      })),
+    [availableAgents]
+  );
+  const stageOptions = useMemo(
+    () =>
+      availableStages.map((stage) => ({
+        value: stage.id,
+        label: stage.label
+      })),
+    [availableStages]
+  );
+  const leadSourceOptions = useMemo(
+    () =>
+      availableLeadSources.map((source) => ({
+        value: source.id,
+        label: source.name
+      })),
+    [availableLeadSources]
+  );
+  const dealTypeOptions = useMemo(
+    () =>
+      availableDealTypes.map((dealType) => ({
+        value: dealType,
+        label: DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')
+      })),
+    [availableDealTypes]
+  );
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
 
-  const handleLeadSourceFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setSelectedLeadSources(values);
-  };
+    if (selectedAgentIds.length > 0) {
+      const agentLabel =
+        selectedAgentIds.length === 1
+          ? `Agent: ${
+              availableAgents.find((agent) => agent.id === selectedAgentIds[0])?.label || 'Agent'
+            }`
+          : `Agents: ${selectedAgentIds.length}`;
+      chips.push({ key: 'agents', label: agentLabel, onRemove: () => setSelectedAgentIds([]) });
+    }
 
-  const handleDealTypeFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const values = Array.from(event.target.selectedOptions).map(
-      (option) => option.value as DealRow['deal_type']
-    );
-    setSelectedDealTypes(values);
-  };
+    if (selectedPipelineStages.length > 0) {
+      const stageLabel =
+        selectedPipelineStages.length === 1
+          ? `Stage: ${
+              availableStages.find((stage) => stage.id === selectedPipelineStages[0])?.label || 'Stage'
+            }`
+          : `Stages: ${selectedPipelineStages.length}`;
+      chips.push({ key: 'stages', label: stageLabel, onRemove: () => setSelectedPipelineStages([]) });
+    }
+
+    if (selectedDealTypes.length > 0) {
+      const typeLabel =
+        selectedDealTypes.length === 1
+          ? `Type: ${DEAL_TYPE_LABELS[selectedDealTypes[0]] ?? selectedDealTypes[0]}`
+          : `Types: ${selectedDealTypes.length}`;
+      chips.push({ key: 'types', label: typeLabel, onRemove: () => setSelectedDealTypes([]) });
+    }
+
+    if (selectedLeadSources.length > 0) {
+      const sourceLabel =
+        selectedLeadSources.length === 1
+          ? `Source: ${
+              availableLeadSources.find((source) => source.id === selectedLeadSources[0])?.name || 'Source'
+            }`
+          : `Sources: ${selectedLeadSources.length}`;
+      chips.push({ key: 'sources', label: sourceLabel, onRemove: () => setSelectedLeadSources([]) });
+    }
+
+    return chips;
+  }, [
+    availableAgents,
+    availableLeadSources,
+    availableStages,
+    selectedAgentIds,
+    selectedDealTypes,
+    selectedLeadSources,
+    selectedPipelineStages,
+  ]);
   const canShowFilterPanel = (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
 
   const totalActiveDeals = useMemo(
@@ -692,7 +806,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.user_metadata?.name]);
 
-  const withUserScope = (query: any, userIds: string[]) => {
+  const withUserScope = <T,>(query: DealQuery<T>, userIds: string[]) => {
     if (!userIds.length) {
       return query;
     }
@@ -704,7 +818,7 @@ export default function Dashboard() {
     return query.in('user_id', userIds);
   };
 
-  const applyDealFilters = (query: any, userIds: string[]) => {
+  const applyDealFilters = <T,>(query: DealQuery<T>, userIds: string[]) => {
     query = withUserScope(query, userIds);
 
     if (selectedLeadSources.length) {
@@ -755,7 +869,7 @@ export default function Dashboard() {
     const stageMap = new Map<string, StageOption>();
     const dealTypeSet = new Set<DealRow['deal_type']>();
 
-    (data || []).forEach((deal: any) => {
+    (data as DealContextRow[] | null || []).forEach((deal) => {
       if (deal.lead_sources?.id) {
         leadMap.set(deal.lead_sources.id, {
           id: deal.lead_sources.id,
@@ -796,149 +910,22 @@ export default function Dashboard() {
     setAvailableDealTypes(sortedDealTypes.length ? sortedDealTypes : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]));
   };
 
-  const loadDashboardData = async () => {
-    if (!user) return;
-    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
-    if (!ids.length) return;
-
-    const isInitialLoad = loading;
-    if (isInitialLoad) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
-
-    const startDate = range.start.toISOString();
-    const endDate = range.end.toISOString();
-
-    try {
-      await Promise.all([
-        loadStats(ids, startDate, endDate),
-        loadPipelineHealth(ids),
-        loadMonthlyTrends(ids),
-        loadLeadSourcePerformance(ids, startDate, endDate),
-        loadUpcomingDeals(ids),
-        loadStalledDeals(ids)
-      ]);
-    } catch (err) {
-      console.error('Error loading dashboard data', err);
-    } finally {
-      if (isInitialLoad) {
-        setLoading(false);
-      }
-      setRefreshing(false);
-    }
-  };
-
-  const loadAIInsights = async () => {
-    if (insightsLockedRef.current) return;
-
-    if (!user) return;
-
-    setInsightsLoading(true);
-
-    try {
-      const statsPayload = {
-        ...stats,
-        // backward compatibility for downstream consumers expecting the old field name
-        closingThisMonth: stats.closingNext7Days
-      };
-
-      const insights = await generateDashboardInsights({
-        stats: statsPayload,
-        pipelineHealth: pipelineHealth.map(p => ({
-          id: p.id,
-          name: p.name,
-          count: p.count,
-          expectedGCI: p.expectedGCI,
-          stalledCount: p.stalledCount
-        })),
-        leadSourceData,
-        monthlyData,
-        upcomingDealsCount: upcomingDeals.length,
-        projectedGCI
-      });
-
-      setAiInsights(insights);
-      if (!lockedAiInsights && insights.length) {
-        setLockedAiInsights(insights);
-        insightsLockedRef.current = true;
-      }
-    } catch (error) {
-      console.error('Error loading AI insights:', error);
-    } finally {
-      setInsightsLoading(false);
-    }
-  };
-
-  const loadStats = async (userIds: string[], startDate: string, endDate: string) => {
-    // Closed deals for this range (based on closed_at) drive GCI and volume
-    const closeDateFilter = buildCloseDateFilter(startDate, endDate);
-
-    let closedQuery = supabase
-      .from('deals')
-      .select('*')
-      .eq('status', 'closed')
-      .or(closeDateFilter);
-    closedQuery = applyDealFilters(closedQuery, userIds);
-
-    const { data: closedDealsData, error: closedError } = await closedQuery;
-
-    if (closedError) {
-      console.error('loadStats closedDeals error', closedError);
-    }
-
-    // All deals created in this range used as "leads" for conversion rate
-    let allDealsQuery = supabase
-      .from('deals')
-      .select('*')
-      .gte('created_at', startDate)
-      .lte('created_at', endDate);
-    allDealsQuery = applyDealFilters(allDealsQuery, userIds);
-
-    const { data: allDeals, error: allDealsError } = await allDealsQuery;
-
-    if (allDealsError) {
-      console.error('loadStats allDeals error', allDealsError);
-    }
-
-    // "Closing soon" uses close_date + active closing statuses within the next 7 days
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfWindow = new Date(startOfToday);
-    endOfWindow.setDate(endOfWindow.getDate() + 6);
-    endOfWindow.setHours(23, 59, 59, 999);
-
-    let closingQuery = supabase
-      .from('deals')
-      .select('id')
-      .in('status', OPEN_STATUSES)
-      .gte('close_date', startOfToday.toISOString())
-      .lte('close_date', endOfWindow.toISOString());
-    closingQuery = applyDealFilters(closingQuery, userIds);
-
-    const { data: closingSoon, error: ctError } = await closingQuery;
-
-    if (ctError) {
-      console.error('loadStats closingSoon error', ctError);
-    }
-
+  const deriveStats = (
+    closedDeals: Deal[],
+    totalLeads: number,
+    closingNext7Days: number
+  ) => {
     let totalVolume = 0;
     let totalGCI = 0;
 
-    const filteredClosedDeals = (closedDealsData || []).filter((deal) =>
-      isDealClosedWithinRange(deal, range.start, range.end)
-    );
-
-    filteredClosedDeals.forEach((deal: any) => {
+    closedDeals.forEach((deal) => {
       const salePrice = deal.actual_sale_price || 0;
       totalVolume += salePrice;
       totalGCI += calculateGCI(deal);
     });
 
-    const ytdDeals = filteredClosedDeals.length;
+    const ytdDeals = closedDeals.length;
     const avgCommission = ytdDeals > 0 ? totalGCI / ytdDeals : 0;
-    const totalLeads = allDeals?.length || 0;
     const conversionRate = totalLeads > 0 ? ytdDeals / totalLeads : 0;
 
     setStats({
@@ -946,36 +933,71 @@ export default function Dashboard() {
       ytdDeals,
       ytdVolume: totalVolume,
       avgCommission,
-      closingNext7Days: closingSoon?.length || 0,
+      closingNext7Days,
       conversionRate
     });
   };
 
-  const loadPipelineHealth = async (userIds: string[]) => {
-    let dealsQuery = supabase
-      .from('deals')
-      .select(`
-        *,
-        pipeline_statuses (id, name, color, sort_order),
-        lead_sources (id, name)
-      `)
-      .not('status', 'in', `(${NON_ACTIVE_STATUSES.join(',')})`);
+  const deriveMonthlyData = (closedDeals: Deal[]) => {
+    const currentYear = range?.start ? range.start.getFullYear() : CURRENT_YEAR;
 
-    dealsQuery = applyDealFilters(dealsQuery, userIds);
+    const buckets = MONTH_LABELS.map((month) => ({
+      month,
+      gci: 0,
+      deals: 0
+    }));
 
-    const { data: deals, error: dealsError } = await dealsQuery;
+    closedDeals.forEach((deal) => {
+      const closedParts = parseDateValue(deal.close_date) || parseDateValue(deal.closed_at);
+      if (!closedParts || closedParts.year !== currentYear) return;
+      const bucket = buckets[closedParts.month];
+      bucket.gci += calculateGCI(deal);
+      bucket.deals += 1;
+    });
 
-    if (dealsError) {
-      console.error('loadPipelineHealth deals error', dealsError);
-      return;
-    }
+    setMonthlyData(
+      buckets.map((bucket) => ({
+        month: bucket.month,
+        gci: Math.round(bucket.gci),
+        deals: bucket.deals
+      }))
+    );
+  };
 
-    if (!deals) {
-      setPipelineHealth([]);
-      setDealTypeStats([]);
-      return;
-    }
+  const deriveLeadSourceData = (closedDeals: Deal[]) => {
+    const sourceMap = new Map<string, { deals: number; gci: number }>();
 
+    closedDeals.forEach((deal) => {
+      const sourceName = deal.lead_sources?.name || 'Unknown';
+      const current = sourceMap.get(sourceName) || { deals: 0, gci: 0 };
+      current.deals += 1;
+      current.gci += calculateGCI(deal);
+      sourceMap.set(sourceName, current);
+    });
+
+    const result: LeadSourcePerformance[] = Array.from(sourceMap.entries())
+      .map(([name, values]) => ({
+        name,
+        deals: values.deals,
+        gci: Math.round(values.gci)
+      }))
+      .sort((a, b) => b.gci - a.gci)
+      .slice(0, 5);
+
+    setLeadSourceData(result);
+  };
+
+  const deriveUpcomingDeals = (activeDeals: Deal[]) => {
+    const upcoming = activeDeals.filter((deal) => OPEN_STATUSES.includes(deal.status as typeof OPEN_STATUSES[number]));
+    setUpcomingDeals(upcoming);
+  };
+
+  const deriveStalledDeals = (activeDeals: Deal[]) => {
+    const stalled = activeDeals.filter((deal) => isStalled(deal.stage_entered_at, 30)).slice(0, 5);
+    setStalledDeals(stalled);
+  };
+
+  const derivePipelineHealth = (activeDeals: Deal[]) => {
     type StageAccumulator = {
       id: string;
       name: string;
@@ -988,9 +1010,12 @@ export default function Dashboard() {
 
     const stageMap = new Map<string, StageAccumulator>();
 
-    deals.forEach((deal: any) => {
+    activeDeals.forEach((deal) => {
       const stageId = deal.pipeline_statuses?.id || deal.pipeline_status_id || `status:${deal.status}`;
-      const stageName = deal.pipeline_statuses?.name || STATUS_LABELS[deal.status as keyof typeof STATUS_LABELS] || deal.status;
+      const stageName =
+        deal.pipeline_statuses?.name ||
+        STATUS_LABELS[deal.status as keyof typeof STATUS_LABELS] ||
+        deal.status;
       const stageColor = deal.pipeline_statuses?.color || null;
       const sortOrder = deal.pipeline_statuses?.sort_order ?? null;
       const existing = stageMap.get(stageId) || {
@@ -1035,16 +1060,20 @@ export default function Dashboard() {
       { count: number; gci: number; statusCounts: Record<DealRow['status'], number> }
     >();
 
-    deals.forEach((deal: any) => {
-      const existing = typeMap.get(deal.deal_type) ?? { count: 0, gci: 0, statusCounts: {} as any };
+    activeDeals.forEach((deal) => {
+      const existing = typeMap.get(deal.deal_type) ?? {
+        count: 0,
+        gci: 0,
+        statusCounts: {} as Record<DealRow['status'], number>
+      };
       existing.count += 1;
       existing.gci += calculateGCI(deal);
       const statusCount = existing.statusCounts[deal.status] || 0;
       existing.statusCounts[deal.status] = statusCount + 1;
-      typeMap.set(deal.deal_type, existing as any);
+      typeMap.set(deal.deal_type, existing);
     });
 
-    const totalDeals = deals.length;
+    const totalDeals = activeDeals.length;
     const breakdown = Array.from(typeMap.entries())
       .map(([dealType, data]) => ({
         dealType,
@@ -1058,144 +1087,146 @@ export default function Dashboard() {
     setDealTypeStats(breakdown);
   };
 
-  const loadMonthlyTrends = async (userIds: string[]) => {
-    const currentYear = range?.start ? range.start.getFullYear() : CURRENT_YEAR;
-    const closeDateFilter = buildCloseDateFilter(range.start.toISOString(), range.end.toISOString());
+  const getClosingNext7DaysCount = (activeDeals: Deal[]) => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfWindow = new Date(startOfToday);
+    endOfWindow.setDate(endOfWindow.getDate() + 6);
+    endOfWindow.setHours(23, 59, 59, 999);
 
-    let dealsQuery = supabase
-      .from('deals')
-      .select('*')
-      .eq('status', 'closed')
-      .or(closeDateFilter);
-
-    dealsQuery = applyDealFilters(dealsQuery, userIds);
-
-    const { data: deals, error } = await dealsQuery;
-
-    if (error) {
-      console.error('loadMonthlyTrends error', error);
-      return;
-    }
-
-    if (!deals) {
-      setMonthlyData([]);
-      return;
-    }
-
-    const buckets = MONTH_LABELS.map((month) => ({
-      month,
-      gci: 0,
-      deals: 0
-    }));
-
-    (deals as DealRow[]).forEach((deal) => {
-      const closedParts = parseDateValue(deal.close_date) || parseDateValue(deal.closed_at);
-      if (!closedParts || closedParts.year !== currentYear) return;
-      const monthIndex = closedParts.month;
-      const bucket = buckets[monthIndex];
-      bucket.gci += calculateGCI(deal);
-      bucket.deals += 1;
-    });
-
-    setMonthlyData(
-      buckets.map((bucket) => ({
-        month: bucket.month,
-        gci: Math.round(bucket.gci),
-        deals: bucket.deals
-      }))
-    );
+    return activeDeals.reduce((count, deal) => {
+      if (!OPEN_STATUSES.includes(deal.status as typeof OPEN_STATUSES[number])) return count;
+      const closedParts = parseDateValue(deal.close_date);
+      if (!closedParts) return count;
+      const closeTime = closedParts.date.getTime();
+      if (closeTime >= startOfToday.getTime() && closeTime <= endOfWindow.getTime()) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
   };
 
-  const loadLeadSourcePerformance = async (userIds: string[], startDate: string, endDate: string) => {
+  const loadDashboardData = async () => {
+    if (!user) return;
+    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+    if (!ids.length) return;
+
+    const isInitialLoad = loading;
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+
+    const startDate = range.start.toISOString();
+    const endDate = range.end.toISOString();
     const closeDateFilter = buildCloseDateFilter(startDate, endDate);
+    const requestId = ++requestIdRef.current;
+    let isStale = false;
 
-    let leadSourceQuery = supabase
-      .from('deals')
-      .select('*, lead_sources(*)')
-      .eq('status', 'closed')
-      .or(closeDateFilter);
+    try {
+      const [openResp, closedResp, leadsCountResp] = await Promise.all([
+        applyDealFilters(
+          supabase
+            .from('deals')
+            .select(OPEN_DEALS_SELECT)
+            .not('status', 'in', `(${NON_ACTIVE_STATUSES.join(',')})`)
+            .order('close_date', { ascending: true })
+            .limit(2000),
+          ids
+        ),
+        applyDealFilters(
+          supabase
+            .from('deals')
+            .select(CLOSED_DEALS_SELECT)
+            .eq('status', 'closed')
+            .or(closeDateFilter),
+          ids
+        ),
+        applyDealFilters(
+          supabase
+            .from('deals')
+            .select('id', { count: 'exact', head: true })
+            .gte('created_at', startDate)
+            .lte('created_at', endDate),
+          ids
+        )
+      ]);
 
-    leadSourceQuery = applyDealFilters(leadSourceQuery, userIds);
+      if (requestId !== requestIdRef.current) {
+        isStale = true;
+        return;
+      }
 
-    const { data, error } = await leadSourceQuery;
+      if (openResp.error) console.error('open deals error', openResp.error);
+      if (closedResp.error) console.error('closed deals error', closedResp.error);
+      if (leadsCountResp.error) console.error('leads count error', leadsCountResp.error);
 
-    if (error) {
-      console.error('loadLeadSourcePerformance error', error);
-      return;
+      const activeDeals = (openResp.data ?? []) as Deal[];
+      const closedDealsRaw = (closedResp.data ?? []) as Deal[];
+      const closedDeals = closedDealsRaw.filter((deal) =>
+        isDealClosedWithinRange(deal, range.start, range.end)
+      );
+      const totalLeads = leadsCountResp.count ?? 0;
+
+      derivePipelineHealth(activeDeals);
+      deriveMonthlyData(closedDeals);
+      deriveLeadSourceData(closedDeals);
+      deriveUpcomingDeals(activeDeals);
+      deriveStalledDeals(activeDeals);
+      const closingNext7Days = getClosingNext7DaysCount(activeDeals);
+      deriveStats(closedDeals, totalLeads, closingNext7Days);
+    } catch (err) {
+      console.error('Error loading dashboard data', err);
+    } finally {
+      if (!isStale) {
+        if (isInitialLoad) {
+          setLoading(false);
+        }
+        setRefreshing(false);
+      }
     }
-
-    if (!data) {
-      setLeadSourceData([]);
-      return;
-    }
-
-    const deals = (data as Deal[]).filter((deal) =>
-      isDealClosedWithinRange(deal, range.start, range.end)
-    );
-
-    const sourceMap = new Map<string, { deals: number; gci: number }>();
-
-    deals.forEach(deal => {
-      const sourceName = deal.lead_sources?.name || 'Unknown';
-      const current = sourceMap.get(sourceName) || { deals: 0, gci: 0 };
-      current.deals += 1;
-      current.gci += calculateGCI(deal);
-      sourceMap.set(sourceName, current);
-    });
-
-    const result: LeadSourcePerformance[] = Array.from(sourceMap.entries())
-      .map(([name, values]) => ({
-        name,
-        deals: values.deals,
-        gci: Math.round(values.gci)
-      }))
-      .sort((a, b) => b.gci - a.gci)
-      .slice(0, 5);
-
-    setLeadSourceData(result);
   };
 
-  const loadUpcomingDeals = async (userIds: string[]) => {
-    let upcomingQuery = supabase
-      .from('deals')
-      .select('*')
-      .in('status', OPEN_STATUSES)
-      .order('close_date', { ascending: true })
-      .limit(200);
+  const loadAIInsights = async () => {
+    if (insightsLockedRef.current) return;
 
-    upcomingQuery = applyDealFilters(upcomingQuery, userIds);
+    if (!user) return;
 
-    const { data, error } = await upcomingQuery;
+    setInsightsLoading(true);
 
-    if (error) {
-      console.error('loadUpcomingDeals error', error);
-      setUpcomingDeals([]);
-      return;
+    try {
+      const statsPayload = {
+        ...stats,
+        // backward compatibility for downstream consumers expecting the old field name
+        closingThisMonth: stats.closingNext7Days
+      };
+
+      const insights = await generateDashboardInsights({
+        stats: statsPayload,
+        pipelineHealth: pipelineHealth.map(p => ({
+          id: p.id,
+          name: p.name,
+          count: p.count,
+          expectedGCI: p.expectedGCI,
+          stalledCount: p.stalledCount
+        })),
+        leadSourceData,
+        monthlyData,
+        upcomingDealsCount: upcomingDeals.length,
+        projectedGCI
+      });
+
+      setAiInsights(insights);
+      if (!lockedAiInsights && insights.length) {
+        setLockedAiInsights(insights);
+        insightsLockedRef.current = true;
+      }
+    } catch (error) {
+      console.error('Error loading AI insights:', error);
+    } finally {
+      setInsightsLoading(false);
     }
-
-      setUpcomingDeals((data || []) as Deal[]);
-  };
-
-  const loadStalledDeals = async (userIds: string[]) => {
-    let stalledQuery = supabase
-      .from('deals')
-      .select('*')
-      .neq('status', 'closed')
-      .neq('status', 'dead')
-      .order('stage_entered_at', { ascending: true });
-
-    stalledQuery = applyDealFilters(stalledQuery, userIds);
-
-    const { data, error } = await stalledQuery;
-
-    if (error) {
-      console.error('loadStalledDeals error', error);
-      setStalledDeals([]);
-      return;
-    }
-
-    const stalled = (data || []).filter((d: any) => isStalled(d.stage_entered_at, 30)).slice(0, 5) as Deal[];
-    setStalledDeals(stalled);
   };
 
   // Widget layout functions
@@ -1214,8 +1245,9 @@ export default function Dashboard() {
         return;
       }
 
-      if (data && (data as any).widget_order) {
-        setWidgetOrder(normalizeWidgetOrder((data as any).widget_order as string[]));
+      const layout = data as DashboardLayoutRow | null;
+      if (layout?.widget_order) {
+        setWidgetOrder(normalizeWidgetOrder(layout.widget_order as string[]));
       } else {
         setWidgetOrder([...DEFAULT_WIDGETS]);
       }
@@ -1228,13 +1260,15 @@ export default function Dashboard() {
     if (!user) return;
 
     try {
+      const payload: Database['public']['Tables']['dashboard_layouts']['Insert'] = {
+        user_id: user.id,
+        widget_order: order,
+        updated_at: new Date().toISOString()
+      };
+
       const { error } = await supabase
         .from('dashboard_layouts')
-        .upsert({
-          user_id: user.id,
-          widget_order: order,
-          updated_at: new Date().toISOString()
-        } as any, {
+        .upsert(payload, {
           onConflict: 'user_id'
         });
 
@@ -1629,7 +1663,7 @@ export default function Dashboard() {
                   tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
                 />
                 <Tooltip
-                  formatter={(value: any) => formatCurrency(value)}
+                  formatter={(value: number) => formatCurrency(Number(value))}
                   labelFormatter={(label) => `Month: ${label}`}
                   contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
                 />
@@ -1746,7 +1780,7 @@ export default function Dashboard() {
               width={100}
             />
             <Tooltip
-              formatter={(value: any) => formatCurrency(value)}
+              formatter={(value: number) => formatCurrency(Number(value))}
               contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
             />
             <Bar dataKey="gci" fill="#0ea5e9" radius={[0, 4, 4, 0]} />
@@ -1796,29 +1830,33 @@ export default function Dashboard() {
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgb(0,122,255)]"></div>
-      </div>
-    );
-  }
+  const isInitialLoading = loading;
 
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_10px_40px_rgba(15,23,42,0.08)] p-6 space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
-              {getTodayFormatted()}
-            </p>
-            <h1 className="text-3xl font-semibold text-gray-900 mt-1">
-              {greetingText || getGreeting(user?.user_metadata?.name)}
-            </h1>
-            <p className="text-sm text-gray-600 mt-2">
-              {stats.closingNext7Days} deal{stats.closingNext7Days === 1 ? '' : 's'} closing soon (next 7 days) ·{' '}
-              {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
-            </p>
+            {isInitialLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-8 w-56" />
+                <Skeleton className="h-4 w-72" />
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
+                  {getTodayFormatted()}
+                </p>
+                <h1 className="text-3xl font-semibold text-gray-900 mt-1">
+                  {greetingText || getGreeting(user?.user_metadata?.name)}
+                </h1>
+                <p className="text-sm text-gray-600 mt-2">
+                  {stats.closingNext7Days} deal{stats.closingNext7Days === 1 ? '' : 's'} closing soon (next 7 days) ·{' '}
+                  {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
+                </p>
+              </>
+            )}
           </div>
           {refreshing && (
             <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto">
@@ -1827,23 +1865,35 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Pipeline Value</p>
-          <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(pipelineValue)}</p>
-          <p className="text-xs text-gray-600 mt-1">Active stages only</p>
+        {isInitialLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={`kpi-skeleton-${index}`} className="rounded-2xl border border-gray-100/70 bg-white/70 p-4">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="mt-3 h-7 w-32" />
+                <Skeleton className="mt-2 h-3 w-24" />
+              </div>
+            ))}
           </div>
-          <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Projected GCI</p>
-            <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(projectedGCI)}</p>
-            <p className="text-xs text-gray-600 mt-1">Next 30 days</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Pipeline Value</p>
+              <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(pipelineValue)}</p>
+              <p className="text-xs text-gray-600 mt-1">Active stages only</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Projected GCI</p>
+              <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(projectedGCI)}</p>
+              <p className="text-xs text-gray-600 mt-1">Next 30 days</p>
+            </div>
+            <div className="rounded-2xl border border-purple-100/70 bg-purple-50/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">Active Deals</p>
+              <p className="text-2xl font-semibold text-gray-900 mt-2">{totalActiveDeals}</p>
+              <p className="text-xs text-gray-600 mt-1">Across pipeline</p>
+            </div>
           </div>
-          <div className="rounded-2xl border border-purple-100/70 bg-purple-50/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">Active Deals</p>
-            <p className="text-2xl font-semibold text-gray-900 mt-2">{totalActiveDeals}</p>
-            <p className="text-xs text-gray-600 mt-1">Across pipeline</p>
-          </div>
-        </div>
+        )}
       </div>
       {canShowFilterPanel && (
         <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_6px_30px_rgba(15,23,42,0.08)] p-4 space-y-4">
@@ -1858,128 +1908,89 @@ export default function Dashboard() {
               onChange={(value) => setDateRangePreset(value as DateRange)}
             />
           </div>
+          {(activeFilterChips.length > 0 || showFocusOnMe) && (
+            <div className="flex flex-wrap items-center gap-2 -mt-1">
+              {showFocusOnMe && (
+                <button
+                  type="button"
+                  onClick={selectMyData}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    isFocusOnMeActive
+                      ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                  }`}
+                >
+                  Focus On Me
+                </button>
+              )}
+              {activeFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={chip.onRemove}
+                  className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                >
+                  {chip.label}
+                  <span className="text-gray-400">x</span>
+                </button>
+              ))}
+              {activeFilterChips.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetAgents();
+                    setSelectedPipelineStages([]);
+                    setSelectedLeadSources([]);
+                    setSelectedDealTypes([]);
+                  }}
+                  className="text-xs font-semibold text-[var(--app-accent)]"
+                >
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          )}
           {availableAgents.length > 0 && (
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Agents</p>
-                    {showFocusOnMe && (
-                      <button
-                        type="button"
-                        onClick={selectMyData}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                          isFocusOnMeActive
-                            ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
-                            : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                        }`}
-                      >
-                        Focus On Me
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {!isAllAgentsSelected && (
-                      <button
-                        type="button"
-                        className="text-xs text-[var(--app-accent)]"
-                        onClick={resetAgents}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Agents"
+                  options={agentOptions}
                   value={selectedAgentIds}
-                  onChange={handleAgentSelectionChange}
-                  className="hig-input min-h-[72px] rounded-2xl border-gray-200 bg-white/90 text-sm"
-                >
-                  {availableAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedAgentIds}
+                  placeholder="Search agents..."
+                  disabled={agentOptions.length === 0}
+                />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Pipeline Stage</p>
-                  {selectedPipelineStages.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedPipelineStages([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Pipeline Stage"
+                  options={stageOptions}
                   value={selectedPipelineStages}
-                  onChange={handlePipelineFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
-                >
-                  {availableStages.map((stage) => (
-                    <option key={stage.id} value={stage.id}>
-                      {stage.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedPipelineStages}
+                  placeholder="Search stages..."
+                  disabled={stageOptions.length === 0}
+                />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Deal Type</p>
-                  {selectedDealTypes.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedDealTypes([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Deal Type"
+                  options={dealTypeOptions}
                   value={selectedDealTypes}
-                  onChange={handleDealTypeFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
-                >
-                  {availableDealTypes.map((dealType) => (
-                    <option key={dealType} value={dealType}>
-                      {DEAL_TYPE_LABELS[dealType] ?? dealType.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(next) => setSelectedDealTypes(next as DealRow['deal_type'][])}
+                  placeholder="Search deal types..."
+                  disabled={dealTypeOptions.length === 0}
+                />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Lead Source</p>
-                  {selectedLeadSources.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedLeadSources([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Lead Source"
+                  options={leadSourceOptions}
                   value={selectedLeadSources}
-                  onChange={handleLeadSourceFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
-                >
-                  {availableLeadSources.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedLeadSources}
+                  placeholder="Search lead sources..."
+                  disabled={leadSourceOptions.length === 0}
+                />
               </div>
             </div>
           )}
@@ -2030,28 +2041,41 @@ export default function Dashboard() {
       </div>
 
       {/* Draggable Widgets */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
-          <div className="columns-1 lg:columns-2 gap-2 space-y-2">
-            {widgetOrder.map((widgetId) => {
-              const content = renderWidget(widgetId);
-              if (!content) return null;
+      {isInitialLoading ? (
+        <div className="columns-1 lg:columns-2 gap-2 space-y-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={`widget-skeleton-${index}`} className="break-inside-avoid mb-2">
+              <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-4 space-y-3">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-36 w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
+            <div className="columns-1 lg:columns-2 gap-2 space-y-2">
+              {widgetOrder.map((widgetId) => {
+                const content = renderWidget(widgetId);
+                if (!content) return null;
 
-              return (
-                <div key={widgetId} className="break-inside-avoid mb-2">
-                  <SortableWidget id={widgetId}>
-                    {content}
-                  </SortableWidget>
-                </div>
-              );
-            })}
-          </div>
-        </SortableContext>
-      </DndContext>
+                return (
+                  <div key={widgetId} className="break-inside-avoid mb-2">
+                    <SortableWidget id={widgetId}>
+                      {content}
+                    </SortableWidget>
+                  </div>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
 
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { getRoleLabel } from '../lib/rbac';
@@ -37,11 +37,11 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     if (presetToken && presetToken !== inviteToken) {
       setInviteToken(presetToken);
     }
-  }, [presetToken]);
+  }, [presetToken, inviteToken]);
 
   const canSubmit = inviteDetails && !validatingInvite && !loading;
 
-  const fetchInvite = async (token: string) => {
+  const fetchInvite = useCallback(async (token: string) => {
     if (!token) {
       setInviteDetails(null);
       setInviteMessage('');
@@ -54,7 +54,7 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     setInviteDetails(null);
     setError('');
 
-    const { data, error } = await (supabase.rpc as any)('get_invite_preview', {
+    const { data, error } = await supabase.rpc<InvitePreview | InvitePreview[]>('get_invite_preview', {
       invite_token: token
     });
 
@@ -89,7 +89,7 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     setEmail((record as InvitePreview).email);
     setInviteMessage('');
     setValidatingInvite(false);
-  };
+  }, []);
 
   useEffect(() => {
     const debounce = setTimeout(() => {
@@ -102,8 +102,7 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     }, 300);
 
     return () => clearTimeout(debounce);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inviteToken]);
+  }, [inviteToken, fetchInvite]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

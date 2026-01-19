@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import type { Database } from '../lib/database.types';
 
 interface WorkspaceTeam {
   team_id: string;
@@ -13,7 +14,7 @@ export function useWorkspaceTeams(workspaceId?: string | null) {
   const fetchTeams = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true);
-    const { data, error } = await (supabase.rpc as any)('get_workspace_teams', {
+    const { data, error } = await supabase.rpc<WorkspaceTeam[]>('get_workspace_teams', {
       p_workspace_id: workspaceId,
     });
     if (!error) {
@@ -34,9 +35,10 @@ export function useWorkspaceTeams(workspaceId?: string | null) {
       const trimmedName = name.trim();
       if (!trimmedName) return { error: new Error('Team name is required') };
 
-      const { data: team, error } = await (supabase
-        .from('teams') as any)
-        .insert({ name: trimmedName })
+      const payload: Database['public']['Tables']['teams']['Insert'] = { name: trimmedName };
+      const { data: team, error } = await supabase
+        .from('teams')
+        .insert(payload)
         .select('id, name')
         .single();
 
@@ -45,9 +47,14 @@ export function useWorkspaceTeams(workspaceId?: string | null) {
       }
 
       if (userId) {
-        const { error: membershipError } = await (supabase
-          .from('user_teams') as any)
-          .upsert({ user_id: userId, team_id: (team as any).id, role: 'team_lead' });
+        const membershipPayload: Database['public']['Tables']['user_teams']['Insert'] = {
+          user_id: userId,
+          team_id: team.id,
+          role: 'team_lead'
+        };
+        const { error: membershipError } = await supabase
+          .from('user_teams')
+          .upsert(membershipPayload);
         if (membershipError) {
           return { error: membershipError };
         }

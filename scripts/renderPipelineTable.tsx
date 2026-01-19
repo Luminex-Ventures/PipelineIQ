@@ -1,10 +1,18 @@
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import PipelineTable from '../src/components/PipelineTable';
+import type { Database } from '../src/lib/database.types';
 
 const now = new Date().toISOString();
 
-const mockDeal = {
+type Deal = Database['public']['Tables']['deals']['Row'] & {
+  lead_sources?: Database['public']['Tables']['lead_sources']['Row'] | null;
+  pipeline_statuses?: Database['public']['Tables']['pipeline_statuses']['Row'] | null;
+};
+
+type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
+
+const mockDeal: Deal = {
   id: '1',
   user_id: 'u1',
   client_name: 'Alice',
@@ -16,7 +24,7 @@ const mockDeal = {
   zip: '94105',
   deal_type: 'buyer',
   pipeline_status_id: 'status1',
-  status: 'active',
+  status: 'new',
   lead_source_id: null,
   lead_source_name: 'Zillow',
   expected_sale_price: 500000,
@@ -37,14 +45,14 @@ const mockDeal = {
   pipeline_statuses: null
 };
 
-const statuses = [
+const statuses: PipelineStatus[] = [
   { id: 'status1', user_id: 'u1', name: 'Prospecting', slug: 'prospecting', sort_order: 1, color: 'blue', created_at: now, updated_at: now, description: null, is_default: false }
 ];
 
 const html = renderToString(
   <PipelineTable
-    deals={[mockDeal as any]}
-    statuses={statuses as any}
+    deals={[mockDeal]}
+    statuses={statuses}
     onDealClick={() => {}}
     calculateNetCommission={() => 1000}
     getDaysInStage={() => 1}

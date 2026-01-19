@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error };
     }
 
-    const { error: acceptError } = await (supabase.rpc as any)('accept_workspace_invite', {
+    const { error: acceptError } = await supabase.rpc('accept_workspace_invite', {
       invite_token: inviteToken
     });
 
@@ -91,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

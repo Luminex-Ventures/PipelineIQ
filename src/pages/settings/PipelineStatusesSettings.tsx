@@ -5,7 +5,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { usePipelineStatuses, LIFECYCLE_STAGE_OPTIONS } from '../../hooks/usePipelineStatuses';
 import TemplateSelectionModal from '../../components/TemplateSelectionModal';
-import { ColorPicker, DEFAULT_STATUS_COLOR } from '../../components/ui/ColorPicker';
+import { ColorPicker } from '../../components/ui/ColorPicker';
+import { DEFAULT_STATUS_COLOR } from '../../components/ui/colorSwatches';
 import { getColorByName, getColorValue } from '../../lib/colors';
 import type { Database } from '../../lib/database.types';
 

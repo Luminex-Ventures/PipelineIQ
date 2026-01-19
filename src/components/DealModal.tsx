@@ -14,6 +14,7 @@ import {
   Loader2
 } from 'lucide-react';
 import type { Database } from '../lib/database.types';
+import type { PostgrestError } from '@supabase/supabase-js';
 import { getVisibleUserIds } from '../lib/rbac';
 import DealNotes from './DealNotes';
 
@@ -21,6 +22,11 @@ type Deal = Database['public']['Tables']['deals']['Row'];
 type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
 type Task = Database['public']['Tables']['tasks']['Row'];
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
+type DealInsert = Database['public']['Tables']['deals']['Insert'];
+type DealUpdate = Database['public']['Tables']['deals']['Update'];
+type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
+type TaskInsert = Database['public']['Tables']['tasks']['Insert'];
+type TaskUpdate = Database['public']['Tables']['tasks']['Update'];
 
 type FormState = {
   client_name: string;
@@ -169,7 +175,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       .limit(1);
 
     if (!error && data && data.length) {
-      const note = (data[0] as any).content || '';
+      const note = data[0]?.content ?? '';
       const parsed = note.replace(/^Archive reason:\s*/i, '').trim();
       setArchivedReason(parsed);
     }
@@ -178,48 +184,60 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const loadLeadSources = async () => {
     if (!user) return;
 
-    const { data: teamSources, error: teamError } = teamId
-      ? await supabase
-          .from('lead_sources')
-          .select('*')
-          .eq('team_id', teamId)
-          .order('name')
-      : ({ data: null, error: null } as any);
+    let teamSources: LeadSource[] | null = null;
+    let teamError: PostgrestError | null = null;
+
+    if (teamId) {
+      const resp = await supabase
+        .from('lead_sources')
+        .select('*')
+        .eq('team_id', teamId)
+        .order('name');
+      teamSources = resp.data;
+      teamError = resp.error;
+    }
 
     if (teamError) return;
 
-    const { data } = teamSources?.length
-      ? ({ data: teamSources } as any)
+    const { data, error } = teamSources?.length
+      ? { data: teamSources, error: null }
       : await supabase
           .from('lead_sources')
           .select('*')
           .eq('user_id', user.id)
           .order('name');
 
+    if (error) return;
     if (data) setLeadSources(data);
   };
 
   const loadPipelineStatuses = async () => {
     if (!user) return;
 
-    const { data: teamStatuses, error: teamError } = teamId
-      ? await supabase
-          .from('pipeline_statuses')
-          .select('*')
-          .eq('team_id', teamId)
-          .order('sort_order')
-      : ({ data: null, error: null } as any);
+    let teamStatuses: PipelineStatus[] | null = null;
+    let teamError: PostgrestError | null = null;
+
+    if (teamId) {
+      const resp = await supabase
+        .from('pipeline_statuses')
+        .select('*')
+        .eq('team_id', teamId)
+        .order('sort_order');
+      teamStatuses = resp.data;
+      teamError = resp.error;
+    }
 
     if (teamError) return;
 
-    const { data } = teamStatuses?.length
-      ? ({ data: teamStatuses } as any)
+    const { data, error } = teamStatuses?.length
+      ? { data: teamStatuses, error: null }
       : await supabase
           .from('pipeline_statuses')
           .select('*')
           .eq('user_id', user.id)
           .order('sort_order');
 
+    if (error) return;
     if (data) {
       setPipelineStatuses(data);
 
@@ -259,7 +277,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     const { data } = await query;
 
     if (data) {
-      const sortedTasks = (data as any).sort((a: any, b: any) => {
+      const sortedTasks = [...data].sort((a: Task, b: Task) => {
         if (!a.due_date && !b.due_date) return 0;
         if (!a.due_date) return -1;
         if (!b.due_date) return 1;
@@ -306,7 +324,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       return;
     }
 
-    const dealData = {
+    const dealData: DealInsert & DealUpdate = {
       ...formData,
       user_id: user.id,
       lead_source_id: formData.lead_source_id,
@@ -329,32 +347,33 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
 
     try {
       if (deal) {
-        const { error } = await (supabase
-          .from('deals') as any)
+        const { error } = await supabase
+          .from('deals')
           .update(dealData)
           .eq('id', deal.id);
 
         if (error) throw error;
         dealId = deal.id;
       } else {
-        const { data: insertData, error: insertError } = await (supabase
-          .from('deals') as any)
+        const { data: insertData, error: insertError } = await supabase
+          .from('deals')
           .insert(dealData)
           .select('id')
           .single();
 
         if (insertError) throw insertError;
-        if ((insertData as any)?.id) {
-          dealId = (insertData as any).id;
+        if (insertData?.id) {
+          dealId = insertData.id;
         }
       }
 
       if (archived && dealId) {
-        const { error: noteError } = await (supabase.from('deal_notes') as any).insert({
+        const notePayload: DealNoteInsert = {
           deal_id: dealId,
           user_id: user.id,
           content: `Archive reason: ${archivedReason}`
-        });
+        };
+        const { error: noteError } = await supabase.from('deal_notes').insert(notePayload);
         if (noteError) throw noteError;
       }
 
@@ -383,13 +402,14 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
 
     const taskOwnerId = deal.user_id || user.id;
 
-    await (supabase.from('tasks') as any).insert({
+    const taskPayload: TaskInsert = {
       deal_id: deal.id,
       user_id: taskOwnerId,
       title: newTaskTitle,
       due_date: newTaskDueDate || null,
       completed: false
-    });
+    };
+    await supabase.from('tasks').insert(taskPayload);
 
     setNewTaskTitle('');
     setNewTaskDueDate('');
@@ -398,9 +418,10 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   };
 
   const toggleTaskComplete = async (taskId: string, completed: boolean) => {
-    await (supabase
-      .from('tasks') as any)
-      .update({ completed: !completed })
+    const payload: TaskUpdate = { completed: !completed };
+    await supabase
+      .from('tasks')
+      .update(payload)
       .eq('id', taskId);
 
     loadTasks();
@@ -415,12 +436,13 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
   const handleUpdateTask = async () => {
     if (!editingTaskTitle.trim() || !editingTaskId) return;
 
-    await (supabase
-      .from('tasks') as any)
-      .update({
+    const payload: TaskUpdate = {
         title: editingTaskTitle,
         due_date: editingTaskDueDate || null
-      })
+      };
+    await supabase
+      .from('tasks')
+      .update(payload)
       .eq('id', editingTaskId);
 
     setEditingTaskId(null);
@@ -830,7 +852,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
                         onChange={e =>
                           setFormData(prev => ({
                             ...prev,
-                            deal_type: e.target.value as any
+                            deal_type: e.target.value as Deal['deal_type']
                           }))
                         }
                         className="hig-input"

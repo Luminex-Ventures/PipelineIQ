@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Calendar,
   CheckCircle,
@@ -46,6 +46,9 @@ type TaskNote = {
   content: string;
   created_at: string;
 };
+type TaskInsert = Database['public']['Tables']['tasks']['Insert'];
+type TaskUpdate = Database['public']['Tables']['tasks']['Update'];
+type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
 type AccessibleAgentRow = {
   user_id: string;
   display_name: string | null;
@@ -203,46 +206,166 @@ export default function Tasks() {
     }, {});
   }, [deals, shouldGroupDeals]);
 
+  const loadAgents = useCallback(async () => {
+    if (!user || !roleInfo) return;
+    if (!isManagerRole) {
+      setAgentOptions([]);
+      setAgentFilter('all');
+      return;
+    }
+    try {
+      const visibleIds = await getVisibleUserIds(roleInfo);
+      const { data, error } = await supabase.rpc<AccessibleAgentRow[]>('get_accessible_agents');
+      if (!error && data) {
+        const opts = data
+          .filter(
+            (agent) =>
+              visibleIds.includes(agent.user_id) &&
+              agent.global_role !== 'admin' &&
+              agent.global_role !== 'sales_manager'
+          )
+          .map((agent) => ({
+            id: agent.user_id,
+            label: agent.display_name || agent.email || 'Agent'
+          }));
+        setAgentOptions(opts);
+        if (agentFilter !== 'all' && !opts.find((opt) => opt.id === agentFilter)) {
+          setAgentFilter('all');
+        }
+      }
+    } catch (err) {
+      console.error('Error loading agents', err);
+      setAgentOptions([]);
+    }
+  }, [agentFilter, isManagerRole, roleInfo, user]);
+
+  const fetchTaskNotes = useCallback(async (taskList: Task[]) => {
+    if (!taskList.length) {
+      setNotesByTask({});
+      return;
+    }
+    const taskIds = taskList.map((t) => t.id);
+    const { data, error } = await supabase
+      .from('deal_notes')
+      .select('id, task_id, content, created_at')
+      .in('task_id', taskIds)
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      console.error('Error loading task notes', error);
+      setNotesByTask({});
+      return;
+    }
+
+    const map: Record<string, TaskNote[]> = {};
+    const notes = data as TaskNote[];
+    notes.forEach((note) => {
+      if (!note.task_id) return;
+      if (!map[note.task_id]) map[note.task_id] = [];
+      map[note.task_id].push(note);
+    });
+    setNotesByTask(map);
+  }, []);
+
+  const fetchTasks = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+
+    let visibleIds: string[] = [user.id];
+    if (roleInfo) {
+      visibleIds = await getVisibleUserIds(roleInfo);
+      if (!visibleIds.length) visibleIds = [user.id];
+    }
+
+    let query = supabase
+      .from('tasks')
+      .select(`*, deals(*, lead_sources(*))`)
+      .eq('completed', false)
+      .order('due_date', { ascending: true });
+
+    if (visibleIds.length === 1) {
+      query = query.eq('user_id', visibleIds[0]);
+    } else if (visibleIds.length > 1) {
+      query = query.in('user_id', visibleIds);
+    }
+
+    const { data, error } = await query;
+
+    if (!error && data) {
+      const taskList = (data ?? []).filter((task) => task.deals) as Task[];
+      setTasks(taskList);
+      await fetchTaskNotes(taskList);
+    }
+
+    setLoading(false);
+  }, [fetchTaskNotes, roleInfo, user]);
+
+  const fetchDeals = useCallback(async () => {
+    if (!user) return;
+    setDealsLoading(true);
+
+    try {
+      let visibleUserIds: string[] = [user.id];
+
+      if (roleInfo) {
+        visibleUserIds = await getVisibleUserIds(roleInfo);
+        if (!visibleUserIds.length) {
+          visibleUserIds = [user.id];
+        }
+      }
+
+      let query = supabase
+        .from('deals')
+        .select(
+          'id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description'
+        )
+        .neq('status', 'closed')
+        .neq('status', 'dead')
+        .order('updated_at', { ascending: false });
+
+      if (visibleUserIds.length === 1) {
+        query = query.eq('user_id', visibleUserIds[0]);
+      } else if (visibleUserIds.length > 1) {
+        query = query.in('user_id', visibleUserIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error loading deals', error);
+        setDeals([]);
+      } else {
+        setDeals(data || []);
+        const ownerMap: Record<string, string> = {};
+        const { data: agents, error: agentError } =
+          await supabase.rpc<AccessibleAgentRow[]>('get_accessible_agents');
+        if (!agentError && Array.isArray(agents)) {
+          agents.forEach((agent) => {
+            if (visibleUserIds.includes(agent.user_id)) {
+              ownerMap[agent.user_id] =
+                agent.display_name || agent.email || 'Agent';
+            }
+          });
+        }
+        setDealOwners(ownerMap);
+      }
+    } catch (err) {
+      console.error('Error resolving visible deals', err);
+      setDeals([]);
+      setDealOwners({});
+    } finally {
+      setDealsLoading(false);
+    }
+  }, [roleInfo, user]);
+
   useEffect(() => {
     if (!user) return;
     fetchTasks();
-  }, [user, roleInfo]);
+  }, [fetchTasks, user]);
 
   useEffect(() => {
-    const loadAgents = async () => {
-      if (!user || !roleInfo) return;
-      if (!isManagerRole) {
-        setAgentOptions([]);
-        setAgentFilter('all');
-        return;
-      }
-      try {
-        const visibleIds = await getVisibleUserIds(roleInfo);
-        const { data, error } = await supabase.rpc('get_accessible_agents');
-        if (!error && data) {
-          const opts = (data as any[])
-            .filter(
-              (agent) =>
-                visibleIds.includes(agent.user_id) &&
-                agent.global_role !== 'admin' &&
-                agent.global_role !== 'sales_manager'
-            )
-            .map((agent) => ({
-              id: agent.user_id,
-              label: agent.display_name || agent.email || 'Agent'
-            }));
-          setAgentOptions(opts);
-          if (agentFilter !== 'all' && !opts.find((opt) => opt.id === agentFilter)) {
-            setAgentFilter('all');
-          }
-        }
-      } catch (err) {
-        console.error('Error loading agents', err);
-        setAgentOptions([]);
-      }
-    };
     loadAgents();
-  }, [user, roleInfo, agentFilter, isManagerRole]);
+  }, [loadAgents]);
 
   useEffect(() => {
     if (!user) {
@@ -251,7 +374,7 @@ export default function Tasks() {
       return;
     }
     fetchDeals();
-  }, [user, roleInfo]);
+  }, [fetchDeals, user]);
 
   useEffect(() => {
     let result = [...taskBase];
@@ -306,123 +429,6 @@ export default function Tasks() {
     }
   }, [agentFilter, deals, newTaskDealId]);
 
-  const fetchTasks = async () => {
-    if (!user) return;
-    setLoading(true);
-
-    let visibleIds: string[] = [user.id];
-    if (roleInfo) {
-      visibleIds = await getVisibleUserIds(roleInfo);
-      if (!visibleIds.length) visibleIds = [user.id];
-    }
-
-    let query = supabase
-      .from('tasks')
-      .select(`*, deals(*, lead_sources(*))`)
-      .eq('completed', false)
-      .order('due_date', { ascending: true });
-
-    if (visibleIds.length === 1) {
-      query = query.eq('user_id', visibleIds[0]);
-    } else if (visibleIds.length > 1) {
-      query = query.in('user_id', visibleIds);
-    }
-
-    const { data, error } = await query;
-
-    if (!error && data) {
-      const taskList = (data as any[]).filter((task) => task.deals).map((task) => task as Task);
-      setTasks(taskList);
-      await fetchTaskNotes(taskList);
-    }
-
-    setLoading(false);
-  };
-
-  const fetchDeals = async () => {
-    if (!user) return;
-    setDealsLoading(true);
-
-    try {
-      let visibleUserIds: string[] = [user.id];
-
-      if (roleInfo) {
-        visibleUserIds = await getVisibleUserIds(roleInfo);
-        if (!visibleUserIds.length) {
-          visibleUserIds = [user.id];
-        }
-      }
-
-      let query = supabase
-        .from('deals')
-        .select(
-          'id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description'
-        )
-        .neq('status', 'closed')
-        .neq('status', 'dead')
-        .order('updated_at', { ascending: false });
-
-      if (visibleUserIds.length === 1) {
-        query = query.eq('user_id', visibleUserIds[0]);
-      } else if (visibleUserIds.length > 1) {
-        query = query.in('user_id', visibleUserIds);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error loading deals', error);
-        setDeals([]);
-      } else {
-        setDeals(data || []);
-        const ownerMap: Record<string, string> = {};
-        const { data: agents, error: agentError } =
-          await supabase.rpc('get_accessible_agents');
-        if (!agentError && Array.isArray(agents)) {
-          (agents as AccessibleAgentRow[]).forEach((agent) => {
-            if (visibleUserIds.includes(agent.user_id)) {
-              ownerMap[agent.user_id] =
-                agent.display_name || agent.email || 'Agent';
-            }
-          });
-        }
-        setDealOwners(ownerMap);
-      }
-    } catch (err) {
-      console.error('Error resolving visible deals', err);
-      setDeals([]);
-      setDealOwners({});
-    } finally {
-      setDealsLoading(false);
-    }
-  };
-
-  const fetchTaskNotes = async (taskList: Task[]) => {
-    if (!taskList.length) {
-      setNotesByTask({});
-      return;
-    }
-    const taskIds = taskList.map((t) => t.id);
-    const { data, error } = await supabase
-      .from('deal_notes')
-      .select('id, task_id, content, created_at')
-      .in('task_id', taskIds)
-      .order('created_at', { ascending: false });
-
-    if (error || !data) {
-      console.error('Error loading task notes', error);
-      setNotesByTask({});
-      return;
-    }
-
-    const map: Record<string, TaskNote[]> = {};
-    data.forEach((note: any) => {
-      if (!note.task_id) return;
-      if (!map[note.task_id]) map[note.task_id] = [];
-      map[note.task_id].push(note as TaskNote);
-    });
-    setNotesByTask(map);
-  };
 
   const fetchCompletedTasks = async () => {
     if (!user) return;
@@ -451,7 +457,7 @@ export default function Tasks() {
       const { data, error } = await query;
 
       if (!error && data) {
-        const list = (data as any[]).filter((t) => t.deals).map((t) => t as Task);
+        const list = (data ?? []).filter((t) => t.deals) as Task[];
         setCompletedTasks(list);
       }
     } catch (err) {
@@ -508,16 +514,17 @@ export default function Tasks() {
     setCreating(true);
 
     try {
+      const taskPayload: TaskInsert = {
+        user_id: selectedDealOption?.user_id || user.id,
+        deal_id: newTaskDealId,
+        title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || null,
+        due_date: newTaskDueDate || null,
+        completed: false
+      };
       const { data: createdTask, error } = await supabase
         .from('tasks')
-        .insert({
-          user_id: selectedDealOption?.user_id || user.id,
-          deal_id: newTaskDealId,
-          title: newTaskTitle.trim(),
-          description: newTaskDescription.trim() || null,
-          due_date: newTaskDueDate || null,
-          completed: false
-        } as any)
+        .insert(taskPayload)
         .select('id')
         .single();
 
@@ -527,13 +534,15 @@ export default function Tasks() {
 
       if (createdTask && newTaskDescription.trim()) {
         const trimmedNote = newTaskDescription.trim();
-        const attemptNoteInsert = async (userId: string) =>
-          supabase.from('deal_notes').insert({
+        const attemptNoteInsert = async (userId: string) => {
+          const payload: DealNoteInsert = {
             deal_id: newTaskDealId,
-            task_id: (createdTask as any).id,
+            task_id: createdTask?.id ?? null,
             user_id: userId,
             content: trimmedNote
-          } as any);
+          };
+          return supabase.from('deal_notes').insert(payload);
+        };
 
         let { error: noteError } = await attemptNoteInsert(user.id);
 
@@ -570,9 +579,10 @@ export default function Tasks() {
 
     setCompletingId(task.id);
     try {
-      const { error } = await (supabase
-        .from('tasks') as any)
-        .update({ completed: true })
+      const payload: TaskUpdate = { completed: true };
+      const { error } = await supabase
+        .from('tasks')
+        .update(payload)
         .eq('id', task.id);
 
       if (error) throw error;

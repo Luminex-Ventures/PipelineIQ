@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
-import { COLOR_SWATCHES } from '../components/ui/ColorPicker';
+import { COLOR_SWATCHES } from '../components/ui/colorSwatches';
 
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 type PipelineTemplate = Database['public']['Tables']['pipeline_templates']['Row'];
@@ -112,13 +112,13 @@ export function usePipelineStatuses() {
             .select('*')
             .eq('team_id', teamId)
             .order('sort_order', { ascending: true })
-        : ({ data: null, error: null } as any);
+        : { data: null, error: null };
 
       if (teamError) throw teamError;
 
       const shouldUseTeam = !!teamStatuses?.length;
       const { data: personalStatuses, error: personalError } = shouldUseTeam
-        ? ({ data: null, error: null } as any)
+        ? { data: null, error: null }
         : await supabase
             .from('pipeline_statuses')
             .select('*')
@@ -131,11 +131,11 @@ export function usePipelineStatuses() {
 
       if (!sourceStatuses) throw new Error('Failed to load pipeline statuses');
 
-      const fetched = sourceStatuses || [];
+      const fetched = (sourceStatuses || []) as PipelineStatus[];
       const updates: Array<{ id: string; color: string }> = [];
       const overrides = readColorOverrides();
       const baseColors: Record<string, string> = {};
-      const normalized = fetched.map((status: any, idx: any) => {
+      const normalized = fetched.map((status, idx) => {
         const baseColor = resolveBaseColor(status, idx);
         baseColors[status.id] = baseColor;
         const overrideColor = overrides[status.id];
@@ -150,7 +150,7 @@ export function usePipelineStatuses() {
       if (updates.length > 0) {
         await Promise.all(
           updates.map((u) =>
-            (supabase.from('pipeline_statuses') as any).update({ color: u.color }).eq('id', u.id)
+            supabase.from('pipeline_statuses').update({ color: u.color }).eq('id', u.id)
           )
         );
       }
@@ -179,8 +179,8 @@ export function usePipelineStatuses() {
     const resolvedColor = color?.trim() || getColorForStatus(name, maxSort);
     const resolvedLifecycle = lifecycleStage || inferLifecycleStage(name, maxSort, statuses.length + 1);
 
-    const { data, error: insertError } = await (supabase
-      .from('pipeline_statuses') as any)
+    const { data, error: insertError } = await supabase
+      .from('pipeline_statuses')
       .insert({
         user_id: user.id,
         team_id: teamId,
@@ -203,8 +203,8 @@ export function usePipelineStatuses() {
   };
 
   const updateStatus = async (id: string, updates: Partial<PipelineStatus>) => {
-    const { error: updateError } = await (supabase
-      .from('pipeline_statuses') as any)
+    const { error: updateError } = await supabase
+      .from('pipeline_statuses')
       .update(updates)
       .eq('id', id);
 
@@ -217,12 +217,12 @@ export function usePipelineStatuses() {
 
   const deleteStatus = async (id: string) => {
     // Check if any deals are using this status
-    const { data: dealsCount } = await supabase
+    const { count } = await supabase
       .from('deals')
       .select('id', { count: 'exact', head: true })
       .eq('pipeline_status_id', id);
 
-    if (dealsCount && (dealsCount as any).count > 0) {
+    if ((count ?? 0) > 0) {
       throw new Error('Cannot delete status with active deals. Please reassign deals first.');
     }
 
@@ -245,8 +245,8 @@ export function usePipelineStatuses() {
     }));
 
     for (const update of updates) {
-      await (supabase
-        .from('pipeline_statuses') as any)
+      await supabase
+        .from('pipeline_statuses')
         .update({ sort_order: update.sort_order })
         .eq('id', update.id);
     }
@@ -257,7 +257,7 @@ export function usePipelineStatuses() {
   const applyTemplate = async (templateName: string) => {
     if (!user) return;
 
-    const { error: applyError } = await (supabase.rpc as any)('apply_pipeline_template', {
+    const { error: applyError } = await supabase.rpc('apply_pipeline_template', {
       p_user_id: user.id,
       p_template_name: templateName
     });
@@ -267,15 +267,15 @@ export function usePipelineStatuses() {
     }
 
     if (teamId) {
-      await (supabase
-        .from('pipeline_statuses') as any)
+      await supabase
+        .from('pipeline_statuses')
         .update({ team_id: teamId })
         .eq('user_id', user.id)
         .is('team_id', null);
     }
 
     // Migrate existing deals
-    const { error: migrateError } = await (supabase.rpc as any)('migrate_user_deals_to_pipeline_statuses', {
+    const { error: migrateError } = await supabase.rpc('migrate_user_deals_to_pipeline_statuses', {
       p_user_id: user.id
     });
 
@@ -314,12 +314,12 @@ export function usePipelineStatuses() {
       lifecycle_stage: inferLifecycleStage(name, index, cleanedStages.length)
     }));
 
-    const { error: insertError } = await (supabase.from('pipeline_statuses') as any).insert(inserts);
+    const { error: insertError } = await supabase.from('pipeline_statuses').insert(inserts);
     if (insertError) {
       throw insertError;
     }
 
-    const { error: migrateError } = await (supabase.rpc as any)('migrate_user_deals_to_pipeline_statuses', {
+    const { error: migrateError } = await supabase.rpc('migrate_user_deals_to_pipeline_statuses', {
       p_user_id: user.id
     });
 
@@ -346,9 +346,10 @@ export function usePipelineStatuses() {
       return;
     }
 
-    const { [statusId]: _removed, ...rest } = currentOverrides;
-    persistColorOverrides(rest);
-    setColorOverrides(rest);
+    const nextOverrides = { ...currentOverrides };
+    delete nextOverrides[statusId];
+    persistColorOverrides(nextOverrides);
+    setColorOverrides(nextOverrides);
 
     setStatuses(prev => prev.map(status => {
       if (status.id !== statusId) return status;

@@ -43,7 +43,8 @@ export async function debugRAGPermissions() {
       console.error('❌ RPC Error:', rpcError);
     } else {
       console.log('✅ RPC Call Success');
-      console.log('  Accessible users from RPC:', (rpcData as any)?.length || 0);
+      const rpcRows = (rpcData ?? []) as Array<{ user_id: string }>;
+      console.log('  Accessible users from RPC:', rpcRows.length);
       console.log('  RPC Data:', rpcData);
     }
     console.log('\n');
@@ -65,8 +66,9 @@ export async function debugRAGPermissions() {
       console.error('❌ Deals Query Error:', dealsError);
     } else {
       console.log('✅ Deals Query Success');
-      console.log('  Sample deals returned:', deals?.length || 0);
-      console.log('  Unique user_ids in deals:', [...new Set((deals as any)?.map((d: any) => d.user_id))]);
+      const dealRows = deals ?? [];
+      console.log('  Sample deals returned:', dealRows.length);
+      console.log('  Unique user_ids in deals:', [...new Set(dealRows.map((d) => d.user_id))]);
     }
     console.log('\n');
 
@@ -80,9 +82,10 @@ export async function debugRAGPermissions() {
     } else {
       console.log('✅ User Settings Query');
       console.log('  Total users in workspace:', allUsers?.length || 0);
-      console.log('  Users by role:', 
-        allUsers?.reduce((acc: any, u: any) => {
-          acc[u.global_role] = (acc[u.global_role] || 0) + 1;
+      console.log('  Users by role:',
+        (allUsers ?? []).reduce((acc: Record<string, number>, u) => {
+          const role = u.global_role || 'unknown';
+          acc[role] = (acc[role] || 0) + 1;
           return acc;
         }, {})
       );
@@ -114,7 +117,12 @@ export async function debugRAGPermissions() {
 }
 
 // Make it available globally for browser console debugging
-if (typeof window !== 'undefined') {
-  (window as any).debugRAGPermissions = debugRAGPermissions;
+declare global {
+  interface Window {
+    debugRAGPermissions?: () => void;
+  }
 }
 
+if (typeof window !== 'undefined') {
+  window.debugRAGPermissions = debugRAGPermissions;
+}

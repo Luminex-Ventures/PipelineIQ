@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
 
 type WorkspaceRow = Database['public']['Tables']['workspace_settings']['Row'];
+type WorkspaceUpdate = Database['public']['Tables']['workspace_settings']['Update'];
 
 export function useWorkspaceSettings() {
   const { roleInfo } = useAuth();
@@ -45,12 +46,13 @@ export function useWorkspaceSettings() {
   const updateWorkspace = async (payload: Partial<WorkspaceRow>) => {
     if (!workspaceId) return { error: new Error('Workspace not found') };
 
-    const { data, error } = await (supabase
-      .from('workspace_settings') as any)
-      .update({
-        ...payload,
-        updated_at: new Date().toISOString()
-      })
+    const updatePayload: WorkspaceUpdate = {
+      ...payload,
+      updated_at: new Date().toISOString()
+    };
+    const { data, error } = await supabase
+      .from('workspace_settings')
+      .update(updatePayload)
       .eq('id', workspaceId)
       .select('*')
       .maybeSingle();

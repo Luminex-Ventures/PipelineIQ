@@ -1,11 +1,22 @@
 import { supabase } from './supabase';
 import { getUserRoleInfo, getVisibleUserIds } from './rbac';
 import type { UserRoleInfo } from './rbac';
+import type { Database } from './database.types';
+
+type DealRow = Database['public']['Tables']['deals']['Row'] & {
+  lead_sources?: { id: string; name: string | null } | null;
+};
+
+type TaskRow = Database['public']['Tables']['tasks']['Row'] & {
+  deals?: { client_name: string | null; status: string | null } | null;
+};
+
+type LeadSourceRow = Database['public']['Tables']['lead_sources']['Row'];
 
 export interface RAGContext {
-  deals: any[];
-  tasks: any[];
-  leadSources: any[];
+  deals: DealRow[];
+  tasks: TaskRow[];
+  leadSources: LeadSourceRow[];
   userRole: UserRoleInfo;
   stats: {
     totalDeals: number;
@@ -20,7 +31,7 @@ export interface RAGContext {
 /**
  * Calculate GCI for a deal
  */
-function calculateDealGCI(deal: any): number {
+function calculateDealGCI(deal: DealRow): number {
   const salePrice = deal.actual_sale_price || deal.expected_sale_price || 0;
   const grossCommission = salePrice * (deal.gross_commission_rate || 0);
   const afterBrokerageSplit = grossCommission * (1 - (deal.brokerage_split_rate || 0));
@@ -92,13 +103,14 @@ export async function buildRAGContext(): Promise<string> {
       .order('name');
 
     // Calculate statistics
-    const closedDeals = (deals as any)?.filter((d: any) => d.status === 'closed') || [];
-    const activeDeals = (deals as any)?.filter((d: any) => d.status !== 'closed' && d.status !== 'dead') || [];
-    const inProgressDeals = (deals as any)?.filter((d: any) => d.status === 'in_progress') || [];
+    const dealList = (deals ?? []) as DealRow[];
+    const closedDeals = dealList.filter((d) => d.status === 'closed');
+    const activeDeals = dealList.filter((d) => d.status !== 'closed' && d.status !== 'dead');
+    const inProgressDeals = dealList.filter((d) => d.status === 'in_progress');
     
-    const totalGCI = closedDeals.reduce((sum: number, deal: any) => sum + calculateDealGCI(deal), 0);
+    const totalGCI = closedDeals.reduce((sum, deal) => sum + calculateDealGCI(deal), 0);
     const avgDealValue = closedDeals.length > 0 
-      ? closedDeals.reduce((sum: number, d: any) => sum + (d.actual_sale_price || d.expected_sale_price || 0), 0) / closedDeals.length
+      ? closedDeals.reduce((sum, d) => sum + (d.actual_sale_price || d.expected_sale_price || 0), 0) / closedDeals.length
       : 0;
 
     // Build context string
@@ -131,7 +143,7 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
 === RECENT DEALS (Last 20) ===
 `;
 
-    (deals as any)?.slice(0, 20).forEach((deal: any, idx: number) => {
+    dealList.slice(0, 20).forEach((deal, idx) => {
       const dealValue = deal.actual_sale_price || deal.expected_sale_price || 0;
       const gci = calculateDealGCI(deal);
       context += `${idx + 1}. ${deal.client_name || 'Unnamed Deal'}
@@ -149,8 +161,9 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
 
     context += `=== UPCOMING TASKS ===
 `;
-    if (tasks && tasks.length > 0) {
-      (tasks as any).forEach((task: any, idx: number) => {
+    const taskList = (tasks ?? []) as TaskRow[];
+    if (taskList.length > 0) {
+      taskList.forEach((task, idx) => {
         context += `${idx + 1}. ${task.title}
    Due: ${task.due_date ? new Date(task.due_date).toLocaleDateString() : 'No due date'}
    ${task.deals?.client_name ? `Deal: ${task.deals.client_name} (${task.deals.status})` : ''}
@@ -163,11 +176,12 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
 
     context += `=== LEAD SOURCES ===
 `;
-    if (leadSources && leadSources.length > 0) {
-      (leadSources as any).forEach((source: any, idx: number) => {
-        const sourceDeals = (deals as any)?.filter((d: any) => d.lead_source_id === source.id) || [];
-        const sourceClosedDeals = sourceDeals.filter((d: any) => d.status === 'closed');
-        const sourceGCI = sourceClosedDeals.reduce((sum: number, d: any) => sum + calculateDealGCI(d), 0);
+    const leadSourceList = (leadSources ?? []) as LeadSourceRow[];
+    if (leadSourceList.length > 0) {
+      leadSourceList.forEach((source, idx) => {
+        const sourceDeals = dealList.filter((d) => d.lead_source_id === source.id);
+        const sourceClosedDeals = sourceDeals.filter((d) => d.status === 'closed');
+        const sourceGCI = sourceClosedDeals.reduce((sum, d) => sum + calculateDealGCI(d), 0);
         
         context += `${idx + 1}. ${source.name}
    Total Deals: ${sourceDeals.length}
@@ -183,12 +197,12 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
     // Add monthly performance for current year
     const currentYear = new Date().getFullYear();
     const monthlyStats = new Array(12).fill(0).map((_, idx) => {
-      const monthDeals = closedDeals.filter((d: any) => {
+      const monthDeals = closedDeals.filter((d) => {
         if (!d.closed_at) return false;
         const closeDate = new Date(d.closed_at);
         return closeDate.getFullYear() === currentYear && closeDate.getMonth() === idx;
       });
-      const monthGCI = monthDeals.reduce((sum: number, d: any) => sum + calculateDealGCI(d), 0);
+      const monthGCI = monthDeals.reduce((sum, d) => sum + calculateDealGCI(d), 0);
       return {
         month: new Date(currentYear, idx, 1).toLocaleDateString('en-US', { month: 'short' }),
         deals: monthDeals.length,

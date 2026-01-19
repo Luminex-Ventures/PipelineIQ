@@ -3,6 +3,14 @@ import { X, Upload, Download, CheckCircle, AlertCircle, Loader } from 'lucide-re
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { generateExampleCSV, downloadCSV, parseCSV, validateDealRow, csvRowToObject, parseFlexibleDate } from '../lib/csv-utils';
+import type { Database } from '../lib/database.types';
+
+type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
+type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
+type DealInsert = Database['public']['Tables']['deals']['Insert'];
+type DealStatus = Database['public']['Tables']['deals']['Row']['status'];
+type DealType = Database['public']['Tables']['deals']['Row']['deal_type'];
+type UserSettings = Database['public']['Tables']['user_settings']['Row'];
 
 interface ImportDealsModalProps {
   onClose: () => void;
@@ -31,17 +39,17 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           .select('name')
           .eq('team_id', teamId)
           .order('sort_order')
-      : ({ data: null } as any);
+      : { data: null };
 
     const { data: statuses } = teamStatuses?.length
-      ? ({ data: teamStatuses } as any)
+      ? { data: teamStatuses }
       : await supabase
           .from('pipeline_statuses')
           .select('name')
           .eq('user_id', user.id)
           .order('sort_order');
 
-    const statusNames = (statuses as any)?.map((s: any) => s.name) || [];
+    const statusNames = (statuses ?? []).map((status) => status.name);
     const csvContent = generateExampleCSV(statusNames);
     downloadCSV(csvContent, 'deals-import-example.csv');
   };
@@ -80,17 +88,17 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
             .from('lead_sources')
             .select('id, name')
             .eq('team_id', teamId)
-        : ({ data: null } as any);
+        : { data: null };
 
       const { data: leadSources } = teamLeadSources?.length
-        ? ({ data: teamLeadSources } as any)
+        ? { data: teamLeadSources }
         : await supabase
             .from('lead_sources')
             .select('id, name')
             .eq('user_id', user.id);
 
       const leadSourceMap = new Map(
-        (leadSources as any)?.map((ls: any) => [ls.name.toLowerCase(), ls.id]) || []
+        ((leadSources ?? []) as LeadSource[]).map((ls) => [ls.name.toLowerCase(), ls.id])
       );
 
       const { data: teamPipelineStatuses } = teamId
@@ -98,17 +106,20 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
             .from('pipeline_statuses')
             .select('id, name, lifecycle_stage')
             .eq('team_id', teamId)
-        : ({ data: null } as any);
+        : { data: null };
 
       const { data: pipelineStatuses } = teamPipelineStatuses?.length
-        ? ({ data: teamPipelineStatuses } as any)
+        ? { data: teamPipelineStatuses }
         : await supabase
             .from('pipeline_statuses')
             .select('id, name, lifecycle_stage')
             .eq('user_id', user.id);
 
       const pipelineStatusMap = new Map(
-        (pipelineStatuses as any)?.map((ps: any) => [ps.name.toLowerCase(), { id: ps.id, lifecycle_stage: ps.lifecycle_stage }]) || []
+        ((pipelineStatuses ?? []) as PipelineStatus[]).map((ps) => [
+          ps.name.toLowerCase(),
+          { id: ps.id, lifecycle_stage: ps.lifecycle_stage }
+        ])
       );
 
       const { data: userSettings } = await supabase
@@ -117,7 +128,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
         .eq('user_id', user.id)
         .single();
 
-      const defaultBrokerageSplit = (userSettings as any)?.default_brokerage_split_rate || 0.2;
+      const defaultBrokerageSplit = (userSettings as UserSettings | null)?.default_brokerage_split_rate || 0.2;
 
       let successCount = 0;
       let failedCount = 0;
@@ -140,8 +151,8 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           continue;
         }
 
-        let pipelineStatusId = null;
-        let status: any = 'new';
+        let pipelineStatusId: string | null = null;
+        let status: DealStatus = 'new';
         if (rowData.pipeline_status && rowData.pipeline_status.trim() !== '') {
           const normalizedStatusName = rowData.pipeline_status.toLowerCase().trim();
           const mappedStatus = pipelineStatusMap.get(normalizedStatusName);
@@ -166,7 +177,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           }
         }
 
-        const dealData = {
+        const dealData: DealInsert = {
           user_id: user.id,
           client_name: rowData.client_name.trim(),
           client_phone: rowData.client_phone?.trim() || null,
@@ -175,7 +186,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           city: rowData.city?.trim() || null,
           state: rowData.state?.trim() || null,
           zip: rowData.zip?.trim() || null,
-          deal_type: rowData.deal_type.trim(),
+          deal_type: rowData.deal_type.trim() as DealType,
           lead_source_id: leadSourceId,
           pipeline_status_id: pipelineStatusId,
           status: status,
@@ -205,8 +216,8 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           closed_at: status === 'closed' ? new Date().toISOString() : null
         };
 
-        const { error } = await (supabase
-          .from('deals') as any)
+        const { error } = await supabase
+          .from('deals')
           .insert(dealData);
 
         if (error) {

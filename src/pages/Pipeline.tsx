@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -10,6 +10,8 @@ import PipelineTable from '../components/PipelineTable';
 import DealCard from '../components/DealCard';
 import DealModal from '../components/DealModal';
 import TemplateSelectionModal from '../components/TemplateSelectionModal';
+import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
+import { Skeleton } from '../components/ui/Skeleton';
 import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
@@ -18,6 +20,7 @@ type Deal = Database['public']['Tables']['deals']['Row'] & {
   lead_sources?: Database['public']['Tables']['lead_sources']['Row'] | null;
   pipeline_statuses?: Database['public']['Tables']['pipeline_statuses']['Row'] | null;
 };
+type DealUpdate = Database['public']['Tables']['deals']['Update'];
 
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 type AccessibleAgentRow = {
@@ -121,10 +124,6 @@ export default function Pipeline() {
       },
     })
   );
-
-  useEffect(() => {
-    loadDeals();
-  }, [user, roleInfo]);
 
   useEffect(() => {
     const loadAgents = async () => {
@@ -282,7 +281,7 @@ export default function Pipeline() {
     }
   }, [statusesLoading, combinedStatuses]);
 
-  const loadDeals = async () => {
+  const loadDeals = useCallback(async () => {
     if (!user || !roleInfo) return;
 
     setLoading(true);
@@ -298,7 +297,7 @@ export default function Pipeline() {
           console.error('Error loading team members', error);
           return [];
         }
-        return ((data || []) as any[]).map(member => member.user_id);
+        return (data || []).map((member: { user_id: string }) => member.user_id);
       };
 
       let visibleUserIds: string[] = [];
@@ -345,7 +344,7 @@ export default function Pipeline() {
         setDeals([]);
       } else {
         const currentYear = new Date().getFullYear();
-        const filtered = ((data || []) as any[]).filter(deal => {
+        const filtered = (data || []).filter(deal => {
           if (deal.status !== 'closed') return true;
           const closedDate = deal.close_date || deal.closed_at;
           if (!closedDate) return false;
@@ -360,7 +359,11 @@ export default function Pipeline() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [roleInfo, user]);
+
+  useEffect(() => {
+    loadDeals();
+  }, [loadDeals]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const deal = deals.find(d => d.id === event.active.id);
@@ -407,7 +410,7 @@ export default function Pipeline() {
     }
 
     const lifecycleStage = newStatus.lifecycle_stage || 'in_progress';
-    const updates: any = {
+    const updates: DealUpdate = {
       pipeline_status_id: potentialStatusId,
       status: lifecycleStage,
       stage_entered_at: new Date().toISOString()
@@ -419,8 +422,8 @@ export default function Pipeline() {
       updates.closed_at = null;
     }
 
-    const { error } = await (supabase
-      .from('deals') as any)
+    const { error } = await supabase
+      .from('deals')
       .update(updates)
       .eq('id', dealId);
 
@@ -534,7 +537,7 @@ export default function Pipeline() {
   };
 
   const handleBulkEdit = async (dealIds: string[], updates: Partial<Deal>) => {
-    const updateData: any = {};
+    const updateData: DealUpdate = {};
 
     if (updates.pipeline_status_id) {
       updateData.pipeline_status_id = updates.pipeline_status_id;
@@ -550,8 +553,8 @@ export default function Pipeline() {
       }
     }
 
-    const { error } = await (supabase
-      .from('deals') as any)
+    const { error } = await supabase
+      .from('deals')
       .update(updateData)
       .in('id', dealIds);
 
@@ -588,25 +591,6 @@ export default function Pipeline() {
     { label: 'Net Commission', value: metrics.totalCommission, display: formatCurrency(metrics.totalCommission) }
   ].filter(pill => pill.value > 0);
 
-  const extractSelected = (event: ChangeEvent<HTMLSelectElement>) =>
-    Array.from(event.target.selectedOptions).map(option => option.value);
-
-  const handleAgentFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedAgentIds(extractSelected(event));
-  };
-
-  const handleLeadSourceFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedLeadSourceIds(extractSelected(event));
-  };
-
-  const handleStageFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedStageIds(extractSelected(event));
-  };
-
-  const handleDealTypeMultiChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedDealTypeIds(extractSelected(event) as Deal['deal_type'][]);
-  };
-
   const clearAllFilters = () => {
     setSelectedAgentIds([]);
     setSelectedLeadSourceIds([]);
@@ -616,18 +600,102 @@ export default function Pipeline() {
 
   const showFilterPanel = viewMode === 'table' || (isSalesManager && viewMode === 'kanban');
   const showStageFilter = viewMode === 'table';
-  const hasActivePipelineFilters =
-    selectedAgentIds.length > 0 ||
-    selectedLeadSourceIds.length > 0 ||
-    selectedDealTypeIds.length > 0 ||
-    selectedStageIds.length > 0;
-
   // NEW: make this explicitly boolean so React never sees a naked 0
   const hasDashboardFilters =
     dashboardAgentFilters.length > 0 ||
     dashboardLeadSourceFilters.length > 0 ||
     dashboardDealTypeFilters.length > 0 ||
     dashboardStageFilters.length > 0;
+  const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
+  const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user?.id;
+  const selectMyData = () => {
+    if (user) {
+      setSelectedAgentIds([user.id]);
+    }
+  };
+  const agentOptions = useMemo(
+    () =>
+      availableAgents.map((agent) => ({
+        value: agent.id,
+        label: agent.label
+      })),
+    [availableAgents]
+  );
+  const stageOptions = useMemo(
+    () =>
+      availableStageFilters.map((stage) => ({
+        value: stage.id,
+        label: stage.name
+      })),
+    [availableStageFilters]
+  );
+  const leadSourceOptions = useMemo(
+    () =>
+      availableLeadSources.map((source) => ({
+        value: source.id,
+        label: source.name
+      })),
+    [availableLeadSources]
+  );
+  const dealTypeOptions = useMemo(
+    () =>
+      availableDealTypeFilters.map((dealType) => ({
+        value: dealType,
+        label: DEAL_TYPE_FILTER_META[dealType]?.label || dealType.replace(/_/g, ' ')
+      })),
+    [availableDealTypeFilters]
+  );
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+
+    if (selectedAgentIds.length > 0) {
+      const agentLabel =
+        selectedAgentIds.length === 1
+          ? `Agent: ${
+              availableAgents.find((agent) => agent.id === selectedAgentIds[0])?.label || 'Agent'
+            }`
+          : `Agents: ${selectedAgentIds.length}`;
+      chips.push({ key: 'agents', label: agentLabel, onRemove: () => setSelectedAgentIds([]) });
+    }
+
+    if (selectedStageIds.length > 0) {
+      const stageLabel =
+        selectedStageIds.length === 1
+          ? `Stage: ${
+              availableStageFilters.find((stage) => stage.id === selectedStageIds[0])?.name || 'Stage'
+            }`
+          : `Stages: ${selectedStageIds.length}`;
+      chips.push({ key: 'stages', label: stageLabel, onRemove: () => setSelectedStageIds([]) });
+    }
+
+    if (selectedDealTypeIds.length > 0) {
+      const typeLabel =
+        selectedDealTypeIds.length === 1
+          ? `Type: ${DEAL_TYPE_FILTER_META[selectedDealTypeIds[0]]?.label || selectedDealTypeIds[0]}`
+          : `Types: ${selectedDealTypeIds.length}`;
+      chips.push({ key: 'types', label: typeLabel, onRemove: () => setSelectedDealTypeIds([]) });
+    }
+
+    if (selectedLeadSourceIds.length > 0) {
+      const sourceLabel =
+        selectedLeadSourceIds.length === 1
+          ? `Source: ${
+              availableLeadSources.find((source) => source.id === selectedLeadSourceIds[0])?.name || 'Source'
+            }`
+          : `Sources: ${selectedLeadSourceIds.length}`;
+      chips.push({ key: 'sources', label: sourceLabel, onRemove: () => setSelectedLeadSourceIds([]) });
+    }
+
+    return chips;
+  }, [
+    availableAgents,
+    availableLeadSources,
+    availableStageFilters,
+    selectedAgentIds,
+    selectedDealTypeIds,
+    selectedLeadSourceIds,
+    selectedStageIds,
+  ]);
 
   const scopeDescription = useMemo(() => {
     const formatList = (items: string[], fallback: string) => {
@@ -679,13 +747,7 @@ export default function Pipeline() {
     showStageFilter
   ]);
 
-  if (loading || statusesLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  const isInitialLoading = loading || statusesLoading;
 
   return (
     <div className="space-y-6 min-h-full">
@@ -738,7 +800,13 @@ export default function Pipeline() {
           </div>
         </div>
 
-        {summaryPills.length > 0 && (
+        {isInitialLoading ? (
+          <div className="flex flex-wrap gap-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={`pill-skeleton-${index}`} className="h-8 w-28" />
+            ))}
+          </div>
+        ) : summaryPills.length > 0 && (
           <div className="flex flex-wrap gap-3">
             {summaryPills.map(pill => (
               <div key={pill.label} className={`${pillClass} gap-2`}>
@@ -754,8 +822,8 @@ export default function Pipeline() {
             className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)] p-5 space-y-5"
             aria-label="Scope filters"
           >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
+            <div className="flex flex-col gap-2">
+              <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
                   Scope
                 </p>
@@ -763,137 +831,90 @@ export default function Pipeline() {
                   {scopeDescription}
                 </p>
               </div>
-              {hasActivePipelineFilters && (
-                <button
-                  type="button"
-                  onClick={clearAllFilters}
-                  className="text-xs font-semibold text-[var(--app-accent)] hover:underline"
-                >
-                  Clear all
-                </button>
-              )}
             </div>
+            {(activeFilterChips.length > 0 || showFocusOnMe) && (
+              <div className="flex flex-wrap items-center gap-2 -mt-1">
+                {showFocusOnMe && (
+                  <button
+                    type="button"
+                    onClick={selectMyData}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      isFocusOnMeActive
+                        ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
+                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                    }`}
+                  >
+                    Focus On Me
+                  </button>
+                )}
+                {activeFilterChips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={chip.onRemove}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                  >
+                    {chip.label}
+                    <span className="text-gray-400">x</span>
+                  </button>
+                ))}
+                {activeFilterChips.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-xs font-semibold text-[var(--app-accent)]"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className={`grid grid-cols-1 gap-4 ${showStageFilter ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
-                    Agents
-                  </p>
-                  {selectedAgentIds.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedAgentIds([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Agents"
+                  options={agentOptions}
                   value={selectedAgentIds}
-                  onChange={handleAgentFilterChange}
-                  className="hig-input min-h-[72px] rounded-2xl border-gray-200 bg-white/90 text-sm"
-                >
-                  {availableAgents.map(agent => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedAgentIds}
+                  placeholder="Search agents..."
+                  disabled={agentOptions.length === 0}
+                />
               </div>
 
               {showStageFilter && (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
-                      Pipeline Stage
-                    </p>
-                    {selectedStageIds.length > 0 && (
-                      <button
-                        type="button"
-                        className="text-xs text-[var(--app-accent)]"
-                        onClick={() => setSelectedStageIds([])}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                  <select
-                    multiple
+                  <MultiSelectCombobox
+                    label="Pipeline Stage"
+                    options={stageOptions}
                     value={selectedStageIds}
-                    onChange={handleStageFilterChange}
-                    className="hig-input min-h-[64px] mt-2"
-                  >
-                    {availableStageFilters.map(stage => (
-                      <option key={stage.id} value={stage.id}>
-                        {stage.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setSelectedStageIds}
+                    placeholder="Search stages..."
+                    disabled={stageOptions.length === 0}
+                  />
                 </div>
               )}
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
-                    Deal Type
-                  </p>
-                  {selectedDealTypeIds.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedDealTypeIds([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Deal Type"
+                  options={dealTypeOptions}
                   value={selectedDealTypeIds}
-                  onChange={handleDealTypeMultiChange}
-                  className="hig-input min-h-[64px] mt-2"
-                >
-                  {availableDealTypeFilters.map(dealType => {
-                    const metaLabel = DEAL_TYPE_FILTER_META[dealType]?.label;
-                    return (
-                      <option key={dealType} value={dealType}>
-                        {metaLabel || dealType.replace(/_/g, ' ')}
-                      </option>
-                    );
-                  })}
-                </select>
+                  onChange={(next) => setSelectedDealTypeIds(next as Deal['deal_type'][])}
+                  placeholder="Search deal types..."
+                  disabled={dealTypeOptions.length === 0}
+                />
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
-                    Lead Source
-                  </p>
-                  {selectedLeadSourceIds.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--app-accent)]"
-                      onClick={() => setSelectedLeadSourceIds([])}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  multiple
+                <MultiSelectCombobox
+                  label="Lead Source"
+                  options={leadSourceOptions}
                   value={selectedLeadSourceIds}
-                  onChange={handleLeadSourceFilterChange}
-                  className="hig-input min-h-[64px] mt-2"
-                >
-                  {availableLeadSources.map(source => (
-                    <option key={source.id} value={source.id}>
-                      {source.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedLeadSourceIds}
+                  placeholder="Search lead sources..."
+                  disabled={leadSourceOptions.length === 0}
+                />
               </div>
             </div>
           </section>
@@ -914,7 +935,18 @@ export default function Pipeline() {
         )}
       </div>
 
-      {combinedStatuses.length === 0 ? (
+      {isInitialLoading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={`pipeline-skeleton-${index}`} className={`${surfaceClass} p-4 space-y-3`}>
+              <Skeleton className="h-4 w-32" />
+              {Array.from({ length: 4 }).map((__, cardIndex) => (
+                <Skeleton key={`pipeline-skeleton-${index}-${cardIndex}`} className="h-20 w-full" />
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : combinedStatuses.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />

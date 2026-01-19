@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 import type { Database, GlobalRole } from '../lib/database.types';
 
 type Invitation = Database['public']['Tables']['workspace_invitations']['Row'];
+type InvitationInsert = Database['public']['Tables']['workspace_invitations']['Insert'];
+type InvitationUpdate = Database['public']['Tables']['workspace_invitations']['Update'];
 
 interface CreateInvitePayload {
   email: string;
@@ -77,18 +79,19 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
     async ({ email, intendedRole, teamId }: CreateInvitePayload) => {
       if (!workspaceId) return { error: new Error('Workspace is required') };
       if (!teamId) return { error: new Error('Team is required for invites') };
-      const { data, error} = await (supabase
-        .from('workspace_invitations') as any)
-        .insert({
-          email,
-          intended_role: intendedRole,
-          workspace_id: workspaceId,
-          team_id: teamId ?? null,
-        })
+      const payload: InvitationInsert = {
+        email,
+        intended_role: intendedRole,
+        workspace_id: workspaceId,
+        team_id: teamId ?? null,
+      };
+      const { data, error } = await supabase
+        .from('workspace_invitations')
+        .insert(payload)
         .select('*')
         .single();
       if (!error && data) {
-        await sendInviteEmail((data as any).id);
+        await sendInviteEmail(data.id);
         await fetchInvites();
       }
       return { error };
@@ -98,9 +101,10 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
 
   const cancelInvite = useCallback(
     async (inviteId: string) => {
-      const { error } = await (supabase
-        .from('workspace_invitations') as any)
-        .update({ status: 'canceled' })
+      const payload: InvitationUpdate = { status: 'canceled' };
+      const { error } = await supabase
+        .from('workspace_invitations')
+        .update(payload)
         .eq('id', inviteId);
       if (!error) {
         await fetchInvites();
@@ -112,17 +116,18 @@ export function useWorkspaceInvites(workspaceId?: string | null) {
 
   const resendInvite = useCallback(
     async (inviteId: string) => {
-      const { data, error } = await (supabase
-        .from('workspace_invitations') as any)
-        .update({
-          status: 'pending',
-          expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-        })
+      const payload: InvitationUpdate = {
+        status: 'pending',
+        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+      const { data, error } = await supabase
+        .from('workspace_invitations')
+        .update(payload)
         .eq('id', inviteId)
         .select('*')
         .single();
       if (!error && data) {
-        await sendInviteEmail((data as any).id);
+        await sendInviteEmail(data.id);
         await fetchInvites();
       }
       return { error };

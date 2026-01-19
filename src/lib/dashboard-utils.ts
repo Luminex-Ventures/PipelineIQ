@@ -117,13 +117,14 @@ export function getDateRange(range: DateRange, customStart?: Date, customEnd?: D
         start: new Date(currentYear, currentMonth, 1),
         end: new Date(currentYear, currentMonth + 1, 0, 23, 59, 59)
       };
-    case 'last_30_days':
+    case 'last_30_days': {
       const thirtyDaysAgo = new Date(now);
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       return {
         start: thirtyDaysAgo,
         end: now
       };
+    }
     case 'this_quarter':
       return {
         start: new Date(currentYear, currentQuarter * 3, 1),

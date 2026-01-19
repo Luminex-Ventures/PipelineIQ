@@ -87,26 +87,26 @@ export function parseFlexibleDate(input: string | undefined | null): string | nu
 
   const normalized = raw.replace(/\s+/g, ' ');
 
-  const isoMatch = normalized.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  const isoMatch = normalized.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
   if (isoMatch) {
-    const [_, y, m, d] = isoMatch;
+    const [, y, m, d] = isoMatch;
     return buildISO(parseInt(y, 10), parseInt(m, 10), parseInt(d, 10));
   }
 
-  const usMatch = normalized.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2}|\d{4})$/);
+  const usMatch = normalized.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/);
   if (usMatch) {
-    const [_, m, d, y] = usMatch;
+    const [, m, d, y] = usMatch;
     const year = normalizeYear(parseInt(y, 10));
     return buildISO(year, parseInt(m, 10), parseInt(d, 10));
   }
 
   const dottedIsoMatch = normalized.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})$/);
   if (dottedIsoMatch) {
-    const [_, y, m, d] = dottedIsoMatch;
+    const [, y, m, d] = dottedIsoMatch;
     return buildISO(parseInt(y, 10), parseInt(m, 10), parseInt(d, 10));
   }
 
-  const monthFirstMatch = normalized.match(/^([A-Za-z]+)[\s\-](\d{1,2}),?[\s\-]*(\d{4})$/);
+  const monthFirstMatch = normalized.match(/^([A-Za-z]+)[\s-](\d{1,2}),?[\s-]*(\d{4})$/);
   if (monthFirstMatch) {
     const month = monthFromName(monthFirstMatch[1]);
     if (month) {
@@ -114,7 +114,7 @@ export function parseFlexibleDate(input: string | undefined | null): string | nu
     }
   }
 
-  const dayFirstMatch = normalized.match(/^(\d{1,2})[\s\-]([A-Za-z]+),?[\s\-]*(\d{4})$/);
+  const dayFirstMatch = normalized.match(/^(\d{1,2})[\s-]([A-Za-z]+),?[\s-]*(\d{4})$/);
   if (dayFirstMatch) {
     const month = monthFromName(dayFirstMatch[2]);
     if (month) {
@@ -293,7 +293,12 @@ export function parseCSV(content: string): string[][] {
   return lines;
 }
 
-export function validateDealRow(row: any, validStatusNames: string[] = []): { valid: boolean; errors: string[] } {
+type ParsedCsvRow = Record<string, string>;
+
+export function validateDealRow(
+  row: ParsedCsvRow,
+  validStatusNames: string[] = []
+): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   if (!row.client_name || row.client_name.trim() === '') {
@@ -324,8 +329,8 @@ export function validateDealRow(row: any, validStatusNames: string[] = []): { va
   };
 }
 
-export function csvRowToObject(headers: string[], row: string[]): any {
-  const obj: any = {};
+export function csvRowToObject(headers: string[], row: string[]): ParsedCsvRow {
+  const obj: ParsedCsvRow = {};
   headers.forEach((header, index) => {
     const value = row[index] || '';
     obj[header] = value;

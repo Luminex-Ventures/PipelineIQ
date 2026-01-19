@@ -605,11 +605,11 @@ export default function PipelineTable({
         case 'updatedAt':
           return deal.updated_at ? new Date(deal.updated_at).getTime() : null;
         default:
-          return stringValue((deal as any)[column]);
+          return stringValue((deal as Record<string, unknown>)[column]);
       }
     };
 
-    const compareValues = (aValue: any, bValue: any) => {
+    const compareValues = (aValue: unknown, bValue: unknown) => {
       if (aValue === null || aValue === undefined) {
         return bValue === null || bValue === undefined ? 0 : 1;
       }
