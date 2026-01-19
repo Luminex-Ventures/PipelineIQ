@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { generateDashboardInsights } from '../lib/openai-insights';
@@ -16,7 +16,8 @@ import {
   getGreeting,
   getTodayFormatted,
   getDateRange,
-  calculateGCI,
+  calculateActualGCI,
+  calculateExpectedGCI,
   isStalled,
   getDaysInStage,
   type DateRange
@@ -40,6 +41,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { STATUS_LABELS } from '../constants/statusLabels';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
+import { useNavigate } from 'react-router-dom';
 
 type DealRow = Database['public']['Tables']['deals']['Row'];
 type LeadSourceRow = Database['public']['Tables']['lead_sources']['Row'];
@@ -93,6 +95,14 @@ interface DealTypeBreakdown {
   statusCounts: Record<DealRow['status'], number>;
 }
 
+type AiInsightsState = {
+  key: string;
+  insights: string[];
+  generatedAt: number;
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  error?: string;
+};
+
 interface AccessibleAgentRow {
   user_id: string;
   display_name: string | null;
@@ -115,11 +125,6 @@ interface StageOption {
 
 type DealQuery<T> = PostgrestFilterBuilder<Database['public'], T, T[]>;
 
-type DealContextRow = DealRow & {
-  lead_sources?: { id: string; name: string | null } | null;
-  pipeline_statuses?: { id: string; name: string; color: string | null; sort_order: number | null } | null;
-};
-
 type DashboardLayoutRow = Database['public']['Tables']['dashboard_layouts']['Row'];
 
 // This file uses DB status values, not UI labels
@@ -127,7 +132,6 @@ const OPEN_STATUSES = ['new', 'in_progress'] as const;
 const NON_ACTIVE_STATUSES = ['closed', 'dead'] as const;
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
-const CURRENT_YEAR = new Date().getFullYear();
 
 const DEAL_TYPE_LABELS: Record<DealRow['deal_type'], string> = {
   buyer: 'Buyer',
@@ -158,18 +162,26 @@ const DEAL_BASE_COLUMNS = `
   property_address
 `;
 
-const OPEN_DEALS_SELECT = `
+const DEAL_PIPELINE_COLUMNS = `
   ${DEAL_BASE_COLUMNS},
-  pipeline_statuses (id, name, color, sort_order),
+  pipeline_statuses (id, name, color, sort_order)
+`;
+
+const DEAL_LEAD_SOURCE_COLUMNS = `
+  ${DEAL_BASE_COLUMNS},
   lead_sources (id, name)
+`;
+
+const OPEN_DEALS_SELECT = `
+  ${DEAL_PIPELINE_COLUMNS}
 `;
 
 const CLOSED_DEALS_SELECT = `
-  ${DEAL_BASE_COLUMNS},
-  lead_sources (id, name)
+  ${DEAL_LEAD_SOURCE_COLUMNS}
 `;
 
 const INSIGHTS_REFRESH_MS = 30 * 60 * 1000;
+const AI_INSIGHTS_TTL_MS = 30 * 60 * 1000;
 const GREETING_CHECK_INTERVAL_MS = 60 * 1000;
 
 const DEFAULT_WIDGETS = [
@@ -198,6 +210,8 @@ interface ParsedDateParts {
 }
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const toDateOnly = (iso: string) => iso.slice(0, 10);
 
 const parseDateValue = (value?: string | null): ParsedDateParts | null => {
   if (!value) return null;
@@ -241,6 +255,16 @@ const parseDateValue = (value?: string | null): ParsedDateParts | null => {
   };
 };
 
+const buildCloseTsFilter = (startISO: string, endISO: string) => {
+  const startDateOnly = toDateOnly(startISO);
+  const endDateOnly = toDateOnly(endISO);
+  const clauses = [
+    `and(close_date.not.is.null,close_date.gte.${startDateOnly},close_date.lte.${endDateOnly})`,
+    `and(close_date.is.null,closed_at.not.is.null,closed_at.gte.${startISO},closed_at.lte.${endISO})`
+  ];
+  return clauses.join(',');
+};
+
 const getCloseDateTimestamp = (value?: string | null): number | null => {
   if (!value) return null;
   const parsed = parseDateValue(value);
@@ -250,30 +274,10 @@ const getCloseDateTimestamp = (value?: string | null): number | null => {
   const isDateOnly = DATE_ONLY_REGEX.test(trimmed);
 
   if (isDateOnly) {
-    const day = parsed.date.getUTCDate();
-    return new Date(parsed.year, parsed.month, day, 23, 59, 59, 999).getTime();
+    return Date.UTC(parsed.year, parsed.month, parsed.date.getUTCDate(), 23, 59, 59, 999);
   }
 
   return parsed.date.getTime();
-};
-
-const buildCloseDateFilter = (startISO: string, endISO: string) => {
-  const startDateOnly = startISO.split('T')[0];
-  const endDateOnly = endISO.split('T')[0];
-  const clauses = [
-    `and(close_date.gte.${startDateOnly},close_date.lte.${endDateOnly})`,
-    `and(close_date.is.null,closed_at.gte.${startISO},closed_at.lte.${endISO})`
-  ];
-  return clauses.join(',');
-};
-
-const isDealClosedWithinRange = (deal: DealRow, start: Date, end: Date) => {
-  const closedParts =
-    parseDateValue(deal.close_date) ||
-    parseDateValue(deal.closed_at);
-  if (!closedParts) return false;
-  const closedTime = closedParts.date.getTime();
-  return closedTime >= start.getTime() && closedTime <= end.getTime();
 };
 
 interface SortableWidgetProps {
@@ -314,8 +318,34 @@ function SortableWidget({ id, children }: SortableWidgetProps) {
   );
 }
 
+function RefreshOverlay({
+  active,
+  children,
+  label = 'Updating…'
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  label?: string;
+}) {
+  return (
+    <div className="relative">
+      <div className={active ? 'opacity-70 transition-opacity' : 'transition-opacity'}>
+        {children}
+      </div>
+      {active && (
+        <div className="absolute inset-0 rounded-2xl bg-white/40 backdrop-blur-[1px] flex items-start justify-end p-3 pointer-events-none">
+          <div className="text-[11px] font-semibold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-1 shadow-sm">
+            {label}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user, roleInfo } = useAuth();
+  const navigate = useNavigate();
 
   const [stats, setStats] = useState<DashboardStats>({
     ytdGCI: 0,
@@ -332,15 +362,20 @@ export default function Dashboard() {
   const [stalledDeals, setStalledDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [aiInsights, setAiInsights] = useState<string[]>([]);
-  const [lockedAiInsights, setLockedAiInsights] = useState<string[] | null>(null);
-  const [lockedGeneratedInsights, setLockedGeneratedInsights] = useState<string[] | null>(null);
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const insightsLockedRef = useRef(false);
-  const [lastInsightsUpdatedAt, setLastInsightsUpdatedAt] = useState<number>(0);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number>(0);
+  const [aiInsightsState, setAiInsightsState] = useState<AiInsightsState>({
+    key: '',
+    insights: [],
+    generatedAt: 0,
+    status: 'idle'
+  });
+  const [lastGreetingUpdatedAt, setLastGreetingUpdatedAt] = useState<number>(0);
   const [greetingText, setGreetingText] = useState<string>('');
   const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const requestIdRef = useRef(0);
+  const dashboardReqRef = useRef(0);
+  const filterCtxReqRef = useRef(0);
+  const insightsReqRef = useRef(0);
+  const [agentsReady, setAgentsReady] = useState(false);
   const [dealTypeStats, setDealTypeStats] = useState<DealTypeBreakdown[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGETS]);
   const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
@@ -353,6 +388,40 @@ export default function Dashboard() {
   const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
   const [dateRangePreset, setDateRangePreset] = useState<DateRange>('ytd');
   const range = useMemo(() => getDateRange(dateRangePreset), [dateRangePreset]);
+  const stableJoin = (arr: string[]) => [...arr].filter(Boolean).sort().join('|');
+  const resolvedAgentIds = useMemo(() => {
+    if (!availableAgents.length) return [] as string[];
+    return selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+  }, [selectedAgentIds, availableAgents]);
+  const queryState = useMemo(() => ({
+    userId: user?.id ?? '',
+    agentIds: resolvedAgentIds,
+    dateRangePreset,
+    startISO: range.start.toISOString(),
+    endISO: range.end.toISOString(),
+    leadSources: selectedLeadSources,
+    pipelineStages: selectedPipelineStages,
+    dealTypes: selectedDealTypes as string[]
+  }), [
+    user?.id,
+    resolvedAgentIds,
+    dateRangePreset,
+    range.start,
+    range.end,
+    selectedLeadSources,
+    selectedPipelineStages,
+    selectedDealTypes
+  ]);
+  const queryKey = useMemo(() => ([
+    queryState.userId,
+    stableJoin(queryState.agentIds),
+    queryState.dateRangePreset,
+    `${queryState.startISO.slice(0, 10)}:${queryState.endISO.slice(0, 10)}`,
+    stableJoin(queryState.leadSources),
+    stableJoin(queryState.pipelineStages),
+    stableJoin(queryState.dealTypes)
+  ].join('::')), [queryState]);
+  const scopeKey = useMemo(() => stableJoin(resolvedAgentIds), [resolvedAgentIds]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -370,6 +439,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
+    setAgentsReady(false);
 
     const bootstrapAgents = async () => {
       const fallback: AgentOption = {
@@ -413,6 +483,7 @@ export default function Dashboard() {
       if (!roleInfo || roleInfo.globalRole === 'agent') {
         setAvailableAgents([fallback]);
         setSelectedAgentIds([user.id]);
+        setAgentsReady(true);
         return;
       }
 
@@ -479,28 +550,13 @@ export default function Dashboard() {
 
       setAvailableAgents(agentOptions);
       setSelectedAgentIds([]);
+      setAgentsReady(true);
     };
 
     bootstrapAgents();
   }, [user, roleInfo, roleInfo?.globalRole, roleInfo?.teamId]);
 
   // Derived metrics (memoized)
-  const agentScopeKey = useMemo(
-    () => (selectedAgentIds.length ? [...selectedAgentIds].sort().join('|') : ''),
-    [selectedAgentIds]
-  );
-  const leadFilterKey = useMemo(
-    () => (selectedLeadSources.length ? [...selectedLeadSources].sort().join('|') : ''),
-    [selectedLeadSources]
-  );
-  const stageFilterKey = useMemo(
-    () => (selectedPipelineStages.length ? [...selectedPipelineStages].sort().join('|') : ''),
-    [selectedPipelineStages]
-  );
-  const dealTypeFilterKey = useMemo(
-    () => (selectedDealTypes.length ? [...selectedDealTypes].sort().join('|') : ''),
-    [selectedDealTypes]
-  );
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id;
   const isAllAgentsSelected =
@@ -621,6 +677,18 @@ export default function Dashboard() {
     if (!availableDealTypes.length) return;
     setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
   }, [availableDealTypes]);
+
+  useEffect(() => {
+    if (!availableLeadSources.length) return;
+    const allowed = new Set(availableLeadSources.map((source) => source.id));
+    setSelectedLeadSources((current) => current.filter((id) => allowed.has(id)));
+  }, [availableLeadSources]);
+
+  useEffect(() => {
+    if (!availableStages.length) return;
+    const allowed = new Set(availableStages.map((stage) => stage.id));
+    setSelectedPipelineStages((current) => current.filter((id) => allowed.has(id)));
+  }, [availableStages]);
 
   const agentOptions = useMemo(
     () =>
@@ -747,36 +815,34 @@ export default function Dashboard() {
   }, [upcomingDeals]);
 
   const projectedGCI = useMemo(
-    () => filteredUpcomingDeals.reduce((sum, deal) => sum + calculateGCI(deal), 0),
+    () => filteredUpcomingDeals.reduce((sum, deal) => sum + calculateExpectedGCI(deal), 0),
     [filteredUpcomingDeals]
   );
+  const formatLastUpdated = useCallback((timestamp: number) => {
+    const elapsedMs = Date.now() - timestamp;
+    if (elapsedMs < 60_000) return 'just now';
+    return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    if (!availableAgents.length) return;
-    loadDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey, dateRangePreset, availableAgents.length]);
-
-  useEffect(() => {
-    if (!user) return;
-    loadWidgetLayout();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  useEffect(() => {
-    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
-    if (!user || !ids.length) return;
-    loadFilterContext(ids);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgentIds, availableAgents]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (insightsLockedRef.current) return;
-    loadAIInsights();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, lastInsightsUpdatedAt]);
+  const insightsKey = useMemo(() => ([
+    queryKey,
+    stats.ytdGCI.toFixed(0),
+    stats.ytdDeals,
+    pipelineHealth.length,
+    leadSourceData.length,
+    monthlyData.length,
+    projectedGCI.toFixed(0),
+    upcomingDeals.length
+  ].join('::')), [
+    queryKey,
+    stats.ytdGCI,
+    stats.ytdDeals,
+    pipelineHealth.length,
+    leadSourceData.length,
+    monthlyData.length,
+    projectedGCI,
+    upcomingDeals.length
+  ]);
 
   useEffect(() => {
     if (!user) return;
@@ -784,10 +850,10 @@ export default function Dashboard() {
     const updateGreeting = () => {
       const now = Date.now();
       const isStale =
-        lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS || !greetingText;
+        lastGreetingUpdatedAt === 0 || now - lastGreetingUpdatedAt >= INSIGHTS_REFRESH_MS || !greetingText;
       if (isStale) {
         setGreetingText(getGreeting(user.user_metadata?.name, roleInfo?.globalRole));
-        setLastInsightsUpdatedAt(now);
+        setLastGreetingUpdatedAt(now);
       }
     };
 
@@ -803,10 +869,9 @@ export default function Dashboard() {
         clearInterval(greetingTimerRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.user_metadata?.name]);
+  }, [user?.user_metadata?.name, roleInfo?.globalRole, lastGreetingUpdatedAt, greetingText]);
 
-  const withUserScope = <T,>(query: DealQuery<T>, userIds: string[]) => {
+  const withUserScope = useCallback(<T,>(query: DealQuery<T>, userIds: string[]) => {
     if (!userIds.length) {
       return query;
     }
@@ -816,101 +881,74 @@ export default function Dashboard() {
     }
 
     return query.in('user_id', userIds);
-  };
+  }, []);
 
-  const applyDealFilters = <T,>(query: DealQuery<T>, userIds: string[]) => {
+  const applyDealFilters = useCallback(<T,>(
+    query: DealQuery<T>,
+    userIds: string[],
+    filters: { leadSources: string[]; pipelineStages: string[]; dealTypes: DealRow['deal_type'][] }
+  ) => {
     query = withUserScope(query, userIds);
 
-    if (selectedLeadSources.length) {
-      query = query.in('lead_source_id', selectedLeadSources);
+    if (filters.leadSources.length) {
+      query = query.in('lead_source_id', filters.leadSources);
     }
 
-    if (selectedPipelineStages.length) {
-      const filteredStages = selectedPipelineStages.filter(Boolean);
+    if (filters.pipelineStages.length) {
+      const filteredStages = filters.pipelineStages.filter(Boolean);
       if (filteredStages.length) {
         query = query.in('pipeline_status_id', filteredStages);
       }
     }
 
-    if (selectedDealTypes.length) {
-      query = query.in('deal_type', selectedDealTypes);
+    if (filters.dealTypes.length) {
+      query = query.in('deal_type', filters.dealTypes);
     }
 
     return query;
-  };
+  }, [withUserScope]);
 
-  const loadFilterContext = async (agentIds: string[]) => {
-    const ids = agentIds.length ? agentIds : availableAgents.map(a => a.id);
-    if (!ids.length) return;
+  const loadFilterContext = useCallback(async (_agentIds: string[]) => {
+    const reqId = ++filterCtxReqRef.current;
 
-    let contextQuery = supabase
-      .from('deals')
-      .select(`
-        id,
-        user_id,
-        deal_type,
-        lead_source_id,
-        lead_sources (id, name),
-        pipeline_status_id,
-        pipeline_statuses (id, name, color, sort_order)
-      `)
-      .order('created_at', { ascending: false })
-      .limit(1000);
+    const [pipelineResponse, leadResponse] = await Promise.all([
+      supabase
+        .from('pipeline_statuses')
+        .select('id, name, color, sort_order')
+        .order('sort_order', { ascending: true }),
+      supabase
+        .from('lead_sources')
+        .select('id, name')
+        .order('name', { ascending: true })
+    ]);
 
-    contextQuery = withUserScope(contextQuery, ids);
+    if (reqId !== filterCtxReqRef.current) return;
 
-    const { data, error } = await contextQuery;
-    if (error) {
-      console.error('Unable to load filter context', error);
-      return;
+    if (pipelineResponse.error) {
+      console.error('Unable to load pipeline statuses', pipelineResponse.error);
+    }
+    if (leadResponse.error) {
+      console.error('Unable to load lead sources', leadResponse.error);
     }
 
-    const leadMap = new Map<string, { id: string; name: string }>();
-    const stageMap = new Map<string, StageOption>();
-    const dealTypeSet = new Set<DealRow['deal_type']>();
+    const stages = (pipelineResponse.data || []).map((stage) => ({
+      id: stage.id,
+      label: stage.name,
+      color: stage.color,
+      sortOrder: stage.sort_order
+    }));
 
-    (data as DealContextRow[] | null || []).forEach((deal) => {
-      if (deal.lead_sources?.id) {
-        leadMap.set(deal.lead_sources.id, {
-          id: deal.lead_sources.id,
-          name: deal.lead_sources.name || 'Unknown'
-        });
-      }
+    const leadSources = (leadResponse.data || []).map((source) => ({
+      id: source.id,
+      name: source.name || 'Unknown'
+    }));
 
-      if (deal.pipeline_statuses?.id) {
-        stageMap.set(deal.pipeline_statuses.id, {
-          id: deal.pipeline_statuses.id,
-          label: deal.pipeline_statuses.name,
-          color: deal.pipeline_statuses.color,
-          sortOrder: deal.pipeline_statuses.sort_order
-        });
-      }
+    setAvailableStages(stages);
+    setAvailableLeadSources(leadSources);
+    setAvailableDealTypes(Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]);
+  }, []);
 
-      if (deal.deal_type) {
-        dealTypeSet.add(deal.deal_type as DealRow['deal_type']);
-      }
-    });
-
-    setAvailableLeadSources(Array.from(leadMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
-    setAvailableStages(
-      Array.from(stageMap.values()).sort((a, b) => {
-        const orderA = a.sortOrder ?? 999;
-        const orderB = b.sortOrder ?? 999;
-        if (orderA === orderB) {
-          return a.label.localeCompare(b.label);
-        }
-        return orderA - orderB;
-      })
-    );
-    const sortedDealTypes = Array.from(dealTypeSet).sort((a, b) => {
-      const labelA = DEAL_TYPE_LABELS[a] ?? a;
-      const labelB = DEAL_TYPE_LABELS[b] ?? b;
-      return labelA.localeCompare(labelB);
-    });
-    setAvailableDealTypes(sortedDealTypes.length ? sortedDealTypes : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]));
-  };
-
-  const deriveStats = (
+  const deriveStats = useCallback((
     closedDeals: Deal[],
     totalLeads: number,
     closingNext7Days: number
@@ -921,7 +959,7 @@ export default function Dashboard() {
     closedDeals.forEach((deal) => {
       const salePrice = deal.actual_sale_price || 0;
       totalVolume += salePrice;
-      totalGCI += calculateGCI(deal);
+      totalGCI += calculateActualGCI(deal);
     });
 
     const ytdDeals = closedDeals.length;
@@ -936,11 +974,9 @@ export default function Dashboard() {
       closingNext7Days,
       conversionRate
     });
-  };
+  }, []);
 
-  const deriveMonthlyData = (closedDeals: Deal[]) => {
-    const currentYear = range?.start ? range.start.getFullYear() : CURRENT_YEAR;
-
+  const deriveMonthlyData = useCallback((closedDeals: Deal[]) => {
     const buckets = MONTH_LABELS.map((month) => ({
       month,
       gci: 0,
@@ -949,9 +985,9 @@ export default function Dashboard() {
 
     closedDeals.forEach((deal) => {
       const closedParts = parseDateValue(deal.close_date) || parseDateValue(deal.closed_at);
-      if (!closedParts || closedParts.year !== currentYear) return;
+      if (!closedParts) return;
       const bucket = buckets[closedParts.month];
-      bucket.gci += calculateGCI(deal);
+      bucket.gci += calculateActualGCI(deal);
       bucket.deals += 1;
     });
 
@@ -962,16 +998,16 @@ export default function Dashboard() {
         deals: bucket.deals
       }))
     );
-  };
+  }, []);
 
-  const deriveLeadSourceData = (closedDeals: Deal[]) => {
+  const deriveLeadSourceData = useCallback((closedDeals: Deal[]) => {
     const sourceMap = new Map<string, { deals: number; gci: number }>();
 
     closedDeals.forEach((deal) => {
       const sourceName = deal.lead_sources?.name || 'Unknown';
       const current = sourceMap.get(sourceName) || { deals: 0, gci: 0 };
       current.deals += 1;
-      current.gci += calculateGCI(deal);
+      current.gci += calculateActualGCI(deal);
       sourceMap.set(sourceName, current);
     });
 
@@ -985,19 +1021,19 @@ export default function Dashboard() {
       .slice(0, 5);
 
     setLeadSourceData(result);
-  };
+  }, []);
 
-  const deriveUpcomingDeals = (activeDeals: Deal[]) => {
+  const deriveUpcomingDeals = useCallback((activeDeals: Deal[]) => {
     const upcoming = activeDeals.filter((deal) => OPEN_STATUSES.includes(deal.status as typeof OPEN_STATUSES[number]));
     setUpcomingDeals(upcoming);
-  };
+  }, []);
 
-  const deriveStalledDeals = (activeDeals: Deal[]) => {
+  const deriveStalledDeals = useCallback((activeDeals: Deal[]) => {
     const stalled = activeDeals.filter((deal) => isStalled(deal.stage_entered_at, 30)).slice(0, 5);
     setStalledDeals(stalled);
-  };
+  }, []);
 
-  const derivePipelineHealth = (activeDeals: Deal[]) => {
+  const derivePipelineHealth = useCallback((activeDeals: Deal[]) => {
     type StageAccumulator = {
       id: string;
       name: string;
@@ -1028,7 +1064,7 @@ export default function Dashboard() {
         stalledCount: 0
       };
       existing.count += 1;
-      existing.expectedGCI += calculateGCI(deal);
+      existing.expectedGCI += calculateExpectedGCI(deal);
       if (isStalled(deal.stage_entered_at, 30)) {
         existing.stalledCount += 1;
       }
@@ -1067,7 +1103,7 @@ export default function Dashboard() {
         statusCounts: {} as Record<DealRow['status'], number>
       };
       existing.count += 1;
-      existing.gci += calculateGCI(deal);
+      existing.gci += calculateExpectedGCI(deal);
       const statusCount = existing.statusCounts[deal.status] || 0;
       existing.statusCounts[deal.status] = statusCount + 1;
       typeMap.set(deal.deal_type, existing);
@@ -1085,30 +1121,31 @@ export default function Dashboard() {
       .sort((a, b) => b.count - a.count);
 
     setDealTypeStats(breakdown);
-  };
+  }, []);
 
-  const getClosingNext7DaysCount = (activeDeals: Deal[]) => {
+  const getClosingNext7DaysCount = useCallback((activeDeals: Deal[]) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const endOfWindow = new Date(startOfToday);
     endOfWindow.setDate(endOfWindow.getDate() + 6);
     endOfWindow.setHours(23, 59, 59, 999);
+    const startDateOnly = toDateOnly(startOfToday.toISOString());
+    const endDateOnly = toDateOnly(endOfWindow.toISOString());
 
     return activeDeals.reduce((count, deal) => {
       if (!OPEN_STATUSES.includes(deal.status as typeof OPEN_STATUSES[number])) return count;
-      const closedParts = parseDateValue(deal.close_date);
-      if (!closedParts) return count;
-      const closeTime = closedParts.date.getTime();
-      if (closeTime >= startOfToday.getTime() && closeTime <= endOfWindow.getTime()) {
+      const closeDateOnly = deal.close_date ? deal.close_date.slice(0, 10) : null;
+      if (!closeDateOnly) return count;
+      if (closeDateOnly >= startDateOnly && closeDateOnly <= endDateOnly) {
         return count + 1;
       }
       return count;
     }, 0);
-  };
+  }, []);
 
-  const loadDashboardData = async () => {
-    if (!user) return;
-    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+  const loadDashboardData = useCallback(async (qs: typeof queryState) => {
+    if (!qs.userId) return;
+    const ids = qs.agentIds;
     if (!ids.length) return;
 
     const isInitialLoad = loading;
@@ -1118,13 +1155,18 @@ export default function Dashboard() {
       setRefreshing(true);
     }
 
-    const startDate = range.start.toISOString();
-    const endDate = range.end.toISOString();
-    const closeDateFilter = buildCloseDateFilter(startDate, endDate);
-    const requestId = ++requestIdRef.current;
+    const startDate = qs.startISO;
+    const endDate = qs.endISO;
+    const closeDateFilter = buildCloseTsFilter(startDate, endDate);
+    const requestId = ++dashboardReqRef.current;
     let isStale = false;
 
     try {
+      const dealFilters = {
+        leadSources: qs.leadSources,
+        pipelineStages: qs.pipelineStages,
+        dealTypes: qs.dealTypes as DealRow['deal_type'][]
+      };
       const [openResp, closedResp, leadsCountResp] = await Promise.all([
         applyDealFilters(
           supabase
@@ -1133,7 +1175,8 @@ export default function Dashboard() {
             .not('status', 'in', `(${NON_ACTIVE_STATUSES.join(',')})`)
             .order('close_date', { ascending: true })
             .limit(2000),
-          ids
+          ids,
+          dealFilters
         ),
         applyDealFilters(
           supabase
@@ -1141,7 +1184,8 @@ export default function Dashboard() {
             .select(CLOSED_DEALS_SELECT)
             .eq('status', 'closed')
             .or(closeDateFilter),
-          ids
+          ids,
+          dealFilters
         ),
         applyDealFilters(
           supabase
@@ -1149,11 +1193,12 @@ export default function Dashboard() {
             .select('id', { count: 'exact', head: true })
             .gte('created_at', startDate)
             .lte('created_at', endDate),
-          ids
+          ids,
+          dealFilters
         )
       ]);
 
-      if (requestId !== requestIdRef.current) {
+      if (requestId !== dashboardReqRef.current) {
         isStale = true;
         return;
       }
@@ -1163,10 +1208,7 @@ export default function Dashboard() {
       if (leadsCountResp.error) console.error('leads count error', leadsCountResp.error);
 
       const activeDeals = (openResp.data ?? []) as Deal[];
-      const closedDealsRaw = (closedResp.data ?? []) as Deal[];
-      const closedDeals = closedDealsRaw.filter((deal) =>
-        isDealClosedWithinRange(deal, range.start, range.end)
-      );
+      const closedDeals = (closedResp.data ?? []) as Deal[];
       const totalLeads = leadsCountResp.count ?? 0;
 
       derivePipelineHealth(activeDeals);
@@ -1176,6 +1218,7 @@ export default function Dashboard() {
       deriveStalledDeals(activeDeals);
       const closingNext7Days = getClosingNext7DaysCount(activeDeals);
       deriveStats(closedDeals, totalLeads, closingNext7Days);
+      setLastRefreshedAt(Date.now());
     } catch (err) {
       console.error('Error loading dashboard data', err);
     } finally {
@@ -1186,22 +1229,35 @@ export default function Dashboard() {
         setRefreshing(false);
       }
     }
-  };
+  }, [
+    applyDealFilters,
+    deriveLeadSourceData,
+    deriveMonthlyData,
+    derivePipelineHealth,
+    deriveStats,
+    deriveStalledDeals,
+    deriveUpcomingDeals,
+    getClosingNext7DaysCount,
+    loading
+  ]);
 
-  const loadAIInsights = async () => {
-    if (insightsLockedRef.current) return;
-
+  const loadAIInsights = useCallback(async () => {
+    const reqId = ++insightsReqRef.current;
     if (!user) return;
 
-    setInsightsLoading(true);
+    const statsPayload = {
+      ...stats,
+      // backward compatibility for downstream consumers expecting the old field name
+      closingThisMonth: stats.closingNext7Days
+    };
 
+    setAiInsightsState((prev) => ({
+      ...prev,
+      key: queryKey,
+      status: 'loading',
+      error: undefined
+    }));
     try {
-      const statsPayload = {
-        ...stats,
-        // backward compatibility for downstream consumers expecting the old field name
-        closingThisMonth: stats.closingNext7Days
-      };
-
       const insights = await generateDashboardInsights({
         stats: statsPayload,
         pipelineHealth: pipelineHealth.map(p => ({
@@ -1217,20 +1273,59 @@ export default function Dashboard() {
         projectedGCI
       });
 
-      setAiInsights(insights);
-      if (!lockedAiInsights && insights.length) {
-        setLockedAiInsights(insights);
-        insightsLockedRef.current = true;
-      }
+      if (reqId !== insightsReqRef.current) return;
+      setAiInsightsState({
+        key: queryKey,
+        insights: insights ?? [],
+        generatedAt: Date.now(),
+        status: 'ready'
+      });
     } catch (error) {
-      console.error('Error loading AI insights:', error);
+      if (reqId !== insightsReqRef.current) return;
+      setAiInsightsState({
+        key: queryKey,
+        insights: [],
+        generatedAt: Date.now(),
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Failed to load insights'
+      });
     } finally {
-      setInsightsLoading(false);
+      // no-op: loading state derived from aiInsightsState
     }
-  };
+  }, [
+    user,
+    stats,
+    pipelineHealth,
+    leadSourceData,
+    monthlyData,
+    upcomingDeals.length,
+    projectedGCI,
+    queryKey
+  ]);
+
+  useEffect(() => {
+    if (!user || !agentsReady || !resolvedAgentIds.length) return;
+    loadFilterContext(resolvedAgentIds);
+  }, [user, agentsReady, scopeKey, loadFilterContext, resolvedAgentIds]);
+
+  useEffect(() => {
+    if (!user || !agentsReady || !resolvedAgentIds.length) return;
+    loadDashboardData(queryState);
+  }, [queryKey, user, agentsReady, resolvedAgentIds.length, loadDashboardData, queryState]);
+
+  useEffect(() => {
+    if (loading) return;
+    const now = Date.now();
+    const isSameQuery = aiInsightsState.key === queryKey;
+    const isFresh =
+      isSameQuery && now - aiInsightsState.generatedAt < AI_INSIGHTS_TTL_MS;
+    if (isFresh) return;
+    if (aiInsightsState.status === 'loading') return;
+    loadAIInsights();
+  }, [loading, insightsKey, aiInsightsState, queryKey, loadAIInsights]);
 
   // Widget layout functions
-  const loadWidgetLayout = async () => {
+  const loadWidgetLayout = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -1254,7 +1349,12 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Error loading widget layout:', err);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    loadWidgetLayout();
+  }, [user, loadWidgetLayout]);
 
   const saveWidgetLayout = async (order: string[]) => {
     if (!user) return;
@@ -1300,11 +1400,11 @@ export default function Dashboard() {
 
   // Quick action handlers
   const handleAddClient = () => {
-    window.location.href = '/pipeline';
+    navigate('/pipeline');
   };
 
   const handleOpenLuma = () => {
-    window.location.href = '/luma';
+    navigate('/luma');
   };
 
   const handlePipelineStatusClick = (status: PipelineStatusSummary) => {
@@ -1325,10 +1425,10 @@ export default function Dashboard() {
     if (selectedDealTypes.length) {
       params.set('dealTypes', serialize(selectedDealTypes));
     }
-    window.location.href = `/pipeline?${params.toString()}`;
+    navigate(`/pipeline?${params.toString()}`);
   };
 
-  const generateInsights = useMemo(() => {
+  const deterministicInsights = useMemo(() => {
     const insights: string[] = [];
 
     if (monthlyData.length >= 2) {
@@ -1382,20 +1482,17 @@ export default function Dashboard() {
     return insights;
   }, [stats, pipelineHealth, leadSourceData, monthlyData, upcomingDeals, projectedGCI]);
 
-  useEffect(() => {
-    if (loading) return;
-    const now = Date.now();
-    const isStale =
-      lastInsightsUpdatedAt === 0 || now - lastInsightsUpdatedAt >= INSIGHTS_REFRESH_MS;
+  const aiIsFresh = useMemo(() => {
+    if (aiInsightsState.status !== 'ready') return false;
+    if (aiInsightsState.key !== queryKey) return false;
+    return (
+      Date.now() - aiInsightsState.generatedAt < AI_INSIGHTS_TTL_MS &&
+      aiInsightsState.insights.length > 0
+    );
+  }, [aiInsightsState, queryKey]);
 
-    if (!isStale && lockedGeneratedInsights) return;
-
-    setLockedGeneratedInsights(generateInsights);
-    setLastInsightsUpdatedAt(now);
-    setLockedAiInsights(null);
-    insightsLockedRef.current = false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generateInsights, loading, lastInsightsUpdatedAt]);
+  const displayedInsights = aiIsFresh ? aiInsightsState.insights : deterministicInsights;
+  const showInsightsSpinner = aiInsightsState.status === 'loading' && !aiIsFresh;
 
   // Widget render functions
   const renderWidget = (widgetId: string) => {
@@ -1426,13 +1523,13 @@ export default function Dashboard() {
           <Sparkles className="w-4 h-4 text-white" strokeWidth={2} />
         </div>
         <h2 className="text-sm font-semibold text-gray-900">Luma Insights</h2>
-        {insightsLoading && (
+        {showInsightsSpinner && (
           <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
         )}
       </div>
-      {(lockedAiInsights || aiInsights).length > 0 ? (
+      {displayedInsights.length > 0 ? (
         <div className="space-y-2">
-          {(lockedAiInsights || aiInsights).slice(0, 3).map((insight, index) => (
+          {displayedInsights.slice(0, 3).map((insight, index) => (
             <div key={index} className="flex items-start gap-2">
               <div className="w-1 h-1 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
               <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
@@ -1441,7 +1538,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="space-y-2">
-          {(lockedGeneratedInsights || generateInsights).slice(0, 3).map((insight, index) => (
+          {deterministicInsights.slice(0, 3).map((insight, index) => (
             <div key={index} className="flex items-start gap-2">
               <div className="w-1 h-1 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
               <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
@@ -1820,7 +1917,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center justify-between mt-2">
               <span className="text-sm font-semibold text-[rgb(0,122,255)]">
-                {formatCurrency(calculateGCI(deal))}
+                {formatCurrency(calculateExpectedGCI(deal))}
               </span>
               <ChevronRight className="w-4 h-4 text-gray-400" strokeWidth={2} />
             </div>
@@ -1834,7 +1931,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_10px_40px_rgba(15,23,42,0.08)] p-6 space-y-6">
+      <RefreshOverlay active={refreshing}>
+        <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_10px_40px_rgba(15,23,42,0.08)] p-6 space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div>
             {isInitialLoading ? (
@@ -1858,10 +1956,17 @@ export default function Dashboard() {
               </>
             )}
           </div>
-          {refreshing && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 lg:ml-auto">
-              <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-              Updating…
+          {(refreshing || lastRefreshedAt > 0) && (
+            <div className="flex flex-col items-end gap-1 text-xs font-semibold text-gray-500 lg:ml-auto">
+              {refreshing && (
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+                  Updating…
+                </div>
+              )}
+              {lastRefreshedAt > 0 && (
+                <div>Last updated {formatLastUpdated(lastRefreshedAt)}</div>
+              )}
             </div>
           )}
         </div>
@@ -1894,7 +1999,8 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      </RefreshOverlay>
       {canShowFilterPanel && (
         <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_6px_30px_rgba(15,23,42,0.08)] p-4 space-y-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1998,84 +2104,88 @@ export default function Dashboard() {
       )}
 
       {/* KPI cards - not draggable */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-        <div className="hig-card p-4" title="Gross commission income from closed deals in the selected date range.">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-              <DollarSign className="w-4 h-4 text-[rgb(0,122,255)]" strokeWidth={2} />
+      <RefreshOverlay active={refreshing}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="hig-card p-4" title="Gross commission income from closed deals in the selected date range.">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-[rgb(0,122,255)]" strokeWidth={2} />
+              </div>
+              <span className="text-sm text-gray-600">Total GCI</span>
             </div>
-            <span className="text-sm text-gray-600">Total GCI</span>
+            <div className="text-2xl font-semibold text-gray-900">{formatCurrency(stats.ytdGCI)}</div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{formatCurrency(stats.ytdGCI)}</div>
-        </div>
 
-        <div className="hig-card p-4" title="Number of deals marked closed within the selected date range.">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-              <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
+          <div className="hig-card p-4" title="Number of deals marked closed within the selected date range.">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+                <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
+              </div>
+              <span className="text-sm text-gray-600">Closed Deals</span>
             </div>
-            <span className="text-sm text-gray-600">Closed Deals</span>
+            <div className="text-2xl font-semibold text-gray-900">{stats.ytdDeals}</div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{stats.ytdDeals}</div>
-        </div>
 
-        <div className="hig-card p-4" title="Active deals scheduled to close in the next 7 days.">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
-              <Calendar className="w-4 h-4 text-orange-600" strokeWidth={2} />
+          <div className="hig-card p-4" title="Active deals scheduled to close in the next 7 days.">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-orange-600" strokeWidth={2} />
+              </div>
+              <span className="text-sm text-gray-600">Closing Soon (7d)</span>
             </div>
-            <span className="text-sm text-gray-600">Closing Soon (7d)</span>
+            <div className="text-2xl font-semibold text-gray-900">{stats.closingNext7Days}</div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{stats.closingNext7Days}</div>
-        </div>
 
-        <div className="hig-card p-4" title="Closed deals divided by all deals created in the selected date range.">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-gray-600" strokeWidth={2} />
+          <div className="hig-card p-4" title="Closed deals divided by all deals created in the selected date range.">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
+                <Activity className="w-4 h-4 text-gray-600" strokeWidth={2} />
+              </div>
+              <span className="text-sm text-gray-600">Conv. Rate</span>
             </div>
-            <span className="text-sm text-gray-600">Conv. Rate</span>
+            <div className="text-2xl font-semibold text-gray-900">{formatPercent(stats.conversionRate)}</div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{formatPercent(stats.conversionRate)}</div>
         </div>
-      </div>
+      </RefreshOverlay>
 
       {/* Draggable Widgets */}
-      {isInitialLoading ? (
-        <div className="columns-1 lg:columns-2 gap-2 space-y-2">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`widget-skeleton-${index}`} className="break-inside-avoid mb-2">
-              <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-4 space-y-3">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-36 w-full" />
+      <RefreshOverlay active={refreshing} label="Refreshing widgets…">
+        {isInitialLoading ? (
+          <div className="columns-1 lg:columns-2 gap-2 space-y-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={`widget-skeleton-${index}`} className="break-inside-avoid mb-2">
+                <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-4 space-y-3">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-36 w-full" />
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
-            <div className="columns-1 lg:columns-2 gap-2 space-y-2">
-              {widgetOrder.map((widgetId) => {
-                const content = renderWidget(widgetId);
-                if (!content) return null;
+            ))}
+          </div>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
+              <div className="columns-1 lg:columns-2 gap-2 space-y-2">
+                {widgetOrder.map((widgetId) => {
+                  const content = renderWidget(widgetId);
+                  if (!content) return null;
 
-                return (
-                  <div key={widgetId} className="break-inside-avoid mb-2">
-                    <SortableWidget id={widgetId}>
-                      {content}
-                    </SortableWidget>
-                  </div>
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
-      )}
+                  return (
+                    <div key={widgetId} className="break-inside-avoid mb-2">
+                      <SortableWidget id={widgetId}>
+                        {content}
+                      </SortableWidget>
+                    </div>
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
+      </RefreshOverlay>
 
     </div>
   );
