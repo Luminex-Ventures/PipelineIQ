@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Calendar,
   CheckCircle,
@@ -24,9 +24,15 @@ const surfaceClass =
 const filterPillBaseClass =
   'inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition';
 
-type Task = Database['public']['Tables']['tasks']['Row'] & {
-  deals: Database['public']['Tables']['deals']['Row'];
-};
+type TaskRow = Pick<
+  Database['public']['Tables']['tasks']['Row'],
+  'id' | 'user_id' | 'title' | 'due_date' | 'completed' | 'deal_id' | 'updated_at'
+>;
+type TaskDeal = Pick<
+  Database['public']['Tables']['deals']['Row'],
+  'id' | 'client_name' | 'property_address' | 'city' | 'state' | 'next_task_description'
+>;
+type Task = TaskRow & { deals: TaskDeal };
 type DealSummary = Pick<
   Database['public']['Tables']['deals']['Row'],
   | 'id'
@@ -83,6 +89,10 @@ const statusFilterOptions = [
 
 type StatusFilterValue = (typeof statusFilterOptions)[number]['value'];
 
+const TASK_COLUMNS = 'id,user_id,title,due_date,completed,deal_id,updated_at';
+const DEAL_COLUMNS = 'id,client_name,property_address,city,state,next_task_description';
+const COMPLETED_PAGE_SIZE = 30;
+
 export default function Tasks() {
   const { user, roleInfo } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -91,6 +101,13 @@ export default function Tasks() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  const hasLoadedOnceRef = useRef(false);
+  const tasksRequestIdRef = useRef(0);
+  const dealsRequestIdRef = useRef(0);
+  const completedRequestIdRef = useRef(0);
+  const notesRequestIdRef = useRef(0);
 
   const [deals, setDeals] = useState<DealSummary[]>([]);
   const [dealOwners, setDealOwners] = useState<Record<string, string>>({});
@@ -121,6 +138,9 @@ export default function Tasks() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [completedTasks, setCompletedTasks] = useState<Task[]>([]);
   const [completedLoading, setCompletedLoading] = useState(false);
+  const [completedLoadingMore, setCompletedLoadingMore] = useState(false);
+  const [completedHasMore, setCompletedHasMore] = useState(true);
+  const [completedCursor, setCompletedCursor] = useState<string | null>(null);
 
   const getOwnerName = (ownerId: string) => {
     if (dealOwners[ownerId]) return dealOwners[ownerId];
@@ -223,8 +243,10 @@ export default function Tasks() {
     try {
       const visibleIds = await getVisibleUserIds(roleInfo);
       const { data, error } = await supabase.rpc<AccessibleAgentRow[]>('get_accessible_agents');
+      let opts: { id: string; label: string }[] = [];
+
       if (!error && data) {
-        const opts = data
+        opts = data
           .filter(
             (agent) =>
               visibleIds.includes(agent.user_id) &&
@@ -233,16 +255,41 @@ export default function Tasks() {
           )
           .map((agent) => ({
             id: agent.user_id,
-            label: agent.display_name || agent.email || 'Agent'
+            label:
+              agent.user_id === user.id
+                ? (user.user_metadata?.name || user.email || 'You')
+                : (agent.display_name || agent.email || `Agent ${agent.user_id.slice(0, 8)}`)
           }));
-        setAgentOptions(opts);
-        if (agentFilter !== 'all' && !opts.find((opt) => opt.id === agentFilter)) {
-          setAgentFilter('all');
-        }
+      }
+
+      if (opts.length === 0) {
+        opts = visibleIds.map((id) => ({
+          id,
+          label:
+            id === user.id
+              ? (user.user_metadata?.name || user.email || 'You')
+              : `Agent ${id.slice(0, 8)}`
+        }));
+      }
+
+      setAgentOptions(opts);
+      if (agentFilter !== 'all' && !opts.find((opt) => opt.id === agentFilter)) {
+        setAgentFilter('all');
       }
     } catch (err) {
       console.error('Error loading agents', err);
-      setAgentOptions([]);
+      const visibleIds = roleInfo ? await getVisibleUserIds(roleInfo) : [];
+      const fallback = visibleIds.map((id) => ({
+        id,
+        label:
+          id === user.id
+            ? (user.user_metadata?.name || user.email || 'You')
+            : `Agent ${id.slice(0, 8)}`
+      }));
+      setAgentOptions(fallback);
+      if (agentFilter !== 'all' && !fallback.find((opt) => opt.id === agentFilter)) {
+        setAgentFilter('all');
+      }
     }
   }, [agentFilter, isManagerRole, roleInfo, user]);
 
@@ -251,6 +298,7 @@ export default function Tasks() {
       setNotesByTask({});
       return;
     }
+    const requestId = ++notesRequestIdRef.current;
     const taskIds = taskList.map((t) => t.id);
     const { data, error } = await supabase
       .from('deal_notes')
@@ -258,6 +306,7 @@ export default function Tasks() {
       .in('task_id', taskIds)
       .order('created_at', { ascending: false });
 
+    if (requestId !== notesRequestIdRef.current) return;
     if (error || !data) {
       console.error('Error loading task notes', error);
       setNotesByTask({});
@@ -276,7 +325,12 @@ export default function Tasks() {
 
   const fetchTasks = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    const requestId = ++tasksRequestIdRef.current;
+    if (!hasLoadedOnceRef.current) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     let visibleIds: string[] = [user.id];
     if (roleInfo) {
@@ -286,7 +340,7 @@ export default function Tasks() {
 
     let query = supabase
       .from('tasks')
-      .select(`*, deals(*, lead_sources(*))`)
+      .select(`${TASK_COLUMNS}, deals(${DEAL_COLUMNS})`)
       .eq('completed', false)
       .order('due_date', { ascending: true });
 
@@ -298,17 +352,25 @@ export default function Tasks() {
 
     const { data, error } = await query;
 
+    if (requestId !== tasksRequestIdRef.current) return;
     if (!error && data) {
       const taskList = (data ?? []).filter((task) => task.deals) as Task[];
       setTasks(taskList);
       await fetchTaskNotes(taskList);
+      if (requestId !== tasksRequestIdRef.current) return;
+      setLastRefreshedAt(Date.now());
+      hasLoadedOnceRef.current = true;
     }
 
-    setLoading(false);
+    if (requestId === tasksRequestIdRef.current) {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [fetchTaskNotes, roleInfo, user]);
 
   const fetchDeals = useCallback(async () => {
     if (!user) return;
+    const requestId = ++dealsRequestIdRef.current;
     setDealsLoading(true);
 
     try {
@@ -338,6 +400,7 @@ export default function Tasks() {
 
       const { data, error } = await query;
 
+      if (requestId !== dealsRequestIdRef.current) return;
       if (error) {
         console.error('Error loading deals', error);
         setDeals([]);
@@ -357,11 +420,14 @@ export default function Tasks() {
         setDealOwners(ownerMap);
       }
     } catch (err) {
+      if (requestId !== dealsRequestIdRef.current) return;
       console.error('Error resolving visible deals', err);
       setDeals([]);
       setDealOwners({});
     } finally {
-      setDealsLoading(false);
+      if (requestId === dealsRequestIdRef.current) {
+        setDealsLoading(false);
+      }
     }
   }, [roleInfo, user]);
 
@@ -433,42 +499,79 @@ export default function Tasks() {
   }, [agentFilter, deals, newTaskDealId]);
 
 
-  const fetchCompletedTasks = async () => {
-    if (!user) return;
-    setCompletedLoading(true);
+  const resetCompletedTasks = useCallback(() => {
+    setCompletedTasks([]);
+    setCompletedCursor(null);
+    setCompletedHasMore(true);
+    setCompletedLoadingMore(false);
+  }, []);
 
-    try {
-      let visibleIds: string[] = [user.id];
-      if (roleInfo) {
-        visibleIds = await getVisibleUserIds(roleInfo);
-        if (!visibleIds.length) visibleIds = [user.id];
+  const fetchCompletedTasksPage = useCallback(
+    async (mode: 'reset' | 'append') => {
+      if (!user) return;
+      const requestId = ++completedRequestIdRef.current;
+      if (mode === 'reset') {
+        setCompletedLoading(true);
+      } else {
+        setCompletedLoadingMore(true);
       }
 
-      let query = supabase
-        .from('tasks')
-        .select(`*, deals(*)`)
-        .eq('completed', true)
-        .order('updated_at', { ascending: false })
-        .limit(30);
+      try {
+        let visibleIds: string[] = [user.id];
+        if (roleInfo) {
+          visibleIds = await getVisibleUserIds(roleInfo);
+          if (!visibleIds.length) visibleIds = [user.id];
+        }
 
-      if (visibleIds.length === 1) {
-        query = query.eq('user_id', visibleIds[0]);
-      } else if (visibleIds.length > 1) {
-        query = query.in('user_id', visibleIds);
+        let query = supabase
+          .from('tasks')
+          .select(`${TASK_COLUMNS}, deals(${DEAL_COLUMNS})`)
+          .eq('completed', true)
+          .order('updated_at', { ascending: false })
+          .limit(COMPLETED_PAGE_SIZE);
+
+        if (mode === 'append' && completedCursor) {
+          query = query.lt('updated_at', completedCursor);
+        }
+
+        if (visibleIds.length === 1) {
+          query = query.eq('user_id', visibleIds[0]);
+        } else if (visibleIds.length > 1) {
+          query = query.in('user_id', visibleIds);
+        }
+
+        const { data, error } = await query;
+
+        if (requestId !== completedRequestIdRef.current) return;
+        if (!error && data) {
+          const list = (data ?? []).filter((t) => t.deals) as Task[];
+          setCompletedTasks((prev) =>
+            mode === 'append' ? [...prev, ...list] : list
+          );
+          if (list.length < COMPLETED_PAGE_SIZE) {
+            setCompletedHasMore(false);
+          }
+          if (list.length > 0) {
+            setCompletedCursor(list[list.length - 1].updated_at ?? null);
+          } else if (mode === 'reset') {
+            setCompletedCursor(null);
+          }
+        }
+      } catch (err) {
+        if (requestId !== completedRequestIdRef.current) return;
+        console.error('Error loading completed tasks', err);
+      } finally {
+        if (requestId === completedRequestIdRef.current) {
+          if (mode === 'reset') {
+            setCompletedLoading(false);
+          } else {
+            setCompletedLoadingMore(false);
+          }
+        }
       }
-
-      const { data, error } = await query;
-
-      if (!error && data) {
-        const list = (data ?? []).filter((t) => t.deals) as Task[];
-        setCompletedTasks(list);
-      }
-    } catch (err) {
-      console.error('Error loading completed tasks', err);
-    } finally {
-      setCompletedLoading(false);
-    }
-  };
+    },
+    [completedCursor, roleInfo, user]
+  );
 
   const formatDate = (date?: string | null) => {
     const parsed = normalizeDueDate(date);
@@ -605,7 +708,8 @@ export default function Tasks() {
 
         // If completed panel is open, refresh it so the new one appears there
         if (showCompleted) {
-          fetchCompletedTasks();
+          resetCompletedTasks();
+          fetchCompletedTasksPage('reset');
         }
       }, 650);
     } catch (err) {
@@ -623,7 +727,10 @@ export default function Tasks() {
     setShowDealModal(false);
     setSelectedDeal(null);
     fetchTasks();
-    if (showCompleted) fetchCompletedTasks();
+    if (showCompleted) {
+      resetCompletedTasks();
+      fetchCompletedTasksPage('reset');
+    }
   };
 
   const renderTaskRow = (task: Task) => {
@@ -809,7 +916,21 @@ export default function Tasks() {
               Track every open commitment across all deals in a single, prioritized list.
             </p>
           </div>
-          <div className="w-full md:w-auto">
+          <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+            <div className="flex flex-col items-start gap-1 text-xs text-gray-500 md:items-end">
+              {refreshing && (
+                <div className="inline-flex items-center gap-2 text-gray-500">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-[var(--app-accent)]" />
+                  <span>Refreshing…</span>
+                </div>
+              )}
+              {lastRefreshedAt && (
+                <span>
+                  Last updated{' '}
+                  {new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -845,13 +966,7 @@ export default function Tasks() {
                   className="hig-input w-52"
                 >
                   <option value="all">All agents</option>
-                  {(agentOptions.length
-                    ? agentOptions
-                    : Array.from(new Set(tasks.map((t) => t.user_id))).map((id) => ({
-                        id,
-                        label: dealOwners[id] || getOwnerName(id)
-                      }))
-                  ).map((agent) => (
+                  {agentOptions.map((agent) => (
                     <option key={agent.id} value={agent.id}>
                       {agent.label}
                     </option>
@@ -885,8 +1000,9 @@ export default function Tasks() {
               onClick={async () => {
                 setShowCompleted((prev) => {
                   const next = !prev;
-                  if (next && completedTasks.length === 0) {
-                    fetchCompletedTasks();
+                  if (next) {
+                    resetCompletedTasks();
+                    fetchCompletedTasksPage('reset');
                   }
                   return next;
                 });
@@ -1061,7 +1177,7 @@ export default function Tasks() {
         </form>
       </div>
 
-      <div className={`${surfaceClass} p-0 overflow-hidden`}>
+      <div className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100">
             <thead className="bg-gray-50">
@@ -1167,11 +1283,27 @@ export default function Tasks() {
                 Nothing completed yet.
               </div>
             ) : (
-              <div className="max-h-72 overflow-y-auto">
-                <table className="min-w-full text-left">
-                  <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
-                </table>
-              </div>
+              <>
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="min-w-full text-left">
+                    <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-center px-5 pb-4 pt-3">
+                  {completedHasMore ? (
+                    <button
+                      type="button"
+                      onClick={() => fetchCompletedTasksPage('append')}
+                      disabled={completedLoadingMore}
+                      className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 transition hover:text-gray-900 disabled:opacity-60"
+                    >
+                      {completedLoadingMore ? 'Loading…' : 'Load more'}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-500">You've reached the end.</span>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}
