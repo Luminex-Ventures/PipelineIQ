@@ -98,6 +98,7 @@ export default function Tasks() {
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedDeal, setSelectedDeal] =
     useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+  const taskListRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'compact'>(() => {
     if (typeof window === 'undefined') return 'list';
     const stored = window.localStorage.getItem('tasks_view_mode');
@@ -1071,88 +1072,85 @@ export default function Tasks() {
         })()
       : null;
 
-  const urgencyFilters: Array<{
-    label: string;
-    value: StatusFilterValue;
-    count: number;
-    helper: string;
-    icon: React.ComponentType<{ className?: string }>;
-    baseClass: string;
-    activeClass: string;
-  }> = [
-    {
-      label: 'Today',
-      value: 'today',
-      count: taskStats.dueToday,
-      helper: 'Handle before day end',
-      icon: Clock,
-      baseClass: 'border-amber-100/70 bg-amber-50/60 text-amber-700',
-      activeClass: 'border-amber-200 bg-amber-100/80 text-amber-800 ring-1 ring-amber-200/70'
-    },
-    {
-      label: 'Overdue',
-      value: 'overdue',
-      count: taskStats.overdue,
-      helper: 'Clear the backlog',
-      icon: AlertTriangle,
-      baseClass: 'border-red-100/60 bg-red-50/70 text-red-700',
-      activeClass: 'border-red-200 bg-red-100/80 text-red-800 ring-1 ring-red-200/70'
-    },
-    {
-      label: 'Upcoming',
-      value: 'upcoming',
-      count: taskStats.upcoming,
-      helper: 'Prep the next moves',
-      icon: ArrowUpRight,
-      baseClass: 'border-sky-100/70 bg-sky-50/60 text-sky-700',
-      activeClass: 'border-sky-200 bg-sky-100/80 text-sky-800 ring-1 ring-sky-200/70'
-    },
-    {
-      label: 'Unscheduled',
-      value: 'unscheduled',
-      count: taskStats.unscheduled,
-      helper: 'Add due dates',
-      icon: AlertTriangle,
-      baseClass: 'border-amber-100/70 bg-amber-50/60 text-amber-700',
-      activeClass: 'border-amber-200 bg-amber-100/80 text-amber-800 ring-1 ring-amber-200/70'
-    }
-  ];
+  const UrgencyFilterBar = ({
+    taskStats,
+    statusFilter,
+    setStatusFilter
+  }: {
+    taskStats: typeof taskStats;
+    statusFilter: StatusFilterValue;
+    setStatusFilter: React.Dispatch<React.SetStateAction<StatusFilterValue>>;
+  }) => {
+    const urgencyFilters: Array<{
+      label: string;
+      value: StatusFilterValue;
+      count: number;
+      helper: string;
+      icon: React.ComponentType<{ className?: string }>;
+      baseClass: string;
+      activeClass: string;
+    }> = [
+      {
+        label: 'Overdue',
+        value: 'overdue',
+        count: taskStats.overdue,
+        helper: 'Clear the backlog',
+        icon: AlertTriangle,
+        baseClass: 'border-red-100/60 bg-red-50/70 text-red-700',
+        activeClass: 'border-red-200 bg-red-100/80 text-red-800 ring-1 ring-red-200/70'
+      },
+      {
+        label: 'Due today',
+        value: 'today',
+        count: taskStats.dueToday,
+        helper: 'Handle before day end',
+        icon: Clock,
+        baseClass: 'border-amber-100/70 bg-amber-50/60 text-amber-700',
+        activeClass: 'border-amber-200 bg-amber-100/80 text-amber-800 ring-1 ring-amber-200/70'
+      },
+      {
+        label: 'Upcoming',
+        value: 'upcoming',
+        count: taskStats.upcoming,
+        helper: 'Prep the next moves',
+        icon: ArrowUpRight,
+        baseClass: 'border-emerald-100/70 bg-emerald-50/60 text-emerald-700',
+        activeClass:
+          'border-emerald-200 bg-emerald-100/80 text-emerald-800 ring-1 ring-emerald-200/70'
+      },
+      {
+        label: 'Unscheduled',
+        value: 'unscheduled',
+        count: taskStats.unscheduled,
+        helper: 'Add due dates to keep momentum',
+        icon: AlertTriangle,
+        baseClass: 'border-dashed border-gray-300 bg-gray-50/80 text-gray-700',
+        activeClass: 'border-gray-400 bg-gray-100 text-gray-800 ring-1 ring-gray-200'
+      }
+    ];
 
-  return (
-    <div className="space-y-6">
-      <section className={`${surfaceClass} p-6 space-y-5`}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Focus cues
-            </p>
-            <h2 className="text-xl font-semibold text-gray-900">
-              Where attention is needed
-            </h2>
-          </div>
-          {statusFilter !== 'all' && (
-            <button
-              onClick={() => setStatusFilter('all')}
-              className="text-xs font-semibold text-[var(--app-accent)] hover:underline"
-            >
-              View all tasks
-            </button>
-          )}
-        </div>
+    const handleFilterClick = (value: StatusFilterValue) => {
+      setStatusFilter(value);
+      requestAnimationFrame(() => {
+        taskListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    };
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {urgencyFilters.map((filter) => {
             const isActive = statusFilter === filter.value;
             const Icon = filter.icon;
             return (
               <button
                 key={filter.value}
-                onClick={() => setStatusFilter(filter.value)}
-                className={`${urgencyPillBaseClass} ${
+                onClick={() => handleFilterClick(filter.value)}
+                className={`${urgencyPillBaseClass} min-w-[180px] ${
                   isActive ? filter.activeClass : filter.baseClass
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="inline-flex items-center gap-2 text-sm font-semibold">
                     <Icon className="h-4 w-4" />
                     <span>{filter.label}</span>
@@ -1164,6 +1162,54 @@ export default function Tasks() {
             );
           })}
         </div>
+        {statusFilter !== 'all' && (
+          <button
+            type="button"
+            onClick={() => handleFilterClick('all')}
+            className="text-xs font-semibold text-[var(--app-accent)] hover:underline self-start"
+          >
+            Clear filter
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <section className={`${surfaceClass} p-6 space-y-5`}>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
+              Tasks
+            </p>
+            <h2 className="text-2xl font-semibold text-gray-900 mt-2">
+              What needs attention right now
+            </h2>
+          </div>
+          {(refreshing || lastRefreshedAt) && (
+            <div className="flex flex-col items-start gap-1 text-xs font-semibold text-gray-500 md:items-end">
+              {refreshing && (
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+                  Updating…
+                </div>
+              )}
+              {lastRefreshedAt && (
+                <div>
+                  Last updated{' '}
+                  {new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <UrgencyFilterBar
+          taskStats={taskStats}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+        />
 
         <div className="rounded-2xl border border-gray-100/80 bg-[var(--app-surface-muted)] p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1171,9 +1217,6 @@ export default function Tasks() {
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Next Action
               </p>
-              <h3 className="text-lg font-semibold text-gray-900 mt-1">
-                {taskStats.nextTask ? 'Your most time-sensitive move' : 'No dated tasks yet'}
-              </h3>
             </div>
             {taskStats.nextTask && (
               <div className="flex flex-wrap items-center gap-2">
@@ -1271,116 +1314,83 @@ export default function Tasks() {
             </p>
           )}
         </div>
-      </section>
-
-      <div className={`${surfaceClass} p-6 space-y-5`}>
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
-              Tasks
-            </p>
-            <h1 className="text-3xl font-semibold text-gray-900 mt-1">Outstanding work</h1>
-            <p className="text-sm text-gray-600 mt-2">
-              Track every open commitment across all deals in a single, prioritized list.
-            </p>
-          </div>
-          <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
-            <div className="flex flex-col items-start gap-1 text-xs text-gray-500 md:items-end">
-              {refreshing && (
-                <div className="inline-flex items-center gap-2 text-gray-500">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-[var(--app-accent)]" />
-                  <span>Refreshing…</span>
-                </div>
-              )}
-              {lastRefreshedAt && (
-                <span>
-                  Last updated{' '}
-                  {new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by client, task, property..."
-                className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
-              />
-              <div className="inline-flex items-center rounded-full border border-gray-200/70 bg-white p-1 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('list')}
-                  className={`rounded-full px-3 py-1 transition ${
-                    viewMode === 'list'
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  List
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('compact')}
-                  className={`rounded-full px-3 py-1 transition ${
-                    viewMode === 'compact'
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Compact
-                </button>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {isManagerRole && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                    Agent
-                  </span>
-                  <select
-                    value={agentFilter}
-                    onChange={(e) => setAgentFilter(e.target.value)}
-                    className="hig-input w-52"
-                  >
-                    <option value="all">All agents</option>
-                    {agentOptions.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by client, task, property..."
+              className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
+            />
+            <div className="inline-flex items-center rounded-full border border-gray-200/70 bg-white p-1 text-xs font-semibold">
               <button
                 type="button"
-                onClick={async () => {
-                  setShowCompleted((prev) => {
-                    const next = !prev;
-                    if (next) {
-                      resetCompletedTasks();
-                      fetchCompletedTasksPage('reset');
-                    }
-                    return next;
-                  });
-                }}
-                className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
-                  showCompleted
-                    ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
-                    : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
+                onClick={() => setViewMode('list')}
+                className={`rounded-full px-3 py-1 transition ${
+                  viewMode === 'list'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <CheckCircle className="h-3.5 w-3.5" />
-                {showCompleted ? 'Hide completed' : 'View recently completed'}
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('compact')}
+                className={`rounded-full px-3 py-1 transition ${
+                  viewMode === 'compact'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Compact
               </button>
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {isManagerRole && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                  Agent
+                </span>
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className="hig-input w-52"
+                >
+                  <option value="all">All agents</option>
+                  {agentOptions.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                setShowCompleted((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    resetCompletedTasks();
+                    fetchCompletedTasksPage('reset');
+                  }
+                  return next;
+                });
+              }}
+              className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
+                showCompleted
+                  ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
+                  : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
+              }`}
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              {showCompleted ? 'Hide completed' : 'View recently completed'}
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
 
       <div className={`${surfaceClass} p-6 space-y-4`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1501,14 +1511,19 @@ export default function Tasks() {
       </div>
 
       {viewMode === 'list' ? (
-        <div className={`${surfaceClass} p-4 space-y-3 ${refreshing ? 'opacity-90' : ''}`}>
+        <div
+          ref={taskListRef}
+          className={`${surfaceClass} p-4 space-y-3 ${refreshing ? 'opacity-90' : ''}`}
+        >
           {loading ? (
             <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
               Loading tasks…
             </div>
           ) : filteredTasks.length === 0 ? (
             <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
-              Nothing to show here — take a moment to plan your next steps.
+              {statusFilter === 'all'
+                ? 'Nothing to show here — take a moment to plan your next steps.'
+                : 'Nothing urgent right now. Nice work.'}
             </div>
           ) : groupedTasks && groupedTasks.length > 0 ? (
             groupedTasks.map((group) => (
@@ -1576,7 +1591,10 @@ export default function Tasks() {
           )}
         </div>
       ) : (
-        <div className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}>
+        <div
+          ref={taskListRef}
+          className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}
+        >
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
@@ -1603,7 +1621,9 @@ export default function Tasks() {
                       colSpan={4}
                       className="px-5 py-12 text-center text-gray-500 text-sm"
                     >
-                      Nothing to show here — take a moment to plan your next steps.
+                      {statusFilter === 'all'
+                        ? 'Nothing to show here — take a moment to plan your next steps.'
+                        : 'Nothing urgent right now. Nice work.'}
                     </td>
                   </tr>
                 ) : groupedTasks && groupedTasks.length > 0 ? (
