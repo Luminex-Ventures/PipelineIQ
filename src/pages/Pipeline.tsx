@@ -32,6 +32,15 @@ type AccessibleAgentRow = {
 
 type ViewMode = 'kanban' | 'table';
 
+type DealFilters = {
+  agentIds: string[];
+  leadSourceIds: string[];
+  stageIds: string[];
+  dealTypes: Deal['deal_type'][];
+  statusStageId: string | null;
+  source: 'dashboard' | 'ui' | 'mixed';
+};
+
 const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const pillClass =
   'inline-flex items-center rounded-full border border-gray-200/70 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 transition';
@@ -119,8 +128,11 @@ const DEAL_TYPE_FILTER_META: Record<
 export default function Pipeline() {
   const { user, roleInfo } = useAuth();
   const { statuses, loading: statusesLoading, applyTemplate, createCustomWorkflow } = usePipelineStatuses();
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [kanbanDeals, setKanbanDeals] = useState<Deal[]>([]);
+  const [tableRows, setTableRows] = useState<Deal[]>([]);
+  const [tableTotal, setTableTotal] = useState(0);
+  const [kanbanLoading, setKanbanLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(true);
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
@@ -140,7 +152,18 @@ export default function Pipeline() {
   const [availableDealTypeFilters, setAvailableDealTypeFilters] = useState<Deal['deal_type'][]>([]);
   const [selectedDealTypeIds, setSelectedDealTypeIds] = useState<Deal['deal_type'][]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
-  const loadRequestIdRef = useRef(0);
+  const tableLoadRequestIdRef = useRef(0);
+  const kanbanLoadRequestIdRef = useRef(0);
+  const [tablePage, setTablePage] = useState(1);
+  const [tablePageSize, setTablePageSize] = useState(50);
+  const [tableSearch, setTableSearch] = useState('');
+  const [tableSortConfig, setTableSortConfig] = useState<{
+    column: 'pipelineOrder' | 'client' | 'clientEmail' | 'clientPhone' | 'property' | 'city' | 'state' | 'zip' | 'dealType' | 'pipelineStatus' | 'status' | 'leadSource' | 'expectedPrice' | 'actualPrice' | 'netCommission' | 'grossCommissionRate' | 'brokerageSplitRate' | 'referralOutRate' | 'referralInRate' | 'transactionFee' | 'daysInStage' | 'stageEnteredAt' | 'closeDate' | 'closedAt' | 'nextTaskDescription' | 'nextTaskDueDate' | 'createdAt' | 'updatedAt';
+    direction: 'asc' | 'desc';
+  }>({
+    column: 'pipelineOrder',
+    direction: 'asc'
+  });
   const pendingNewDeal = searchParams.get('newDeal');
   const isSalesManager = roleInfo?.globalRole === 'sales_manager';
   const formatAgentLabel = (agent: AccessibleAgentRow) =>
@@ -152,7 +175,8 @@ export default function Pipeline() {
       statusMap.set(status.id, status);
     });
 
-    deals.forEach(deal => {
+    const statusDeals = [...kanbanDeals, ...tableRows];
+    statusDeals.forEach(deal => {
       if (deal.pipeline_statuses && !statusMap.has(deal.pipeline_statuses.id)) {
         statusMap.set(deal.pipeline_statuses.id, deal.pipeline_statuses as PipelineStatus);
       }
@@ -166,7 +190,7 @@ export default function Pipeline() {
       }
       return orderA - orderB;
     });
-  }, [statuses, deals]);
+  }, [statuses, kanbanDeals, tableRows]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -277,7 +301,7 @@ export default function Pipeline() {
 
   const openDealById = useCallback(
     async (dealId: string) => {
-      const existing = deals.find((d) => d.id === dealId);
+      const existing = kanbanDeals.find((d) => d.id === dealId) || tableRows.find((d) => d.id === dealId);
       if (existing) {
         setSelectedDeal(existing);
         setShowModal(true);
@@ -295,7 +319,7 @@ export default function Pipeline() {
         setShowModal(true);
       }
     },
-    [deals]
+    [kanbanDeals, tableRows]
   );
 
   useEffect(() => {
@@ -303,7 +327,7 @@ export default function Pipeline() {
     if (dealId) {
       openDealById(dealId);
     }
-  }, [searchParams, deals, openDealById]);
+  }, [searchParams, kanbanDeals, tableRows, openDealById]);
 
   useEffect(() => {
     // Show template selection if user has no statuses
@@ -326,48 +350,105 @@ export default function Pipeline() {
     setAvailableDealTypeFilters(Object.keys(DEAL_TYPE_FILTER_META) as Deal['deal_type'][]);
   }, [user]);
 
-  const loadDeals = useCallback(async () => {
+  const dashboardFilters = useMemo(
+    () => ({
+      agentIds: dashboardAgentFilters,
+      leadSourceIds: dashboardLeadSourceFilters,
+      stageIds: dashboardStageFilters,
+      dealTypes: dashboardDealTypeFilters
+    }),
+    [dashboardAgentFilters, dashboardDealTypeFilters, dashboardLeadSourceFilters, dashboardStageFilters]
+  );
+  const uiFilters = useMemo(
+    () => ({
+      agentIds: selectedAgentIds,
+      leadSourceIds: selectedLeadSourceIds,
+      stageIds: selectedStageIds,
+      dealTypes: selectedDealTypeIds
+    }),
+    [selectedAgentIds, selectedDealTypeIds, selectedLeadSourceIds, selectedStageIds]
+  );
+  const hasDashboardFilters =
+    dashboardAgentFilters.length > 0 ||
+    dashboardLeadSourceFilters.length > 0 ||
+    dashboardDealTypeFilters.length > 0 ||
+    dashboardStageFilters.length > 0;
+  const dashboardFiltersActive = hasDashboardFilters && viewMode === 'table';
+  const effectiveFilters = useMemo<DealFilters>(() => {
+    const pick = <T,>(dashboardList: T[], uiList: T[]) => (dashboardList.length > 0 ? dashboardList : uiList);
+    const activeDashboard = dashboardFiltersActive
+      ? dashboardFilters
+      : { agentIds: [], leadSourceIds: [], stageIds: [], dealTypes: [] };
+
+    const agentIds = pick(activeDashboard.agentIds, uiFilters.agentIds);
+    const leadSourceIds = pick(activeDashboard.leadSourceIds, uiFilters.leadSourceIds);
+    const stageIds = pick(activeDashboard.stageIds, uiFilters.stageIds);
+    const dealTypes = pick(activeDashboard.dealTypes, uiFilters.dealTypes);
+
+    const anyDashboard =
+      activeDashboard.agentIds.length ||
+      activeDashboard.leadSourceIds.length ||
+      activeDashboard.stageIds.length ||
+      activeDashboard.dealTypes.length;
+    const anyUi =
+      uiFilters.agentIds.length ||
+      uiFilters.leadSourceIds.length ||
+      uiFilters.stageIds.length ||
+      uiFilters.dealTypes.length;
+
+    const source: DealFilters['source'] = anyDashboard && anyUi ? 'mixed' : anyDashboard ? 'dashboard' : 'ui';
+
+    return {
+      agentIds,
+      leadSourceIds,
+      stageIds,
+      dealTypes,
+      statusStageId: viewMode === 'table' && statusFilter !== 'all' ? statusFilter : null,
+      source
+    };
+  }, [dashboardFilters, dashboardFiltersActive, statusFilter, uiFilters, viewMode]);
+
+  const resolveVisibleUserIds = useCallback(async () => {
+    if (!user || !roleInfo) return [] as string[];
+    const resolveTeamUserIds = async () => {
+      if (!roleInfo.teamId) return [] as string[];
+      const { data, error } = await supabase
+        .from('user_teams')
+        .select('user_id')
+        .eq('team_id', roleInfo.teamId);
+      if (error) {
+        console.error('Error loading team members', error);
+        return [];
+      }
+      return (data || []).map((member: { user_id: string }) => member.user_id);
+    };
+
+    switch (roleInfo.globalRole) {
+      case 'admin': {
+        return getVisibleUserIds(roleInfo);
+      }
+      case 'sales_manager': {
+        const teamIds = await resolveTeamUserIds();
+        return teamIds.length ? teamIds : getVisibleUserIds(roleInfo);
+      }
+      case 'team_lead': {
+        const teamIds = await resolveTeamUserIds();
+        return teamIds.length ? teamIds : [roleInfo.userId];
+      }
+      default: {
+        return [roleInfo.userId];
+      }
+    }
+  }, [roleInfo, user]);
+
+  const loadKanbanDeals = useCallback(async () => {
     if (!user || !roleInfo) return;
 
-    const requestId = ++loadRequestIdRef.current;
-    setLoading(true);
+    const requestId = ++kanbanLoadRequestIdRef.current;
+    setKanbanLoading(true);
 
     try {
-      const resolveTeamUserIds = async () => {
-        if (!roleInfo.teamId) return [] as string[];
-        const { data, error } = await supabase
-          .from('user_teams')
-          .select('user_id')
-          .eq('team_id', roleInfo.teamId);
-        if (error) {
-          console.error('Error loading team members', error);
-          return [];
-        }
-        return (data || []).map((member: { user_id: string }) => member.user_id);
-      };
-
-      let visibleUserIds: string[] = [];
-
-      switch (roleInfo.globalRole) {
-        case 'admin': {
-          visibleUserIds = await getVisibleUserIds(roleInfo);
-          break;
-        }
-        case 'sales_manager': {
-          const teamIds = await resolveTeamUserIds();
-          visibleUserIds = teamIds.length ? teamIds : await getVisibleUserIds(roleInfo);
-          break;
-        }
-        case 'team_lead': {
-          const teamIds = await resolveTeamUserIds();
-          visibleUserIds = teamIds.length ? teamIds : [roleInfo.userId];
-          break;
-        }
-        default: {
-          visibleUserIds = [roleInfo.userId];
-        }
-      }
-
+      const visibleUserIds = await resolveVisibleUserIds();
       const currentYear = new Date().getFullYear();
       const yearStartDateOnly = `${currentYear}-01-01`;
       const yearStartTs = `${currentYear}-01-01T00:00:00.000Z`;
@@ -379,7 +460,69 @@ export default function Pipeline() {
       let query = supabase
         .from('deals')
         .select(DEALS_SELECT)
+        .neq('status', 'dead')
+        .or(closedInRangeOrClause)
         .order('created_at', { ascending: false })
+        .range(0, 499);
+
+      if (visibleUserIds.length === 1) {
+        query = query.eq('user_id', visibleUserIds[0]);
+      } else if (visibleUserIds.length > 1) {
+        query = query.in('user_id', visibleUserIds);
+      }
+
+      if (isSalesManager) {
+        if (selectedAgentIds.length > 0) {
+          query = query.in('user_id', selectedAgentIds);
+        }
+        if (selectedLeadSourceIds.length > 0) {
+          query = query.in('lead_source_id', selectedLeadSourceIds);
+        }
+        if (selectedDealTypeIds.length > 0) {
+          query = query.in('deal_type', selectedDealTypeIds);
+        }
+      }
+
+      const { data, error } = await query;
+      if (requestId !== kanbanLoadRequestIdRef.current) return;
+
+      if (error) {
+        console.error('Error loading kanban deals', error);
+        setKanbanDeals([]);
+      } else {
+        setKanbanDeals(data || []);
+      }
+    } catch (err) {
+      if (requestId !== kanbanLoadRequestIdRef.current) return;
+      console.error('Error loading kanban deals', err);
+      setKanbanDeals([]);
+    } finally {
+      if (requestId === kanbanLoadRequestIdRef.current) {
+        setKanbanLoading(false);
+      }
+    }
+  }, [isSalesManager, resolveVisibleUserIds, roleInfo, selectedAgentIds, selectedDealTypeIds, selectedLeadSourceIds, user]);
+
+  const loadTableDeals = useCallback(async () => {
+    if (!user || !roleInfo) return;
+
+    const requestId = ++tableLoadRequestIdRef.current;
+    setTableLoading(true);
+
+    try {
+      const visibleUserIds = await resolveVisibleUserIds();
+      const currentYear = new Date().getFullYear();
+      const yearStartDateOnly = `${currentYear}-01-01`;
+      const yearStartTs = `${currentYear}-01-01T00:00:00.000Z`;
+      const closedInRangeOrClause = [
+        'status.neq.closed',
+        `and(status.eq.closed,or(close_date.gte.${yearStartDateOnly},and(close_date.is.null,closed_at.gte.${yearStartTs})))`,
+      ].join(',');
+
+      let query = supabase
+        .from('deals')
+        .select(DEALS_SELECT, { count: 'exact' })
+        .neq('status', 'dead')
         .or(closedInRangeOrClause);
 
       if (visibleUserIds.length === 1) {
@@ -388,37 +531,197 @@ export default function Pipeline() {
         query = query.in('user_id', visibleUserIds);
       }
 
-      const { data, error } = await query;
+      if (effectiveFilters.agentIds.length > 0) {
+        query = query.in('user_id', effectiveFilters.agentIds);
+      }
+      if (effectiveFilters.leadSourceIds.length > 0) {
+        query = query.in('lead_source_id', effectiveFilters.leadSourceIds);
+      }
+      if (effectiveFilters.dealTypes.length > 0) {
+        query = query.in('deal_type', effectiveFilters.dealTypes);
+      }
+      if (effectiveFilters.stageIds.length > 0) {
+        const pipelineStageIds = effectiveFilters.stageIds.filter(id => !id.startsWith('status:'));
+        const statusStageIds = effectiveFilters.stageIds
+          .filter(id => id.startsWith('status:'))
+          .map(id => id.replace('status:', ''));
+        if (pipelineStageIds.length > 0 && statusStageIds.length > 0) {
+          query = query.or(
+            `pipeline_status_id.in.(${pipelineStageIds.join(',')}),status.in.(${statusStageIds.join(',')})`
+          );
+        } else if (pipelineStageIds.length > 0) {
+          query = query.in('pipeline_status_id', pipelineStageIds);
+        } else if (statusStageIds.length > 0) {
+          query = query.in('status', statusStageIds);
+        }
+      }
+      if (effectiveFilters.statusStageId) {
+        if (effectiveFilters.statusStageId.startsWith('status:')) {
+          query = query.eq('status', effectiveFilters.statusStageId.replace('status:', ''));
+        } else {
+          query = query.eq('pipeline_status_id', effectiveFilters.statusStageId);
+        }
+      }
 
-      if (requestId !== loadRequestIdRef.current) return;
+      if (tableSearch.trim()) {
+        const searchTerm = tableSearch.trim().replace(/,/g, ' ');
+        query = query.or(
+          [
+            `client_name.ilike.%${searchTerm}%`,
+            `property_address.ilike.%${searchTerm}%`,
+            `city.ilike.%${searchTerm}%`,
+            `state.ilike.%${searchTerm}%`,
+            `client_email.ilike.%${searchTerm}%`,
+            `client_phone.ilike.%${searchTerm}%`,
+            `lead_sources.name.ilike.%${searchTerm}%`
+          ].join(',')
+        );
+      }
+
+      const from = (tablePage - 1) * tablePageSize;
+      const to = from + tablePageSize - 1;
+      query = query.range(from, to);
+
+      const sortDirection = tableSortConfig.direction === 'asc';
+      switch (tableSortConfig.column) {
+        case 'pipelineOrder':
+        case 'pipelineStatus':
+          query = query.order('sort_order', { ascending: sortDirection, foreignTable: 'pipeline_statuses' });
+          break;
+        case 'client':
+          query = query.order('client_name', { ascending: sortDirection });
+          break;
+        case 'clientEmail':
+          query = query.order('client_email', { ascending: sortDirection });
+          break;
+        case 'clientPhone':
+          query = query.order('client_phone', { ascending: sortDirection });
+          break;
+        case 'property':
+          query = query.order('property_address', { ascending: sortDirection });
+          break;
+        case 'city':
+          query = query.order('city', { ascending: sortDirection });
+          break;
+        case 'state':
+          query = query.order('state', { ascending: sortDirection });
+          break;
+        case 'zip':
+          query = query.order('zip', { ascending: sortDirection });
+          break;
+        case 'dealType':
+          query = query.order('deal_type', { ascending: sortDirection });
+          break;
+        case 'status':
+          query = query.order('status', { ascending: sortDirection });
+          break;
+        case 'leadSource':
+          query = query.order('name', { ascending: sortDirection, foreignTable: 'lead_sources' });
+          break;
+        case 'expectedPrice':
+          query = query.order('expected_sale_price', { ascending: sortDirection });
+          break;
+        case 'actualPrice':
+          query = query.order('actual_sale_price', { ascending: sortDirection });
+          break;
+        case 'grossCommissionRate':
+          query = query.order('gross_commission_rate', { ascending: sortDirection });
+          break;
+        case 'brokerageSplitRate':
+          query = query.order('brokerage_split_rate', { ascending: sortDirection });
+          break;
+        case 'referralOutRate':
+          query = query.order('referral_out_rate', { ascending: sortDirection });
+          break;
+        case 'referralInRate':
+          query = query.order('referral_in_rate', { ascending: sortDirection });
+          break;
+        case 'transactionFee':
+          query = query.order('transaction_fee', { ascending: sortDirection });
+          break;
+        case 'stageEnteredAt':
+          query = query.order('stage_entered_at', { ascending: sortDirection });
+          break;
+        case 'closeDate':
+          query = query.order('close_date', { ascending: sortDirection });
+          break;
+        case 'closedAt':
+          query = query.order('closed_at', { ascending: sortDirection });
+          break;
+        case 'nextTaskDueDate':
+          query = query.order('next_task_due_date', { ascending: sortDirection });
+          break;
+        case 'nextTaskDescription':
+          query = query.order('next_task_description', { ascending: sortDirection });
+          break;
+        case 'createdAt':
+          query = query.order('created_at', { ascending: sortDirection });
+          break;
+        case 'updatedAt':
+          query = query.order('updated_at', { ascending: sortDirection });
+          break;
+        default:
+          query = query.order('created_at', { ascending: false });
+      }
+
+      query = query.order('created_at', { ascending: false });
+
+      const { data, error, count } = await query;
+      if (requestId !== tableLoadRequestIdRef.current) return;
 
       if (error) {
-        console.error('Error loading deals', error);
-        setDeals([]);
+        console.error('Error loading table deals', error);
+        setTableRows([]);
+        setTableTotal(0);
       } else {
-        setDeals(data || []);
+        setTableRows(data || []);
+        setTableTotal(count ?? 0);
       }
     } catch (err) {
-      if (requestId !== loadRequestIdRef.current) return;
-      console.error('Error resolving visible users', err);
-      setDeals([]);
+      if (requestId !== tableLoadRequestIdRef.current) return;
+      console.error('Error loading table deals', err);
+      setTableRows([]);
+      setTableTotal(0);
     } finally {
-      if (requestId === loadRequestIdRef.current) {
-        setLoading(false);
+      if (requestId === tableLoadRequestIdRef.current) {
+        setTableLoading(false);
       }
     }
-  }, [roleInfo, user]);
+  }, [
+    effectiveFilters,
+    resolveVisibleUserIds,
+    roleInfo,
+    tablePage,
+    tablePageSize,
+    tableSearch,
+    tableSortConfig,
+    user
+  ]);
 
   useEffect(() => {
-    loadDeals();
-  }, [loadDeals]);
+    if (viewMode === 'kanban') {
+      loadKanbanDeals();
+    }
+  }, [loadKanbanDeals, viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'table') {
+      loadTableDeals();
+    }
+  }, [loadTableDeals, viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'table' && tablePage !== 1) {
+      setTablePage(1);
+    }
+  }, [effectiveFilters, tablePage, tablePageSize, tableSearch, tableSortConfig, viewMode]);
 
   useEffect(() => {
     loadFilterOptions();
   }, [loadFilterOptions]);
 
   const handleDragStart = (event: DragStartEvent) => {
-    const deal = deals.find(d => d.id === event.active.id);
+    const deal = kanbanDeals.find(d => d.id === event.active.id);
     setActiveDeal(deal || null);
   };
 
@@ -431,12 +734,12 @@ export default function Pipeline() {
     }
 
     const dealId = active.id as string;
-    const currentDeal = deals.find(d => d.id === dealId);
+    const currentDeal = kanbanDeals.find(d => d.id === dealId);
     if (!currentDeal) {
       return;
     }
 
-    const overDeal = deals.find(d => d.id === over.id);
+    const overDeal = kanbanDeals.find(d => d.id === over.id);
     const potentialStatusId = overDeal ? overDeal.pipeline_status_id : (over.id as string);
     if (!potentialStatusId) {
       return;
@@ -444,7 +747,7 @@ export default function Pipeline() {
 
     if (potentialStatusId === currentDeal.pipeline_status_id) {
       if (overDeal && overDeal.id !== currentDeal.id && overDeal.deal_type === currentDeal.deal_type) {
-        setDeals(prev => {
+        setKanbanDeals(prev => {
           const fromIndex = prev.findIndex(d => d.id === currentDeal.id);
           const toIndex = prev.findIndex(d => d.id === overDeal.id);
           if (fromIndex === -1 || toIndex === -1) {
@@ -476,7 +779,7 @@ export default function Pipeline() {
     }
 
     const previousDeal = currentDeal;
-    setDeals(prev =>
+    setKanbanDeals(prev =>
       prev.map(deal =>
         deal.id === dealId
           ? {
@@ -500,13 +803,14 @@ export default function Pipeline() {
 
     if (error) {
       console.error('Error updating deal status', error);
-      setDeals(prev => prev.map(deal => (deal.id === dealId ? previousDeal : deal)));
-      loadDeals();
+      setKanbanDeals(prev => prev.map(deal => (deal.id === dealId ? previousDeal : deal)));
+      loadKanbanDeals();
       return;
     }
 
     if (data) {
-      setDeals(prev => prev.map(deal => (deal.id === dealId ? (data as Deal) : deal)));
+      setKanbanDeals(prev => prev.map(deal => (deal.id === dealId ? (data as Deal) : deal)));
+      setTableRows(prev => prev.map(deal => (deal.id === dealId ? (data as Deal) : deal)));
     }
   };
 
@@ -530,7 +834,16 @@ export default function Pipeline() {
   }, [clearDealIdParam]);
 
   const handleDealSaved = useCallback((updatedDeal: Deal) => {
-    setDeals(prev => {
+    setKanbanDeals(prev => {
+      const existingIndex = prev.findIndex(deal => deal.id === updatedDeal.id);
+      if (existingIndex === -1) {
+        return [updatedDeal, ...prev];
+      }
+      const next = [...prev];
+      next[existingIndex] = { ...next[existingIndex], ...updatedDeal };
+      return next;
+    });
+    setTableRows(prev => {
       const existingIndex = prev.findIndex(deal => deal.id === updatedDeal.id);
       if (existingIndex === -1) {
         return [updatedDeal, ...prev];
@@ -542,62 +855,13 @@ export default function Pipeline() {
   }, []);
 
   const handleDealDeleted = useCallback((deletedId: string) => {
-    setDeals(prev => prev.filter(deal => deal.id !== deletedId));
+    setKanbanDeals(prev => prev.filter(deal => deal.id !== deletedId));
+    setTableRows(prev => prev.filter(deal => deal.id !== deletedId));
   }, []);
 
-  const shouldApplyPipelineFilters = viewMode === 'table' || (isSalesManager && viewMode === 'kanban');
-  const filteredDeals = deals
-    .filter(deal => deal.status !== 'dead')
-    .filter(deal => {
-      if (shouldApplyPipelineFilters) {
-        if (selectedAgentIds.length && !selectedAgentIds.includes(deal.user_id)) {
-          return false;
-        }
-        if (selectedLeadSourceIds.length) {
-          if (!deal.lead_source_id || !selectedLeadSourceIds.includes(deal.lead_source_id)) {
-            return false;
-          }
-        }
-        if (selectedDealTypeIds.length && !selectedDealTypeIds.includes(deal.deal_type)) {
-          return false;
-        }
-        if (viewMode === 'table' && selectedStageIds.length) {
-          const stageId = deal.pipeline_status_id || `status:${deal.status}`;
-          if (!selectedStageIds.includes(stageId)) {
-            return false;
-          }
-        }
-      }
-
-      if (viewMode === 'table') {
-        if (dashboardAgentFilters.length && !dashboardAgentFilters.includes(deal.user_id)) {
-          return false;
-        }
-        if (dashboardLeadSourceFilters.length) {
-          if (!deal.lead_source_id || !dashboardLeadSourceFilters.includes(deal.lead_source_id)) {
-            return false;
-          }
-        }
-        if (dashboardDealTypeFilters.length && !dashboardDealTypeFilters.includes(deal.deal_type)) {
-          return false;
-        }
-        if (dashboardStageFilters.length) {
-          const stageId = deal.pipeline_status_id || `status:${deal.status}`;
-          if (!dashboardStageFilters.includes(stageId)) {
-            return false;
-          }
-        }
-        if (statusFilter !== 'all') {
-          const stageId = deal.pipeline_status_id || `status:${deal.status}`;
-          return stageId === statusFilter;
-        }
-      }
-
-      return true;
-    });
 
   const getDealsByStatusId = (statusId: string) => {
-    return filteredDeals.filter(deal => deal.pipeline_status_id === statusId);
+    return kanbanDeals.filter(deal => deal.pipeline_status_id === statusId);
   };
 
 
@@ -629,7 +893,7 @@ export default function Pipeline() {
       .in('id', dealIds);
 
     if (!error) {
-      loadDeals();
+      loadTableDeals();
     }
   };
 
@@ -656,7 +920,7 @@ export default function Pipeline() {
       .in('id', dealIds);
 
     if (!error) {
-      loadDeals();
+      loadTableDeals();
     }
   };
 
@@ -679,7 +943,8 @@ export default function Pipeline() {
     }).format(amount);
   };
 
-  const metrics = getSummaryMetrics(filteredDeals);
+  const summaryDeals = viewMode === 'table' ? tableRows : kanbanDeals;
+  const metrics = getSummaryMetrics(summaryDeals);
   const summaryPills = [
     { label: 'Buyers', value: metrics.buyers, display: metrics.buyers.toString() },
     { label: 'Sellers', value: metrics.sellers, display: metrics.sellers.toString() },
@@ -697,12 +962,6 @@ export default function Pipeline() {
 
   const showFilterPanel = viewMode === 'table' || (isSalesManager && viewMode === 'kanban');
   const showStageFilter = viewMode === 'table';
-  // NEW: make this explicitly boolean so React never sees a naked 0
-  const hasDashboardFilters =
-    dashboardAgentFilters.length > 0 ||
-    dashboardLeadSourceFilters.length > 0 ||
-    dashboardDealTypeFilters.length > 0 ||
-    dashboardStageFilters.length > 0;
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user?.id;
   const selectMyData = () => {
@@ -844,7 +1103,7 @@ export default function Pipeline() {
     showStageFilter
   ]);
 
-  const isInitialLoading = loading || statusesLoading;
+  const isInitialLoading = (viewMode === 'table' ? tableLoading : kanbanLoading) || statusesLoading;
 
   return (
     <div className="space-y-6 min-h-full">
@@ -1017,9 +1276,9 @@ export default function Pipeline() {
           </section>
         )}
 
-        {hasDashboardFilters && (
+        {dashboardFiltersActive && (
           <div className="text-xs text-gray-600">
-            Dashboard filters applied:&nbsp;
+            Dashboard filters applied (override local selections):&nbsp;
             <span className="font-medium text-gray-900">
               {[
                 dashboardAgentFilters.length ? `${dashboardAgentFilters.length} agent${dashboardAgentFilters.length === 1 ? '' : 's'}` : null,
@@ -1096,14 +1355,24 @@ export default function Pipeline() {
       ) : (
         <div className="overflow-x-auto">
           <PipelineTable
-            deals={filteredDeals}
+            deals={tableRows}
             statuses={combinedStatuses}
             onDealClick={handleDealClick}
             calculateNetCommission={calculateNetCommission}
             getDaysInStage={getDaysInStage}
             onBulkDelete={handleBulkDelete}
             onBulkEdit={handleBulkEdit}
-            onImportSuccess={loadDeals}
+            onImportSuccess={loadTableDeals}
+            serverMode
+            searchQuery={tableSearch}
+            onSearchChange={setTableSearch}
+            sortConfig={tableSortConfig}
+            onSortChange={setTableSortConfig}
+            page={tablePage}
+            pageSize={tablePageSize}
+            totalCount={tableTotal}
+            onPageChange={setTablePage}
+            onPageSizeChange={setTablePageSize}
           />
         </div>
       )}

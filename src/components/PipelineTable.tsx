@@ -412,6 +412,16 @@ interface PipelineTableProps {
   onBulkDelete?: (dealIds: string[]) => void;
   onBulkEdit?: (dealIds: string[], updates: Partial<Deal>) => void;
   onImportSuccess?: () => void;
+  serverMode?: boolean;
+  searchQuery?: string;
+  onSearchChange?: (value: string) => void;
+  sortConfig?: { column: ColumnId | 'pipelineOrder'; direction: 'asc' | 'desc' };
+  onSortChange?: (next: { column: ColumnId | 'pipelineOrder'; direction: 'asc' | 'desc' }) => void;
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
 }
 
 export default function PipelineTable({
@@ -422,15 +432,25 @@ export default function PipelineTable({
   getDaysInStage,
   onBulkDelete,
   onBulkEdit,
-  onImportSuccess
+  onImportSuccess,
+  serverMode = false,
+  searchQuery,
+  onSearchChange,
+  sortConfig,
+  onSortChange,
+  page,
+  pageSize,
+  totalCount,
+  onPageChange,
+  onPageSizeChange
 }: PipelineTableProps) {
   const [selectedDeals, setSelectedDeals] = useState<Set<string>>(new Set());
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [bulkStatusId, setBulkStatusId] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showColumnManager, setShowColumnManager] = useState(false);
-  const [sortConfig, setSortConfig] = useState<{ column: ColumnId | 'pipelineOrder'; direction: 'asc' | 'desc' }>({
+  const [internalSortConfig, setInternalSortConfig] = useState<{ column: ColumnId | 'pipelineOrder'; direction: 'asc' | 'desc' }>({
     column: 'pipelineOrder',
     direction: 'asc'
   });
@@ -473,6 +493,12 @@ export default function PipelineTable({
 
   const visibleColumns = COLUMN_DEFINITIONS.filter(column => visibleColumnIds.includes(column.id));
   const columnCount = visibleColumns.length + 1; // +1 for checkbox column
+  const resolvedSearchQuery = searchQuery ?? internalSearchQuery;
+  const resolvedSortConfig = sortConfig ?? internalSortConfig;
+  const resolvedPage = page ?? 1;
+  const resolvedPageSize = (pageSize ?? deals.length) || 1;
+  const resolvedTotalCount = totalCount ?? deals.length;
+  const totalPages = Math.max(1, Math.ceil(resolvedTotalCount / resolvedPageSize));
 
   const toggleDealSelection = (dealId: string) => {
     const newSelection = new Set(selectedDeals);
@@ -515,10 +541,14 @@ export default function PipelineTable({
   };
 
   const filteredAndSortedDeals = useMemo(() => {
+    if (serverMode) {
+      return deals;
+    }
+
     let filtered = deals;
 
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    if (resolvedSearchQuery.trim()) {
+      const query = resolvedSearchQuery.toLowerCase();
       const matches = (value?: string | null) =>
         value ? value.toLowerCase().includes(query) : false;
 
@@ -625,53 +655,58 @@ export default function PipelineTable({
     };
 
     const sorter = [...filtered].sort((a, b) => {
-      const column = sortConfig.column;
+      const column = resolvedSortConfig.column;
       const aValue = getSortValue(a, column);
       const bValue = getSortValue(b, column);
       const baseComparison = compareValues(aValue, bValue);
 
       if (baseComparison !== 0) {
-        return baseComparison * (sortConfig.direction === 'asc' ? 1 : -1);
+        return baseComparison * (resolvedSortConfig.direction === 'asc' ? 1 : -1);
       }
 
       // fallback to created date (newest first)
       const fallback = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      return sortConfig.direction === 'asc' ? fallback : -fallback;
+      return resolvedSortConfig.direction === 'asc' ? fallback : -fallback;
     });
 
     return sorter;
-  }, [deals, searchQuery, sortConfig, statusOrderMap, calculateNetCommission]);
+  }, [calculateNetCommission, deals, resolvedSearchQuery, resolvedSortConfig, serverMode, statusOrderMap]);
 
   const sortedDeals = filteredAndSortedDeals;
 
-  const resolvedSortColumnId = sortConfig.column === 'pipelineOrder' ? 'pipelineStatus' : sortConfig.column;
+  const resolvedSortColumnId = resolvedSortConfig.column === 'pipelineOrder' ? 'pipelineStatus' : resolvedSortConfig.column;
 
   const handleColumnSort = (columnId: ColumnId) => {
     const targetColumn = columnId === 'pipelineStatus' ? 'pipelineOrder' : columnId;
-    setSortConfig(prev => {
-      if (prev.column === targetColumn) {
+    const nextConfig = (() => {
+      if (resolvedSortConfig.column === targetColumn) {
         return {
           column: targetColumn,
-          direction: prev.direction === 'asc' ? 'desc' : 'asc'
+          direction: resolvedSortConfig.direction === 'asc' ? 'desc' : 'asc'
         };
       }
       return {
         column: targetColumn,
         direction: 'asc'
       };
-    });
+    })();
+    if (onSortChange) {
+      onSortChange(nextConfig);
+    } else {
+      setInternalSortConfig(nextConfig);
+    }
   };
 
   const renderSortIndicator = (columnId: ColumnId) => {
     const isActive =
       resolvedSortColumnId === columnId ||
-      (sortConfig.column === 'pipelineOrder' && columnId === 'pipelineStatus');
+      (resolvedSortConfig.column === 'pipelineOrder' && columnId === 'pipelineStatus');
     if (!isActive) {
       return <ArrowUpDown className="w-3 h-3 text-gray-300" />;
     }
     return (
       <span className="text-[11px] font-semibold text-gray-500">
-        {sortConfig.direction === 'asc' ? '↑' : '↓'}
+        {resolvedSortConfig.direction === 'asc' ? '↑' : '↓'}
       </span>
     );
   };
@@ -684,8 +719,15 @@ export default function PipelineTable({
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={resolvedSearchQuery}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                if (onSearchChange) {
+                  onSearchChange(nextValue);
+                } else {
+                  setInternalSearchQuery(nextValue);
+                }
+              }}
               placeholder="Search by client, property, city, or lead source..."
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -882,6 +924,47 @@ export default function PipelineTable({
           </tbody>
         </table>
       </div>
+
+      {serverMode && totalCount !== undefined && (
+        <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            Showing {sortedDeals.length} of {resolvedTotalCount} deals
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onPageChange?.(Math.max(1, resolvedPage - 1))}
+              disabled={!onPageChange || resolvedPage <= 1}
+              className="rounded-lg border border-gray-200 px-3 py-1 text-xs text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Prev
+            </button>
+            <span className="text-gray-600">
+              Page {resolvedPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => onPageChange?.(Math.min(totalPages, resolvedPage + 1))}
+              disabled={!onPageChange || resolvedPage >= totalPages}
+              className="rounded-lg border border-gray-200 px-3 py-1 text-xs text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+            <select
+              value={resolvedPageSize}
+              onChange={(event) => onPageSizeChange?.(Number(event.target.value))}
+              disabled={!onPageSizeChange}
+              className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {[25, 50, 100].map(size => (
+                <option key={size} value={size}>
+                  {size} / page
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {showImportModal && (
         <ImportDealsModal
