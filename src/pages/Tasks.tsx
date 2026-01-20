@@ -86,10 +86,10 @@ type StatusFilterValue = (typeof statusFilterOptions)[number]['value'];
 export default function Tasks() {
   const { user, roleInfo } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
   const [agentFilter, setAgentFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
   const [deals, setDeals] = useState<DealSummary[]>([]);
@@ -139,6 +139,13 @@ export default function Tasks() {
     () => (agentFilter === 'all' ? tasks : tasks.filter((task) => task.user_id === agentFilter)),
     [tasks, agentFilter]
   );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const taskStats = useMemo(() => {
     const today = new Date();
@@ -376,7 +383,7 @@ export default function Tasks() {
     fetchDeals();
   }, [fetchDeals, user]);
 
-  useEffect(() => {
+  const filteredTasks = useMemo(() => {
     let result = [...taskBase];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -402,22 +409,18 @@ export default function Tasks() {
       });
     }
 
-    if (agentFilter !== 'all') {
-      result = result.filter((task) => task.user_id === agentFilter);
-    }
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase();
       result = result.filter(
         (task) =>
           task.title.toLowerCase().includes(query) ||
-          task.deals.client_name.toLowerCase().includes(query) ||
-          task.deals.property_address.toLowerCase().includes(query)
+          (task.deals.client_name || '').toLowerCase().includes(query) ||
+          (task.deals.property_address || '').toLowerCase().includes(query)
       );
     }
 
-    setFilteredTasks(result);
-  }, [statusFilter, searchQuery, agentFilter, taskBase]);
+    return result;
+  }, [debouncedSearchQuery, statusFilter, taskBase]);
 
   useEffect(() => {
     if (agentFilter === 'all') return;
@@ -594,7 +597,6 @@ export default function Tasks() {
       // After animation completes, remove from list
       setTimeout(() => {
         setTasks((prev) => prev.filter((t) => t.id !== task.id));
-        setFilteredTasks((prev) => prev.filter((t) => t.id !== task.id));
         setCompletedVisual((prev) => {
           const next = { ...prev };
           delete next[task.id];
