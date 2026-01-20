@@ -24,6 +24,8 @@ const surfaceClass =
   'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const filterPillBaseClass =
   'inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition';
+const urgencyPillBaseClass =
+  'group flex w-full flex-col gap-2 rounded-2xl border px-4 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/20';
 
 type TaskRow = Pick<
   Database['public']['Tables']['tasks']['Row'],
@@ -63,33 +65,7 @@ type AccessibleAgentRow = {
   email: string | null;
 };
 
-const statusFilterOptions = [
-  {
-    label: 'All tasks',
-    value: 'all',
-    accentClass: 'bg-gray-900 text-white border-gray-900 shadow-sm'
-  },
-  {
-    label: 'Overdue',
-    value: 'overdue',
-    accentClass:
-      'bg-red-50 text-red-700 border-red-200 shadow-sm ring-1 ring-red-100'
-  },
-  {
-    label: 'Due today',
-    value: 'today',
-    accentClass:
-      'bg-amber-50 text-amber-700 border-amber-200 shadow-sm ring-1 ring-amber-100'
-  },
-  {
-    label: 'Upcoming',
-    value: 'upcoming',
-    accentClass:
-      'bg-sky-50 text-sky-700 border-sky-200 shadow-sm ring-1 ring-sky-100'
-  }
-] as const;
-
-type StatusFilterValue = (typeof statusFilterOptions)[number]['value'];
+type StatusFilterValue = 'all' | 'overdue' | 'today' | 'upcoming' | 'unscheduled';
 
 const TASK_COLUMNS = 'id,user_id,title,due_date,completed,deal_id,updated_at';
 const DEAL_COLUMNS = 'id,client_name,property_address,city,state,next_task_description';
@@ -122,6 +98,11 @@ export default function Tasks() {
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedDeal, setSelectedDeal] =
     useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'compact'>(() => {
+    if (typeof window === 'undefined') return 'list';
+    const stored = window.localStorage.getItem('tasks_view_mode');
+    return stored === 'compact' ? 'compact' : 'list';
+  });
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDealId, setNewTaskDealId] = useState('');
@@ -163,6 +144,11 @@ export default function Tasks() {
   useEffect(() => {
     optimisticallyCompletedIdsRef.current = optimisticallyCompletedIds;
   }, [optimisticallyCompletedIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('tasks_view_mode', viewMode);
+  }, [viewMode]);
 
   const todayStart = useMemo(() => {
     const today = new Date();
@@ -499,6 +485,7 @@ export default function Tasks() {
     if (statusFilter !== 'all') {
       result = result.filter((task) => {
         const due = normalizeDueDate(task.due_date);
+        if (statusFilter === 'unscheduled') return !due;
         if (!due) return false;
         const dueTs = due.getTime();
         if (statusFilter === 'overdue') return dueTs < todayStart;
@@ -633,6 +620,21 @@ export default function Tasks() {
     return <span className="text-xs font-semibold text-emerald-600">Upcoming</span>;
   };
 
+  const getDueMeta = (task: Task) => {
+    const due = normalizeDueDate(task.due_date);
+    if (!due) {
+      return { label: 'No due date', className: 'bg-gray-100 text-gray-600' };
+    }
+    const dueTs = due.getTime();
+    if (dueTs < todayStart) {
+      return { label: 'Overdue', className: 'bg-red-50 text-red-700' };
+    }
+    if (dueTs === todayStart) {
+      return { label: 'Due today', className: 'bg-amber-50 text-amber-700' };
+    }
+    return { label: 'Upcoming', className: 'bg-emerald-50 text-emerald-700' };
+  };
+
   const handleRowClick = (task: Task) => {
     setSelectedDeal(task.deals);
     setShowDealModal(true);
@@ -711,8 +713,7 @@ export default function Tasks() {
     }
   };
 
-  const handleToggleComplete = async (task: Task, event: React.MouseEvent) => {
-    event.stopPropagation();
+  const completeTask = async (task: Task) => {
     if (!user) return;
 
     setCompletingId(task.id);
@@ -777,6 +778,11 @@ export default function Tasks() {
     }
   };
 
+  const handleToggleComplete = async (task: Task, event: React.MouseEvent) => {
+    event.stopPropagation();
+    await completeTask(task);
+  };
+
   const handleDealModalClose = () => {
     setShowDealModal(false);
     setSelectedDeal(null);
@@ -785,6 +791,64 @@ export default function Tasks() {
       resetCompletedTasks();
       fetchCompletedTasksPage('reset');
     }
+  };
+
+  const renderCompletionButton = (task: Task, isVisuallyCompleted: boolean) => (
+    <button
+      type="button"
+      className="pt-1"
+      onClick={(event) => handleToggleComplete(task, event)}
+      disabled={completingId === task.id}
+      aria-label="Mark task complete"
+    >
+      {completingId === task.id ? (
+        <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+      ) : (
+        <span
+          className={`relative flex h-5 w-5 items-center justify-center rounded-full border transition-all duration-300 ${
+            isVisuallyCompleted
+              ? 'border-emerald-500 bg-emerald-50 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]'
+              : 'border-gray-300 bg-white'
+          }`}
+        >
+          <Circle
+            className={`absolute h-4 w-4 text-gray-300 transition-opacity duration-200 ${
+              isVisuallyCompleted ? 'opacity-0' : 'opacity-100'
+            }`}
+          />
+          <CheckCircle
+            className={`absolute h-4 w-4 text-emerald-500 origin-center transition-all duration-500 ${
+              isVisuallyCompleted ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
+            }`}
+          />
+        </span>
+      )}
+    </button>
+  );
+
+  const renderNotesToggle = (task: Task, notes: TaskNote[], expanded: boolean) => {
+    if (notes.length === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpandedNotes((prev) => ({
+            ...prev,
+            [task.id]: !expanded
+          }));
+        }}
+        className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
+        aria-label="Toggle task notes"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+        <span>Notes</span>
+      </button>
+    );
   };
 
   const renderTaskRow = (task: Task) => {
@@ -802,36 +866,7 @@ export default function Tasks() {
       >
         <td className="px-5 py-4">
           <div className="flex items-start gap-3">
-            <button
-              type="button"
-              className="pt-1"
-              onClick={(event) => handleToggleComplete(task, event)}
-              disabled={completingId === task.id}
-              aria-label="Mark task complete"
-            >
-              {completingId === task.id ? (
-                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
-              ) : (
-                <span
-                  className={`relative flex h-5 w-5 items-center justify-center rounded-full border transition-all duration-300 ${
-                    isVisuallyCompleted
-                      ? 'border-emerald-500 bg-emerald-50 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]'
-                      : 'border-gray-300 bg-white'
-                  }`}
-                >
-                  <Circle
-                    className={`absolute h-4 w-4 text-gray-300 transition-opacity duration-200 ${
-                      isVisuallyCompleted ? 'opacity-0' : 'opacity-100'
-                    }`}
-                  />
-                  <CheckCircle
-                    className={`absolute h-4 w-4 text-emerald-500 origin-center transition-all duration-500 ${
-                      isVisuallyCompleted ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
-                    }`}
-                  />
-                </span>
-              )}
-            </button>
+            {renderCompletionButton(task, isVisuallyCompleted)}
             <div>
               <div className="flex items-center gap-2">
                 <p
@@ -846,27 +881,7 @@ export default function Tasks() {
                     )}
                   </span>
                 </p>
-                {notes.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setExpandedNotes((prev) => ({
-                        ...prev,
-                        [task.id]: !expanded
-                      }));
-                    }}
-                    className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
-                    aria-label="Toggle task notes"
-                  >
-                    {expanded ? (
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    )}
-                    <span>Notes</span>
-                  </button>
-                )}
+                {renderNotesToggle(task, notes, expanded)}
               </div>
               {task.deals?.next_task_description && (
                 <p className="text-xs text-gray-500">
@@ -926,6 +941,86 @@ export default function Tasks() {
     );
   };
 
+  const renderTaskCard = (task: Task) => {
+    const notes = notesByTask[task.id] || [];
+    const expanded = !!expandedNotes[task.id];
+    const isVisuallyCompleted = !!completedVisual[task.id];
+    const dueMeta = getDueMeta(task);
+
+    return (
+      <div
+        key={task.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => handleRowClick(task)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleRowClick(task);
+          }
+        }}
+        className={`rounded-2xl border border-gray-200/70 bg-white/90 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-white ${
+          isVisuallyCompleted ? 'opacity-70' : 'opacity-100'
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          {renderCompletionButton(task, isVisuallyCompleted)}
+          <div className="flex-1 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p
+                  className={`text-base font-semibold transition-all duration-300 ${
+                    isVisuallyCompleted ? 'text-gray-400' : 'text-gray-900'
+                  }`}
+                >
+                  <span className="relative inline-block">
+                    <span className="relative z-10">{task.title}</span>
+                    {isVisuallyCompleted && (
+                      <span className="pointer-events-none absolute inset-x-0 top-1/2 h-[1px] bg-gray-400 task-strike" />
+                    )}
+                  </span>
+                </p>
+                <p className="text-sm text-gray-600">
+                  {task.deals.client_name}
+                  {task.deals.property_address ? ` • ${task.deals.property_address}` : ''}
+                </p>
+              </div>
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${dueMeta.className}`}
+              >
+                {dueMeta.label}
+              </span>
+            </div>
+
+            {task.deals?.next_task_description && (
+              <p className="text-xs text-gray-500">
+                Related: {task.deals.next_task_description}
+              </p>
+            )}
+
+            {renderNotesToggle(task, notes, expanded)}
+
+            {expanded && notes.length > 0 && (
+              <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
+                {notes.slice(0, 3).map((note) => (
+                  <p key={note.id} className="text-sm text-gray-700">
+                    {note.content}
+                  </p>
+                ))}
+                {notes.length > 3 && (
+                  <p className="text-xs text-gray-500">
+                    {notes.length - 3} more note
+                    {notes.length - 3 === 1 ? '' : 's'} in Deal notes
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderCompletedRow = (task: Task) => (
     <tr
       key={task.id}
@@ -957,8 +1052,227 @@ export default function Tasks() {
     </tr>
   );
 
+  const groupedTasks =
+    isManagerRole && agentFilter === 'all'
+      ? (() => {
+          const g = new Map<string, Task[]>();
+          filteredTasks.forEach((task) => {
+            const ownerId = task.user_id;
+            if (!g.has(ownerId)) g.set(ownerId, []);
+            g.get(ownerId)!.push(task);
+          });
+          return Array.from(g.entries())
+            .map(([agentId, tasksForAgent]) => ({
+              agentId,
+              agentName: dealOwners[agentId] || getOwnerName(agentId),
+              tasks: tasksForAgent
+            }))
+            .sort((a, b) => a.agentName.localeCompare(b.agentName));
+        })()
+      : null;
+
+  const urgencyFilters: Array<{
+    label: string;
+    value: StatusFilterValue;
+    count: number;
+    helper: string;
+    icon: React.ComponentType<{ className?: string }>;
+    baseClass: string;
+    activeClass: string;
+  }> = [
+    {
+      label: 'Today',
+      value: 'today',
+      count: taskStats.dueToday,
+      helper: 'Handle before day end',
+      icon: Clock,
+      baseClass: 'border-amber-100/70 bg-amber-50/60 text-amber-700',
+      activeClass: 'border-amber-200 bg-amber-100/80 text-amber-800 ring-1 ring-amber-200/70'
+    },
+    {
+      label: 'Overdue',
+      value: 'overdue',
+      count: taskStats.overdue,
+      helper: 'Clear the backlog',
+      icon: AlertTriangle,
+      baseClass: 'border-red-100/60 bg-red-50/70 text-red-700',
+      activeClass: 'border-red-200 bg-red-100/80 text-red-800 ring-1 ring-red-200/70'
+    },
+    {
+      label: 'Upcoming',
+      value: 'upcoming',
+      count: taskStats.upcoming,
+      helper: 'Prep the next moves',
+      icon: ArrowUpRight,
+      baseClass: 'border-sky-100/70 bg-sky-50/60 text-sky-700',
+      activeClass: 'border-sky-200 bg-sky-100/80 text-sky-800 ring-1 ring-sky-200/70'
+    },
+    {
+      label: 'Unscheduled',
+      value: 'unscheduled',
+      count: taskStats.unscheduled,
+      helper: 'Add due dates',
+      icon: AlertTriangle,
+      baseClass: 'border-amber-100/70 bg-amber-50/60 text-amber-700',
+      activeClass: 'border-amber-200 bg-amber-100/80 text-amber-800 ring-1 ring-amber-200/70'
+    }
+  ];
+
   return (
     <div className="space-y-6">
+      <section className={`${surfaceClass} p-6 space-y-5`}>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Focus cues
+            </p>
+            <h2 className="text-xl font-semibold text-gray-900">
+              Where attention is needed
+            </h2>
+          </div>
+          {statusFilter !== 'all' && (
+            <button
+              onClick={() => setStatusFilter('all')}
+              className="text-xs font-semibold text-[var(--app-accent)] hover:underline"
+            >
+              View all tasks
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+          {urgencyFilters.map((filter) => {
+            const isActive = statusFilter === filter.value;
+            const Icon = filter.icon;
+            return (
+              <button
+                key={filter.value}
+                onClick={() => setStatusFilter(filter.value)}
+                className={`${urgencyPillBaseClass} ${
+                  isActive ? filter.activeClass : filter.baseClass
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="inline-flex items-center gap-2 text-sm font-semibold">
+                    <Icon className="h-4 w-4" />
+                    <span>{filter.label}</span>
+                  </div>
+                  <span className="text-2xl font-semibold">{filter.count}</span>
+                </div>
+                <p className="text-xs font-medium opacity-80">{filter.helper}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="rounded-2xl border border-gray-100/80 bg-[var(--app-surface-muted)] p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Next Action
+              </p>
+              <h3 className="text-lg font-semibold text-gray-900 mt-1">
+                {taskStats.nextTask ? 'Your most time-sensitive move' : 'No dated tasks yet'}
+              </h3>
+            </div>
+            {taskStats.nextTask && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleRowClick(taskStats.nextTask!)}
+                  className="hig-btn-secondary inline-flex items-center gap-2 px-4"
+                >
+                  Open deal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => completeTask(taskStats.nextTask!)}
+                  className="hig-btn-primary inline-flex items-center gap-2 px-4"
+                  disabled={completingId === taskStats.nextTask.id}
+                >
+                  {completingId === taskStats.nextTask.id ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Marking…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4" />
+                      Mark complete
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+          {taskStats.nextTask ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-lg font-semibold text-gray-900">
+                  {taskStats.nextTask.title}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {taskStats.nextTask.deals.client_name}
+                </p>
+                {taskStats.nextTask.deals.property_address && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                    <MapPin className="h-3.5 w-3.5" />
+                    <span>
+                      {taskStats.nextTask.deals.property_address}
+                      {taskStats.nextTask.deals.city
+                        ? `, ${taskStats.nextTask.deals.city}`
+                        : ''}
+                      {taskStats.nextTask.deals.state
+                        ? `, ${taskStats.nextTask.deals.state}`
+                        : ''}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-start gap-2 text-sm text-gray-600 md:justify-end">
+                {(() => {
+                  const due = normalizeDueDate(taskStats.nextTask!.due_date);
+                  const dueTs = due ? due.getTime() : null;
+                  const isOverdue = dueTs !== null && dueTs < todayStart;
+                  const isToday = dueTs !== null && dueTs === todayStart;
+                  const badgeClass = isOverdue
+                    ? 'text-red-600'
+                    : isToday
+                      ? 'text-amber-600'
+                      : due
+                        ? 'text-emerald-600'
+                        : 'text-gray-500';
+                  const badgeLabel = isOverdue
+                    ? 'Overdue'
+                    : isToday
+                      ? 'Due today'
+                      : due
+                        ? 'Upcoming'
+                        : 'No due date';
+                  return (
+                    <div className="flex items-center gap-2">
+                      <Calendar className={`h-4 w-4 ${badgeClass}`} />
+                      <div className="flex flex-col items-end">
+                        <span className={`text-xs font-semibold uppercase tracking-wide ${badgeClass}`}>
+                          {badgeLabel}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {formatDate(taskStats.nextTask!.due_date)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-gray-600">
+              Add a due date to your most important task so it rises to the top.
+            </p>
+          )}
+        </div>
+      </section>
+
       <div className={`${surfaceClass} p-6 space-y-5`}>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -985,91 +1299,85 @@ export default function Tasks() {
                 </span>
               )}
             </div>
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by client, task, property..."
-              className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
-            />
           </div>
         </div>
 
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                Task status
-              </span>
-              {statusFilter !== 'all' && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by client, task, property..."
+                className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
+              />
+              <div className="inline-flex items-center rounded-full border border-gray-200/70 bg-white p-1 text-xs font-semibold">
                 <button
-                  onClick={() => setStatusFilter('all')}
-                  className="text-xs font-medium text-[var(--app-accent)] hover:underline"
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className={`rounded-full px-3 py-1 transition ${
+                    viewMode === 'list'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
                 >
-                  Reset
+                  List
                 </button>
-              )}
-            </div>
-            {isManagerRole && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                  Agent
-                </span>
-                <select
-                  value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
-                  className="hig-input w-52"
+                <button
+                  type="button"
+                  onClick={() => setViewMode('compact')}
+                  className={`rounded-full px-3 py-1 transition ${
+                    viewMode === 'compact'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
                 >
-                  <option value="all">All agents</option>
-                  {agentOptions.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.label}
-                    </option>
-                  ))}
-                </select>
+                  Compact
+                </button>
               </div>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {statusFilterOptions.map((option) => {
-                const isActive = statusFilter === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    onClick={() => setStatusFilter(option.value)}
-                    className={`${filterPillBaseClass} ${
-                      isActive
-                        ? option.accentClass
-                        : 'border-gray-200/70 bg-white text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
             </div>
-            <span className="h-6 w-px bg-gray-200/80" aria-hidden="true" />
-            <button
-              type="button"
-              onClick={async () => {
-                setShowCompleted((prev) => {
-                  const next = !prev;
-                  if (next) {
-                    resetCompletedTasks();
-                    fetchCompletedTasksPage('reset');
-                  }
-                  return next;
-                });
-              }}
-              className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
-                showCompleted
-                  ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
-                  : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
-              }`}
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              {showCompleted ? 'Hide completed' : 'View recently completed'}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              {isManagerRole && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                    Agent
+                  </span>
+                  <select
+                    value={agentFilter}
+                    onChange={(e) => setAgentFilter(e.target.value)}
+                    className="hig-input w-52"
+                  >
+                    <option value="all">All agents</option>
+                    {agentOptions.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowCompleted((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      resetCompletedTasks();
+                      fetchCompletedTasksPage('reset');
+                    }
+                    return next;
+                  });
+                }}
+                className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
+                  showCompleted
+                    ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
+                    : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
+                }`}
+              >
+                <CheckCircle className="h-3.5 w-3.5" />
+                {showCompleted ? 'Hide completed' : 'View recently completed'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1192,221 +1500,188 @@ export default function Tasks() {
         </form>
       </div>
 
-      <div className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-                <th className="px-5 py-3">Task</th>
-                <th className="px-5 py-3">Due</th>
-                <th className="px-5 py-3">Deal</th>
-                <th className="px-5 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 bg-white/90">
-              {loading ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-5 py-8 text-center text-gray-500 text-sm"
-                  >
-                    Loading tasks…
-                  </td>
-                </tr>
-              ) : filteredTasks.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-5 py-12 text-center text-gray-500 text-sm"
-                  >
-                    Nothing to show here — take a moment to plan your next steps.
-                  </td>
-                </tr>
-              ) : (() => {
-                const groups =
-                  isManagerRole && agentFilter === 'all'
-                    ? (() => {
-                        const g = new Map<string, Task[]>();
-                        filteredTasks.forEach((task) => {
-                          const ownerId = task.user_id;
-                          if (!g.has(ownerId)) g.set(ownerId, []);
-                          g.get(ownerId)!.push(task);
-                        });
-                        return Array.from(g.entries())
-                          .map(([agentId, tasksForAgent]) => ({
-                            agentId,
-                            agentName:
-                              dealOwners[agentId] || getOwnerName(agentId),
-                            tasks: tasksForAgent
-                          }))
-                          .sort((a, b) =>
-                            a.agentName.localeCompare(b.agentName)
-                          );
-                      })()
-                    : null;
-
-                if (groups && groups.length > 0) {
-                  return (
-                    <>
-                      {groups.map((group) => (
-                        <React.Fragment key={group.agentId}>
-                          <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
-                            <td
-                              colSpan={4}
-                              className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide"
-                            >
-                              {group.agentName} • {group.tasks.length} task
-                              {group.tasks.length === 1 ? '' : 's'}
-                            </td>
-                          </tr>
-                          {group.tasks.map((task) => renderTaskRow(task))}
-                        </React.Fragment>
-                      ))}
-                    </>
-                  );
-                }
-
-                return <>{filteredTasks.map((task) => renderTaskRow(task))}</>;
-              })()}
-            </tbody>
-          </table>
-        </div>
-
-        {showCompleted && (
-          <div className="border-t border-gray-100 bg-gray-50/80">
-            <div className="flex items-center justify-between px-5 py-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
-                  Recently completed
-                </p>
-                <p className="text-xs text-gray-500">
-                  Last 30 completed tasks in your scope.
-                </p>
-              </div>
-              <div className="text-xs text-gray-500">
-                {completedLoading
-                  ? 'Loading…'
-                  : `${completedTasks.length} item${
-                      completedTasks.length === 1 ? '' : 's'
-                    }`}
-              </div>
+      {viewMode === 'list' ? (
+        <div className={`${surfaceClass} p-4 space-y-3 ${refreshing ? 'opacity-90' : ''}`}>
+          {loading ? (
+            <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
+              Loading tasks…
             </div>
-            {completedLoading ? (
-              <div className="px-5 pb-4 text-xs text-gray-500">Loading…</div>
-            ) : completedTasks.length === 0 ? (
-              <div className="px-5 pb-4 text-xs text-gray-500">
-                Nothing completed yet.
-              </div>
-            ) : (
-              <>
-                <div className="max-h-72 overflow-y-auto">
-                  <table className="min-w-full text-left">
-                    <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
-                  </table>
+          ) : filteredTasks.length === 0 ? (
+            <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
+              Nothing to show here — take a moment to plan your next steps.
+            </div>
+          ) : groupedTasks && groupedTasks.length > 0 ? (
+            groupedTasks.map((group) => (
+              <div key={group.agentId} className="space-y-3">
+                <div className="sticky top-[3.5rem] z-10 rounded-xl border border-gray-200/70 bg-[var(--app-surface-muted)]/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-700 backdrop-blur">
+                  {group.agentName} • {group.tasks.length} task
+                  {group.tasks.length === 1 ? '' : 's'}
                 </div>
-                <div className="flex items-center justify-center px-5 pb-4 pt-3">
-                  {completedHasMore ? (
-                    <button
-                      type="button"
-                      onClick={() => fetchCompletedTasksPage('append')}
-                      disabled={completedLoadingMore}
-                      className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 transition hover:text-gray-900 disabled:opacity-60"
-                    >
-                      {completedLoadingMore ? 'Loading…' : 'Load more'}
-                    </button>
-                  ) : (
-                    <span className="text-xs text-gray-500">You've reached the end.</span>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      <section className={`${surfaceClass} p-6`}>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Focus cues
-            </p>
-            <h2 className="text-xl font-semibold text-gray-900">
-              Where attention is needed
-            </h2>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-red-100/60 bg-red-50/70 p-4">
-            <div className="flex items-center gap-2 text-red-600 text-sm font-semibold uppercase tracking-wide">
-              <AlertTriangle className="h-4 w-4" />
-              Overdue
-            </div>
-            <p className="mt-2 text-2xl font-semibold text-red-700">
-              {taskStats.overdue}
-            </p>
-            <p className="text-xs text-red-600">Tasks waiting on you</p>
-          </div>
-          <div className="rounded-2xl border border-amber-100/70 bg-amber-50/60 p-4">
-            <div className="flex items-center gap-2 text-amber-600 text-sm font-semibold uppercase tracking-wide">
-              <Clock className="h-4 w-4" />
-              Due today
-            </div>
-            <p className="mt-2 text-2xl font-semibold text-amber-700">
-              {taskStats.dueToday}
-            </p>
-            <p className="text-xs text-amber-600">Expected before midnight</p>
-          </div>
-          <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/60 p-4">
-            <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold uppercase tracking-wide">
-              <ArrowUpRight className="h-4 w-4" />
-              Upcoming
-            </div>
-            <p className="mt-2 text-2xl font-semibold text-emerald-700">
-              {taskStats.upcoming}
-            </p>
-            <p className="text-xs text-emerald-600">On the horizon</p>
-          </div>
-          <div className="rounded-2xl border border-gray-100/70 bg-gray-50/80 p-4">
-            <div className="flex items-center gap-2 text-gray-600 text-sm font-semibold uppercase tracking-wide">
-              <Circle className="h-4 w-4" />
-              Unscheduled
-            </div>
-            <p className="mt-2 text-2xl font-semibold text-gray-700">
-              {taskStats.unscheduled}
-            </p>
-            <p className="text-xs text-gray-500">
-              Add due dates to keep momentum
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-gray-100/80 bg-[var(--app-surface-muted)] p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Next actionable
-          </p>
-          {taskStats.nextTask ? (
-            <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-lg font-semibold text-gray-900">
-                  {taskStats.nextTask.title}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {taskStats.nextTask.deals.client_name}
-                </p>
+                {group.tasks.map((task) => renderTaskCard(task))}
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Calendar className="h-4 w-4 text-gray-400" />
-                <span>{formatDate(taskStats.nextTask.due_date)}</span>
-              </div>
-            </div>
+            ))
           ) : (
-            <p className="mt-2 text-sm text-gray-600">
-              No dated tasks remain. Assign due dates to keep focus on high-leverage
-              work.
-            </p>
+            filteredTasks.map((task) => renderTaskCard(task))
+          )}
+
+          {showCompleted && (
+            <div className="rounded-2xl border border-gray-200/70 bg-gray-50/80">
+              <div className="flex items-center justify-between px-5 py-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
+                    Recently completed
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Last 30 completed tasks in your scope.
+                  </p>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {completedLoading
+                    ? 'Loading…'
+                    : `${completedTasks.length} item${
+                        completedTasks.length === 1 ? '' : 's'
+                      }`}
+                </div>
+              </div>
+              {completedLoading ? (
+                <div className="px-5 pb-4 text-xs text-gray-500">Loading…</div>
+              ) : completedTasks.length === 0 ? (
+                <div className="px-5 pb-4 text-xs text-gray-500">
+                  Nothing completed yet.
+                </div>
+              ) : (
+                <>
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="min-w-full text-left">
+                      <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-center px-5 pb-4 pt-3">
+                    {completedHasMore ? (
+                      <button
+                        type="button"
+                        onClick={() => fetchCompletedTasksPage('append')}
+                        disabled={completedLoadingMore}
+                        className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 transition hover:text-gray-900 disabled:opacity-60"
+                      >
+                        {completedLoadingMore ? 'Loading…' : 'Load more'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-500">You've reached the end.</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
-      </section>
+      ) : (
+        <div className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-100">
+              <thead className="bg-gray-50">
+                <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="px-5 py-3">Task</th>
+                  <th className="px-5 py-3">Due</th>
+                  <th className="px-5 py-3">Deal</th>
+                  <th className="px-5 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white/90">
+                {loading ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-5 py-8 text-center text-gray-500 text-sm"
+                    >
+                      Loading tasks…
+                    </td>
+                  </tr>
+                ) : filteredTasks.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-5 py-12 text-center text-gray-500 text-sm"
+                    >
+                      Nothing to show here — take a moment to plan your next steps.
+                    </td>
+                  </tr>
+                ) : groupedTasks && groupedTasks.length > 0 ? (
+                  <>
+                    {groupedTasks.map((group) => (
+                      <React.Fragment key={group.agentId}>
+                        <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
+                          <td
+                            colSpan={4}
+                            className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide"
+                          >
+                            {group.agentName} • {group.tasks.length} task
+                            {group.tasks.length === 1 ? '' : 's'}
+                          </td>
+                        </tr>
+                        {group.tasks.map((task) => renderTaskRow(task))}
+                      </React.Fragment>
+                    ))}
+                  </>
+                ) : (
+                  <>{filteredTasks.map((task) => renderTaskRow(task))}</>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {showCompleted && (
+            <div className="border-t border-gray-100 bg-gray-50/80">
+              <div className="flex items-center justify-between px-5 py-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
+                    Recently completed
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Last 30 completed tasks in your scope.
+                  </p>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {completedLoading
+                    ? 'Loading…'
+                    : `${completedTasks.length} item${
+                        completedTasks.length === 1 ? '' : 's'
+                      }`}
+                </div>
+              </div>
+              {completedLoading ? (
+                <div className="px-5 pb-4 text-xs text-gray-500">Loading…</div>
+              ) : completedTasks.length === 0 ? (
+                <div className="px-5 pb-4 text-xs text-gray-500">
+                  Nothing completed yet.
+                </div>
+              ) : (
+                <>
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="min-w-full text-left">
+                      <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-center px-5 pb-4 pt-3">
+                    {completedHasMore ? (
+                      <button
+                        type="button"
+                        onClick={() => fetchCompletedTasksPage('append')}
+                        disabled={completedLoadingMore}
+                        className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 transition hover:text-gray-900 disabled:opacity-60"
+                      >
+                        {completedLoadingMore ? 'Loading…' : 'Load more'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-500">You've reached the end.</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {showDealModal && selectedDeal && (
         <DealModal
