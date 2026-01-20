@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getUserRoleInfo, getVisibleUserIds } from './rbac';
+import { calculateActualGCI, calculateExpectedGCI } from './commission';
 import type { UserRoleInfo } from './rbac';
 import type { Database } from './database.types';
 
@@ -32,14 +33,7 @@ export interface RAGContext {
  * Calculate GCI for a deal
  */
 function calculateDealGCI(deal: DealRow): number {
-  const salePrice = deal.actual_sale_price || deal.expected_sale_price || 0;
-  const grossCommission = salePrice * (deal.gross_commission_rate || 0);
-  const afterBrokerageSplit = grossCommission * (1 - (deal.brokerage_split_rate || 0));
-  const afterReferral = deal.referral_out_rate
-    ? afterBrokerageSplit * (1 - deal.referral_out_rate)
-    : afterBrokerageSplit;
-  const netCommission = afterReferral - (deal.transaction_fee || 0);
-  return netCommission;
+  return deal.status === 'closed' ? calculateActualGCI(deal) : calculateExpectedGCI(deal);
 }
 
 /**

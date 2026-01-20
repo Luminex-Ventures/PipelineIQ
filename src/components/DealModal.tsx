@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
+import { calculateCommissionBreakdown } from '../lib/commission';
 import { useAuth } from '../contexts/AuthContext';
 import {
   X,
@@ -531,23 +532,20 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   };
 
   // Derived values
-  const salePrice =
-    Number(formData.actual_sale_price) || Number(formData.expected_sale_price) || 0;
-  const grossCommission = salePrice * formData.gross_commission_rate;
-  const afterBrokerageSplit = grossCommission * (1 - formData.brokerage_split_rate);
-  const referralOutRate = Number(formData.referral_out_rate) || 0;
-  const referralInRate = Number(formData.referral_in_rate) || 0;
-  const transactionFee = Number(formData.transaction_fee) || 0;
-
-  const afterReferralOut = referralOutRate
-    ? afterBrokerageSplit * (1 - referralOutRate)
-    : afterBrokerageSplit;
-
-  const afterReferralIn = referralInRate
-    ? afterReferralOut * (1 + referralInRate)
-    : afterReferralOut;
-
-  const netBeforeTax = afterReferralIn - transactionFee;
+  const commissionInput = {
+    actual_sale_price: Number(formData.actual_sale_price),
+    expected_sale_price: Number(formData.expected_sale_price),
+    gross_commission_rate: Number(formData.gross_commission_rate),
+    brokerage_split_rate: Number(formData.brokerage_split_rate),
+    referral_out_rate: Number(formData.referral_out_rate),
+    referral_in_rate: Number(formData.referral_in_rate),
+    transaction_fee: Number(formData.transaction_fee)
+  };
+  const commissionBreakdown = calculateCommissionBreakdown(commissionInput, { includeReferralIn: true });
+  const grossCommission = commissionBreakdown.gross;
+  const afterBrokerageSplit = commissionBreakdown.afterBrokerage;
+  const transactionFee = commissionBreakdown.transactionFee;
+  const netBeforeTax = commissionBreakdown.net;
 
   const leadSourceLabel =
     leadSources.find(source => source.id === formData.lead_source_id)?.name || 'Not set';

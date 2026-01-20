@@ -1,3 +1,6 @@
+import { calculateActualGCI as calculateActualGCIShared, calculateExpectedGCI as calculateExpectedGCIShared, calculateNetCommission } from './commission';
+import type { GlobalRole } from './database.types';
+
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -28,8 +31,6 @@ export function formatDate(date: string): string {
     year: 'numeric'
   }).format(new Date(date));
 }
-
-import type { GlobalRole } from './database.types';
 
 export function getGreeting(userName?: string, role?: GlobalRole | null): string {
   const hour = new Date().getHours();
@@ -154,39 +155,31 @@ type DealCommissionInputs = {
   gross_commission_rate?: number | null;
   brokerage_split_rate?: number | null;
   referral_out_rate?: number | null;
+  referral_in_rate?: number | null;
   transaction_fee?: number | null;
 };
 
-const toNumber = (value: number | null | undefined) =>
-  typeof value === 'number' && Number.isFinite(value) ? value : 0;
-
 export function calculateGCIFromPrice(deal: DealCommissionInputs, salePrice: number): number {
-  const price = toNumber(salePrice);
-  const grossRate = toNumber(deal.gross_commission_rate);
-  const splitRate = toNumber(deal.brokerage_split_rate);
-  const referralOutRate = toNumber(deal.referral_out_rate);
-  const transactionFee = toNumber(deal.transaction_fee);
-
-  const grossCommission = price * grossRate;
-  const afterBrokerageSplit = grossCommission * (1 - splitRate);
-  const afterReferral = referralOutRate
-    ? afterBrokerageSplit * (1 - referralOutRate)
-    : afterBrokerageSplit;
-  return afterReferral - transactionFee;
+  return calculateNetCommission(
+    {
+      ...deal,
+      actual_sale_price: salePrice,
+      expected_sale_price: salePrice
+    },
+    { preferActual: true }
+  );
 }
 
 export function calculateExpectedGCI(deal: DealCommissionInputs): number {
-  return calculateGCIFromPrice(deal, toNumber(deal.expected_sale_price));
+  return calculateExpectedGCIShared(deal);
 }
 
 export function calculateActualGCI(deal: DealCommissionInputs): number {
-  const actual = toNumber(deal.actual_sale_price);
-  const expected = toNumber(deal.expected_sale_price);
-  return calculateGCIFromPrice(deal, actual || expected);
+  return calculateActualGCIShared(deal);
 }
 
 export function calculateGCI(deal: DealCommissionInputs): number {
-  return calculateActualGCI(deal);
+  return calculateActualGCIShared(deal);
 }
 
 export function getDaysInStage(stageEnteredAt: string): number {

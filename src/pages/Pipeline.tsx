@@ -14,6 +14,7 @@ import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
 import { Skeleton } from '../components/ui/Skeleton';
 import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
 import { getVisibleUserIds } from '../lib/rbac';
+import { calculateActualGCI, calculateExpectedGCI } from '../lib/commission';
 import type { Database } from '../lib/database.types';
 
 type Deal = Database['public']['Tables']['deals']['Row'] & {
@@ -865,15 +866,8 @@ export default function Pipeline() {
   };
 
 
-  const calculateNetCommission = (deal: Deal) => {
-    const salePrice = deal.actual_sale_price || deal.expected_sale_price;
-    const grossCommission = salePrice * deal.gross_commission_rate;
-    const afterBrokerageSplit = grossCommission * (1 - deal.brokerage_split_rate);
-    const afterReferral = deal.referral_out_rate
-      ? afterBrokerageSplit * (1 - deal.referral_out_rate)
-      : afterBrokerageSplit;
-    return afterReferral - deal.transaction_fee;
-  };
+  const calculateNetCommission = (deal: Deal) =>
+    deal.status === 'closed' ? calculateActualGCI(deal) : calculateExpectedGCI(deal);
 
   const getDaysInStage = (stageEnteredAt: string) => {
     const entered = new Date(stageEnteredAt);
