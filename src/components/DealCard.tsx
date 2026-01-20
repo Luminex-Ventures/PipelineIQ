@@ -32,7 +32,7 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <h4 className="font-semibold text-gray-900 text-sm">{deal.client_name}</h4>
           <div className="flex items-center text-xs text-gray-500">
             <Home className="w-3.5 h-3.5 mr-1 text-gray-400" />

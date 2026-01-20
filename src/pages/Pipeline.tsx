@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -35,6 +35,56 @@ type ViewMode = 'kanban' | 'table';
 const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
 const pillClass =
   'inline-flex items-center rounded-full border border-gray-200/70 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 transition';
+const DEAL_LIST_COLUMNS = `
+  id,
+  user_id,
+  status,
+  deal_type,
+  created_at,
+  updated_at,
+  stage_entered_at,
+  pipeline_status_id,
+  lead_source_id,
+  close_date,
+  closed_at,
+  client_name,
+  client_phone,
+  client_email,
+  property_address,
+  city,
+  state,
+  zip,
+  expected_sale_price,
+  actual_sale_price,
+  gross_commission_rate,
+  brokerage_split_rate,
+  referral_out_rate,
+  referral_in_rate,
+  transaction_fee,
+  next_task_description,
+  next_task_due_date,
+  archived_reason
+`;
+const PIPELINE_STATUS_COLUMNS = `
+  pipeline_statuses (
+    id,
+    name,
+    color,
+    sort_order,
+    lifecycle_stage
+  )
+`;
+const LEAD_SOURCE_COLUMNS = `
+  lead_sources (
+    id,
+    name
+  )
+`;
+const DEALS_SELECT = `
+  ${DEAL_LIST_COLUMNS},
+  ${PIPELINE_STATUS_COLUMNS},
+  ${LEAD_SOURCE_COLUMNS}
+`;
 const DEAL_TYPE_FILTER_META: Record<
   Deal['deal_type'],
   { label: string; accentClass: string; matches: Deal['deal_type'][] }
@@ -90,6 +140,7 @@ export default function Pipeline() {
   const [availableDealTypeFilters, setAvailableDealTypeFilters] = useState<Deal['deal_type'][]>([]);
   const [selectedDealTypeIds, setSelectedDealTypeIds] = useState<Deal['deal_type'][]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const loadRequestIdRef = useRef(0);
   const pendingNewDeal = searchParams.get('newDeal');
   const isSalesManager = roleInfo?.globalRole === 'sales_manager';
   const formatAgentLabel = (agent: AccessibleAgentRow) =>
@@ -212,26 +263,6 @@ export default function Pipeline() {
   }, [pendingNewDeal, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (!deals.length) {
-      setAvailableAgents([]);
-      setAvailableLeadSources([]);
-      setAvailableDealTypeFilters([]);
-      return;
-    }
-
-    const leadMap = new Map<string, string>();
-    deals.forEach(deal => {
-      if (deal.lead_sources?.id && deal.lead_sources.name) {
-        leadMap.set(deal.lead_sources.id, deal.lead_sources.name);
-      }
-    });
-    setAvailableLeadSources(Array.from(leadMap.entries()).map(([id, name]) => ({ id, name })));
-
-    const dealTypes = Array.from(new Set(deals.map(deal => deal.deal_type))).filter(Boolean) as Deal['deal_type'][];
-    setAvailableDealTypeFilters(dealTypes);
-  }, [deals, user]);
-
-  useEffect(() => {
     if (!combinedStatuses.length) {
       setAvailableStageFilters([]);
       return;
@@ -255,7 +286,7 @@ export default function Pipeline() {
 
       const { data, error } = await supabase
         .from('deals')
-        .select('*')
+        .select(DEALS_SELECT)
         .eq('id', dealId)
         .maybeSingle();
 
@@ -281,9 +312,24 @@ export default function Pipeline() {
     }
   }, [statusesLoading, combinedStatuses]);
 
+  const loadFilterOptions = useCallback(async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('lead_sources')
+      .select('id,name')
+      .order('name', { ascending: true });
+
+    if (!error) {
+      setAvailableLeadSources((data || []) as { id: string; name: string }[]);
+    }
+
+    setAvailableDealTypeFilters(Object.keys(DEAL_TYPE_FILTER_META) as Deal['deal_type'][]);
+  }, [user]);
+
   const loadDeals = useCallback(async () => {
     if (!user || !roleInfo) return;
 
+    const requestId = ++loadRequestIdRef.current;
     setLoading(true);
 
     try {
@@ -322,14 +368,19 @@ export default function Pipeline() {
         }
       }
 
+      const currentYear = new Date().getFullYear();
+      const yearStartDateOnly = `${currentYear}-01-01`;
+      const yearStartTs = `${currentYear}-01-01T00:00:00.000Z`;
+      const closedInRangeOrClause = [
+        'status.neq.closed',
+        `and(status.eq.closed,or(close_date.gte.${yearStartDateOnly},and(close_date.is.null,closed_at.gte.${yearStartTs})))`,
+      ].join(',');
+
       let query = supabase
         .from('deals')
-        .select(`
-          *,
-          lead_sources (*),
-          pipeline_statuses (*)
-        `)
-        .order('created_at', { ascending: false });
+        .select(DEALS_SELECT)
+        .order('created_at', { ascending: false })
+        .or(closedInRangeOrClause);
 
       if (visibleUserIds.length === 1) {
         query = query.eq('user_id', visibleUserIds[0]);
@@ -339,31 +390,32 @@ export default function Pipeline() {
 
       const { data, error } = await query;
 
+      if (requestId !== loadRequestIdRef.current) return;
+
       if (error) {
         console.error('Error loading deals', error);
         setDeals([]);
       } else {
-        const currentYear = new Date().getFullYear();
-        const filtered = (data || []).filter(deal => {
-          if (deal.status !== 'closed') return true;
-          const closedDate = deal.close_date || deal.closed_at;
-          if (!closedDate) return false;
-          const year = new Date(closedDate).getFullYear();
-          return year >= currentYear; // keep current year and future closures; drop past years
-        });
-        setDeals(filtered);
+        setDeals(data || []);
       }
     } catch (err) {
+      if (requestId !== loadRequestIdRef.current) return;
       console.error('Error resolving visible users', err);
       setDeals([]);
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [roleInfo, user]);
 
   useEffect(() => {
     loadDeals();
   }, [loadDeals]);
+
+  useEffect(() => {
+    loadFilterOptions();
+  }, [loadFilterOptions]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const deal = deals.find(d => d.id === event.active.id);
@@ -410,25 +462,51 @@ export default function Pipeline() {
     }
 
     const lifecycleStage = newStatus.lifecycle_stage || 'in_progress';
+    const nowIso = new Date().toISOString();
     const updates: DealUpdate = {
       pipeline_status_id: potentialStatusId,
       status: lifecycleStage,
-      stage_entered_at: new Date().toISOString()
+      stage_entered_at: nowIso
     };
 
     if (lifecycleStage === 'closed') {
-      updates.closed_at = new Date().toISOString();
+      updates.closed_at = nowIso;
     } else {
       updates.closed_at = null;
     }
 
-    const { error } = await supabase
+    const previousDeal = currentDeal;
+    setDeals(prev =>
+      prev.map(deal =>
+        deal.id === dealId
+          ? {
+              ...deal,
+              pipeline_status_id: potentialStatusId,
+              status: lifecycleStage,
+              stage_entered_at: nowIso,
+              closed_at: updates.closed_at ?? null,
+              pipeline_statuses: newStatus ? { ...newStatus } : deal.pipeline_statuses
+            }
+          : deal
+      )
+    );
+
+    const { data, error } = await supabase
       .from('deals')
       .update(updates)
-      .eq('id', dealId);
+      .eq('id', dealId)
+      .select(DEALS_SELECT)
+      .maybeSingle();
 
-    if (!error) {
+    if (error) {
+      console.error('Error updating deal status', error);
+      setDeals(prev => prev.map(deal => (deal.id === dealId ? previousDeal : deal)));
       loadDeals();
+      return;
+    }
+
+    if (data) {
+      setDeals(prev => prev.map(deal => (deal.id === dealId ? (data as Deal) : deal)));
     }
   };
 
@@ -437,16 +515,35 @@ export default function Pipeline() {
     setShowModal(true);
   };
 
-  const handleModalClose = () => {
-    setShowModal(false);
-    setSelectedDeal(null);
+  const clearDealIdParam = useCallback(() => {
     const nextParams = new URLSearchParams(searchParams);
     if (nextParams.has('dealId')) {
       nextParams.delete('dealId');
       setSearchParams(nextParams, { replace: true });
     }
-    loadDeals();
-  };
+  }, [searchParams, setSearchParams]);
+
+  const handleModalDismiss = useCallback(() => {
+    setShowModal(false);
+    setSelectedDeal(null);
+    clearDealIdParam();
+  }, [clearDealIdParam]);
+
+  const handleDealSaved = useCallback((updatedDeal: Deal) => {
+    setDeals(prev => {
+      const existingIndex = prev.findIndex(deal => deal.id === updatedDeal.id);
+      if (existingIndex === -1) {
+        return [updatedDeal, ...prev];
+      }
+      const next = [...prev];
+      next[existingIndex] = { ...next[existingIndex], ...updatedDeal };
+      return next;
+    });
+  }, []);
+
+  const handleDealDeleted = useCallback((deletedId: string) => {
+    setDeals(prev => prev.filter(deal => deal.id !== deletedId));
+  }, []);
 
   const shouldApplyPipelineFilters = viewMode === 'table' || (isSalesManager && viewMode === 'kanban');
   const filteredDeals = deals
@@ -1014,8 +1111,9 @@ export default function Pipeline() {
       {showModal && (
         <DealModal
           deal={selectedDeal}
-          onClose={handleModalClose}
-          onDelete={handleModalClose}
+          onClose={handleModalDismiss}
+          onSaved={handleDealSaved}
+          onDeleted={handleDealDeleted}
         />
       )}
 

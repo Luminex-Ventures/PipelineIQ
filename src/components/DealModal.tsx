@@ -53,6 +53,8 @@ interface DealModalProps {
   deal: Deal | null;
   onClose: () => void;
   onDelete?: () => void;
+  onSaved?: (deal: Deal) => void;
+  onDeleted?: (dealId: string) => void;
 }
 
 const buildFormState = (deal: Deal | null): FormState => ({
@@ -76,7 +78,7 @@ const buildFormState = (deal: Deal | null): FormState => ({
   close_date: deal?.close_date || ''
 });
 
-export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
+export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted }: DealModalProps) {
   const { user, roleInfo } = useAuth();
   const teamId = roleInfo?.teamId || null;
 
@@ -344,26 +346,31 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
     };
 
     let dealId = deal?.id || null;
+    let savedDeal: Deal | null = null;
 
     try {
       if (deal) {
-        const { error } = await supabase
+        const { data: updatedDeal, error } = await supabase
           .from('deals')
           .update(dealData)
-          .eq('id', deal.id);
+          .eq('id', deal.id)
+          .select('*')
+          .single();
 
         if (error) throw error;
-        dealId = deal.id;
+        savedDeal = updatedDeal as Deal;
+        dealId = savedDeal.id;
       } else {
         const { data: insertData, error: insertError } = await supabase
           .from('deals')
           .insert(dealData)
-          .select('id')
+          .select('*')
           .single();
 
         if (insertError) throw insertError;
-        if (insertData?.id) {
-          dealId = insertData.id;
+        if (insertData) {
+          savedDeal = insertData as Deal;
+          dealId = savedDeal.id;
         }
       }
 
@@ -375,6 +382,10 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
         };
         const { error: noteError } = await supabase.from('deal_notes').insert(notePayload);
         if (noteError) throw noteError;
+      }
+
+      if (savedDeal) {
+        onSaved?.(savedDeal);
       }
 
       if (deal) {
@@ -477,6 +488,7 @@ export default function DealModal({ deal, onClose, onDelete }: DealModalProps) {
       .eq('id', deal.id);
 
     setLoading(false);
+    if (onDeleted) onDeleted(deal.id);
     if (onDelete) onDelete();
     onClose();
   };
