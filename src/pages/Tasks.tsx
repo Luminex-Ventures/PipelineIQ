@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import DealModal from '../components/DealModal';
+import { SingleSelectCombobox } from '../components/ui/SingleSelectCombobox';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
@@ -45,6 +46,7 @@ type DealSummary = Pick<
   | 'status'
   | 'next_task_due_date'
   | 'next_task_description'
+  | 'updated_at'
 >;
 type TaskNote = {
   id: string;
@@ -103,11 +105,14 @@ export default function Tasks() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  const [optimisticallyCompletedIds, setOptimisticallyCompletedIds] = useState<Record<string, true>>({});
+  const [optimisticallyCompletedTasks, setOptimisticallyCompletedTasks] = useState<Record<string, Task>>({});
   const hasLoadedOnceRef = useRef(false);
   const tasksRequestIdRef = useRef(0);
   const dealsRequestIdRef = useRef(0);
   const completedRequestIdRef = useRef(0);
   const notesRequestIdRef = useRef(0);
+  const optimisticallyCompletedIdsRef = useRef<Record<string, true>>({});
 
   const [deals, setDeals] = useState<DealSummary[]>([]);
   const [dealOwners, setDealOwners] = useState<Record<string, string>>({});
@@ -155,10 +160,34 @@ export default function Tasks() {
     return new Date(year, month - 1, day);
   };
 
-  const taskBase = useMemo(
-    () => (agentFilter === 'all' ? tasks : tasks.filter((task) => task.user_id === agentFilter)),
-    [tasks, agentFilter]
+  useEffect(() => {
+    optimisticallyCompletedIdsRef.current = optimisticallyCompletedIds;
+  }, [optimisticallyCompletedIds]);
+
+  const todayStart = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today.getTime();
+  }, []);
+
+  const effectiveTasks = useMemo(
+    () => tasks.filter((task) => !optimisticallyCompletedIds[task.id]),
+    [optimisticallyCompletedIds, tasks]
   );
+
+  const taskBase = useMemo(
+    () =>
+      agentFilter === 'all'
+        ? effectiveTasks
+        : effectiveTasks.filter((task) => task.user_id === agentFilter),
+    [effectiveTasks, agentFilter]
+  );
+
+  const optimisticTasks = useMemo(() => {
+    const list = Object.values(optimisticallyCompletedTasks);
+    if (agentFilter === 'all') return list;
+    return list.filter((task) => task.user_id === agentFilter);
+  }, [agentFilter, optimisticallyCompletedTasks]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -168,15 +197,12 @@ export default function Tasks() {
   }, [searchQuery]);
 
   const taskStats = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     let overdue = 0;
     let dueToday = 0;
     let upcoming = 0;
     let unscheduled = 0;
 
-    const datedTasks: Task[] = [];
+    const datedTasks: Array<{ task: Task; dueTs: number }> = [];
 
     taskBase.forEach((task) => {
       const due = normalizeDueDate(task.due_date);
@@ -184,34 +210,31 @@ export default function Tasks() {
         unscheduled += 1;
         return;
       }
-      if (due < today) {
+      const dueTs = due.getTime();
+      if (dueTs < todayStart) {
         overdue += 1;
-      } else if (due.getTime() === today.getTime()) {
+      } else if (dueTs === todayStart) {
         dueToday += 1;
       } else {
         upcoming += 1;
       }
-      datedTasks.push(task);
+      datedTasks.push({ task, dueTs });
     });
 
     datedTasks.sort((a, b) => {
-      const dueA = normalizeDueDate(a.due_date);
-      const dueB = normalizeDueDate(b.due_date);
-      if (!dueA) return 1;
-      if (!dueB) return -1;
-      return dueA.getTime() - dueB.getTime();
+      return a.dueTs - b.dueTs;
     });
 
     return {
-      total: tasks.length,
+      total: effectiveTasks.length,
       scopedTotal: taskBase.length,
       overdue,
       dueToday,
       upcoming,
       unscheduled,
-      nextTask: datedTasks[0] || null
+      nextTask: datedTasks[0]?.task || null
     };
-  }, [taskBase, tasks.length]);
+  }, [taskBase, effectiveTasks.length, todayStart]);
 
   const selectedDealOption = useMemo(
     () => deals.find((deal) => deal.id === newTaskDealId),
@@ -223,15 +246,32 @@ export default function Tasks() {
     [roleInfo]
   );
 
-  const groupedDeals = useMemo(() => {
-    if (!shouldGroupDeals) return null;
-    return deals.reduce<Record<string, DealSummary[]>>((acc, deal) => {
-      const ownerId = deal.user_id;
-      if (!acc[ownerId]) acc[ownerId] = [];
-      acc[ownerId].push(deal);
-      return acc;
-    }, {});
-  }, [deals, shouldGroupDeals]);
+  const dealsForSelector = useMemo(() => {
+    const scoped = agentFilter === 'all'
+      ? deals
+      : deals.filter((deal) => deal.user_id === agentFilter);
+    return [...scoped].sort((a, b) => {
+      const aTs = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bTs = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bTs - aTs;
+    });
+  }, [agentFilter, deals]);
+
+  const dealOptions = useMemo(
+    () =>
+      dealsForSelector.map((deal) => {
+        const location = [deal.city, deal.state].filter(Boolean).join(', ');
+        const keywords = `${deal.client_name} ${deal.property_address ?? ''} ${deal.city ?? ''} ${deal.state ?? ''}`;
+        return {
+          value: deal.id,
+          label: `${deal.client_name} — ${deal.property_address || 'Address TBD'}`,
+          subLabel: location || undefined,
+          group: shouldGroupDeals ? getOwnerName(deal.user_id) : undefined,
+          keywords
+        };
+      }),
+    [dealsForSelector, shouldGroupDeals, dealOwners, user]
+  );
 
   const loadAgents = useCallback(async () => {
     if (!user || !roleInfo) return;
@@ -354,7 +394,10 @@ export default function Tasks() {
 
     if (requestId !== tasksRequestIdRef.current) return;
     if (!error && data) {
-      const taskList = (data ?? []).filter((task) => task.deals) as Task[];
+      const optimisticMap = optimisticallyCompletedIdsRef.current;
+      const taskList = (data ?? [])
+        .filter((task) => task.deals)
+        .filter((task) => !optimisticMap[task.id]) as Task[];
       setTasks(taskList);
       await fetchTaskNotes(taskList);
       if (requestId !== tasksRequestIdRef.current) return;
@@ -386,7 +429,7 @@ export default function Tasks() {
       let query = supabase
         .from('deals')
         .select(
-          'id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description'
+          'id, user_id, client_name, property_address, city, state, deal_type, status, next_task_due_date, next_task_description, updated_at'
         )
         .neq('status', 'closed')
         .neq('status', 'dead')
@@ -450,43 +493,32 @@ export default function Tasks() {
   }, [fetchDeals, user]);
 
   const filteredTasks = useMemo(() => {
-    let result = [...taskBase];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const normalizedSearch = debouncedSearchQuery.toLowerCase();
+    let result = [...taskBase, ...optimisticTasks];
 
-    if (statusFilter === 'overdue') {
+    if (statusFilter !== 'all') {
       result = result.filter((task) => {
-        if (!task.due_date) return false;
-        const dueDate = normalizeDueDate(task.due_date);
-        return !!dueDate && dueDate < today;
-      });
-    } else if (statusFilter === 'today') {
-      result = result.filter((task) => {
-        if (!task.due_date) return false;
-        const dueDate = normalizeDueDate(task.due_date);
-        if (!dueDate) return false;
-        return dueDate.getTime() === today.getTime();
-      });
-    } else if (statusFilter === 'upcoming') {
-      result = result.filter((task) => {
-        if (!task.due_date) return false;
-        const dueDate = normalizeDueDate(task.due_date);
-        return !!dueDate && dueDate > today;
+        const due = normalizeDueDate(task.due_date);
+        if (!due) return false;
+        const dueTs = due.getTime();
+        if (statusFilter === 'overdue') return dueTs < todayStart;
+        if (statusFilter === 'today') return dueTs === todayStart;
+        return dueTs > todayStart;
       });
     }
 
-    if (debouncedSearchQuery) {
-      const query = debouncedSearchQuery.toLowerCase();
-      result = result.filter(
-        (task) =>
-          task.title.toLowerCase().includes(query) ||
-          (task.deals.client_name || '').toLowerCase().includes(query) ||
-          (task.deals.property_address || '').toLowerCase().includes(query)
-      );
+    if (normalizedSearch) {
+      result = result.filter((task) => {
+        return (
+          task.title.toLowerCase().includes(normalizedSearch) ||
+          (task.deals.client_name || '').toLowerCase().includes(normalizedSearch) ||
+          (task.deals.property_address || '').toLowerCase().includes(normalizedSearch)
+        );
+      });
     }
 
     return result;
-  }, [debouncedSearchQuery, statusFilter, taskBase]);
+  }, [debouncedSearchQuery, optimisticTasks, statusFilter, taskBase, todayStart]);
 
   useEffect(() => {
     if (agentFilter === 'all') return;
@@ -695,11 +727,23 @@ export default function Tasks() {
 
       // Stop spinner, start animation
       setCompletingId(null);
+      setOptimisticallyCompletedIds((prev) => ({ ...prev, [task.id]: true }));
+      setOptimisticallyCompletedTasks((prev) => ({ ...prev, [task.id]: task }));
       setCompletedVisual((prev) => ({ ...prev, [task.id]: true }));
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
 
-      // After animation completes, remove from list
+      // After animation completes, clean up optimistic state
       setTimeout(() => {
-        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        setOptimisticallyCompletedIds((prev) => {
+          const next = { ...prev };
+          delete next[task.id];
+          return next;
+        });
+        setOptimisticallyCompletedTasks((prev) => {
+          const next = { ...prev };
+          delete next[task.id];
+          return next;
+        });
         setCompletedVisual((prev) => {
           const next = { ...prev };
           delete next[task.id];
@@ -715,6 +759,16 @@ export default function Tasks() {
     } catch (err) {
       console.error('Error completing task', err);
       setCompletingId(null);
+      setOptimisticallyCompletedIds((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
+      setOptimisticallyCompletedTasks((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
       setCompletedVisual((prev) => {
         const next = { ...prev };
         delete next[task.id];
@@ -1062,62 +1116,23 @@ export default function Tasks() {
           </div>
 
           <div className="lg:col-span-4">
-            <label className="hig-label">Deal</label>
-            <select
+            <SingleSelectCombobox
+              label="Deal"
               value={newTaskDealId}
-              onChange={(e) => {
-                setNewTaskDealId(e.target.value);
+              onChange={(next) => {
+                setNewTaskDealId(next);
                 if (createError) setCreateError(null);
               }}
-              className="hig-input task-deal-select"
+              options={dealOptions}
+              placeholder="Search client or address..."
               disabled={dealsLoading || deals.length === 0}
-            >
-              <option value="">
-                {dealsLoading ? 'Loading deals…' : 'Choose a deal'}
-              </option>
-              {shouldGroupDeals && groupedDeals
-                ? Object.entries(groupedDeals)
-                    .map(([ownerId, ownerDeals]) => {
-                      const filtered =
-                        agentFilter === 'all'
-                          ? ownerDeals
-                          : ownerDeals.filter((d) => d.user_id === agentFilter);
-                      return [ownerId, filtered] as const;
-                    })
-                    .filter(([, ownerDeals]) => ownerDeals.length > 0)
-                    .sort((a, b) => {
-                      const nameA = getOwnerName(a[0]);
-                      const nameB = getOwnerName(b[0]);
-                      return nameA.localeCompare(nameB);
-                    })
-                    .map(([ownerId, ownerDeals]) => (
-                      <optgroup
-                        key={ownerId}
-                        label={`— ${getOwnerName(ownerId).toUpperCase()} · ${
-                          ownerDeals.length
-                        } deal${ownerDeals.length === 1 ? '' : 's'} —`}
-                      >
-                        {ownerDeals.map((deal) => (
-                          <option key={deal.id} value={deal.id}>
-                            {deal.client_name} — {deal.property_address || 'Address TBD'}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))
-                : (agentFilter === 'all'
-                    ? deals
-                    : deals.filter((deal) => deal.user_id === agentFilter)
-                  ).map((deal) => (
-                    <option key={deal.id} value={deal.id}>
-                      {deal.client_name} — {deal.property_address || 'Address TBD'}
-                    </option>
-                  ))}
-            </select>
+              allowClear
+            />
             {selectedDealOption && (
               <p className="mt-1 text-xs text-gray-500">
                 {selectedDealOption.city && selectedDealOption.state
                   ? `${selectedDealOption.city}, ${selectedDealOption.state}`
-                  : selectedDealOption.city ||
+                : selectedDealOption.city ||
                     selectedDealOption.state ||
                     'No location on file'}
               </p>
