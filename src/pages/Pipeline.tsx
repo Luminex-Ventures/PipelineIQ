@@ -125,6 +125,30 @@ const DEAL_TYPE_FILTER_META: Record<
     matches: ['landlord']
   }
 };
+const DEAL_TYPE_OPTIONS = Object.keys(DEAL_TYPE_FILTER_META) as Deal['deal_type'][];
+
+const buildOrderByStatus = (
+  deals: Deal[],
+  statusIds: string[],
+  prev?: Record<string, string[]>
+) => {
+  const byStatus = new Map<string, string[]>();
+  deals.forEach(deal => {
+    if (!deal.pipeline_status_id) return;
+    const list = byStatus.get(deal.pipeline_status_id) ?? [];
+    list.push(deal.id);
+    byStatus.set(deal.pipeline_status_id, list);
+  });
+
+  return statusIds.reduce<Record<string, string[]>>((acc, statusId) => {
+    const existing = prev?.[statusId] ?? [];
+    const currentIds = new Set(byStatus.get(statusId) ?? []);
+    const nextList = existing.filter(id => currentIds.has(id));
+    const missing = (byStatus.get(statusId) ?? []).filter(id => !nextList.includes(id));
+    acc[statusId] = [...nextList, ...missing];
+    return acc;
+  }, {});
+};
 
 export default function Pipeline() {
   const { user, roleInfo } = useAuth();
@@ -134,6 +158,9 @@ export default function Pipeline() {
   const [tableTotal, setTableTotal] = useState(0);
   const [kanbanLoading, setKanbanLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  const [orderByStatus, setOrderByStatus] = useState<Record<string, string[]>>({});
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
@@ -152,9 +179,13 @@ export default function Pipeline() {
   const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
   const [availableDealTypeFilters, setAvailableDealTypeFilters] = useState<Deal['deal_type'][]>([]);
   const [selectedDealTypeIds, setSelectedDealTypeIds] = useState<Deal['deal_type'][]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   const tableLoadRequestIdRef = useRef(0);
   const kanbanLoadRequestIdRef = useRef(0);
+  const hasLoadedKanbanRef = useRef(false);
+  const hasLoadedTableRef = useRef(false);
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(50);
   const [tableSearch, setTableSearch] = useState('');
@@ -300,6 +331,19 @@ export default function Pipeline() {
     );
   }, [combinedStatuses]);
 
+  useEffect(() => {
+    if (!combinedStatuses.length) return;
+    const statusIds = combinedStatuses.map(status => status.id);
+    setOrderByStatus(prev => buildOrderByStatus(kanbanDeals, statusIds, prev));
+  }, [combinedStatuses, kanbanDeals]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchText.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
   const openDealById = useCallback(
     async (dealId: string) => {
       const existing = kanbanDeals.find((d) => d.id === dealId) || tableRows.find((d) => d.id === dealId);
@@ -337,19 +381,24 @@ export default function Pipeline() {
     }
   }, [statusesLoading, combinedStatuses]);
 
-  const loadFilterOptions = useCallback(async () => {
+  const loadLeadSources = useCallback(async () => {
     if (!user) return;
-    const { data, error } = await supabase
+    let query = supabase
       .from('lead_sources')
       .select('id,name')
       .order('name', { ascending: true });
 
+    if (roleInfo?.teamId) {
+      query = query.eq('team_id', roleInfo.teamId);
+    } else {
+      // TODO: apply org/workspace scoping if lead_sources is scoped beyond team_id.
+    }
+
+    const { data, error } = await query;
     if (!error) {
       setAvailableLeadSources((data || []) as { id: string; name: string }[]);
     }
-
-    setAvailableDealTypeFilters(Object.keys(DEAL_TYPE_FILTER_META) as Deal['deal_type'][]);
-  }, [user]);
+  }, [roleInfo?.teamId, user]);
 
   const dashboardFilters = useMemo(
     () => ({
@@ -446,7 +495,12 @@ export default function Pipeline() {
     if (!user || !roleInfo) return;
 
     const requestId = ++kanbanLoadRequestIdRef.current;
-    setKanbanLoading(true);
+    const isInitialLoad = !hasLoadedKanbanRef.current;
+    if (isInitialLoad) {
+      setKanbanLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const visibleUserIds = await resolveVisibleUserIds();
@@ -492,6 +546,7 @@ export default function Pipeline() {
         setKanbanDeals([]);
       } else {
         setKanbanDeals(data || []);
+        setLastRefreshedAt(Date.now());
       }
     } catch (err) {
       if (requestId !== kanbanLoadRequestIdRef.current) return;
@@ -499,7 +554,11 @@ export default function Pipeline() {
       setKanbanDeals([]);
     } finally {
       if (requestId === kanbanLoadRequestIdRef.current) {
-        setKanbanLoading(false);
+        if (isInitialLoad) {
+          setKanbanLoading(false);
+          hasLoadedKanbanRef.current = true;
+        }
+        setRefreshing(false);
       }
     }
   }, [isSalesManager, resolveVisibleUserIds, roleInfo, selectedAgentIds, selectedDealTypeIds, selectedLeadSourceIds, user]);
@@ -508,7 +567,12 @@ export default function Pipeline() {
     if (!user || !roleInfo) return;
 
     const requestId = ++tableLoadRequestIdRef.current;
-    setTableLoading(true);
+    const isInitialLoad = !hasLoadedTableRef.current;
+    if (isInitialLoad) {
+      setTableLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const visibleUserIds = await resolveVisibleUserIds();
@@ -677,6 +741,7 @@ export default function Pipeline() {
       } else {
         setTableRows(data || []);
         setTableTotal(count ?? 0);
+        setLastRefreshedAt(Date.now());
       }
     } catch (err) {
       if (requestId !== tableLoadRequestIdRef.current) return;
@@ -685,7 +750,11 @@ export default function Pipeline() {
       setTableTotal(0);
     } finally {
       if (requestId === tableLoadRequestIdRef.current) {
-        setTableLoading(false);
+        if (isInitialLoad) {
+          setTableLoading(false);
+          hasLoadedTableRef.current = true;
+        }
+        setRefreshing(false);
       }
     }
   }, [
@@ -718,8 +787,22 @@ export default function Pipeline() {
   }, [effectiveFilters, tablePage, tablePageSize, tableSearch, tableSortConfig, viewMode]);
 
   useEffect(() => {
-    loadFilterOptions();
-  }, [loadFilterOptions]);
+    loadLeadSources();
+  }, [loadLeadSources]);
+
+  useEffect(() => {
+    setAvailableDealTypeFilters(DEAL_TYPE_OPTIONS);
+  }, []);
+
+  useEffect(() => {
+    setSelectedLeadSourceIds(prev =>
+      prev.filter(id => availableLeadSources.some(source => source.id === id))
+    );
+  }, [availableLeadSources]);
+
+  useEffect(() => {
+    setSelectedDealTypeIds(prev => prev.filter(type => DEAL_TYPE_OPTIONS.includes(type)));
+  }, []);
 
   const handleDragStart = (event: DragStartEvent) => {
     const deal = kanbanDeals.find(d => d.id === event.active.id);
@@ -748,13 +831,20 @@ export default function Pipeline() {
 
     if (potentialStatusId === currentDeal.pipeline_status_id) {
       if (overDeal && overDeal.id !== currentDeal.id && overDeal.deal_type === currentDeal.deal_type) {
-        setKanbanDeals(prev => {
-          const fromIndex = prev.findIndex(d => d.id === currentDeal.id);
-          const toIndex = prev.findIndex(d => d.id === overDeal.id);
+        setOrderByStatus(prev => {
+          const fallbackList = kanbanDeals
+            .filter(deal => deal.pipeline_status_id === potentialStatusId)
+            .map(deal => deal.id);
+          const currentList = prev[potentialStatusId] ?? fallbackList;
+          const fromIndex = currentList.indexOf(currentDeal.id);
+          const toIndex = currentList.indexOf(overDeal.id);
           if (fromIndex === -1 || toIndex === -1) {
             return prev;
           }
-          return arrayMove(prev, fromIndex, toIndex);
+          return {
+            ...prev,
+            [potentialStatusId]: arrayMove(currentList, fromIndex, toIndex)
+          };
         });
       }
       return;
@@ -794,6 +884,29 @@ export default function Pipeline() {
           : deal
       )
     );
+    setOrderByStatus(prev => {
+      const next = { ...prev };
+      const sourceStatusId = currentDeal.pipeline_status_id;
+      if (sourceStatusId) {
+        const sourceFallback = kanbanDeals
+          .filter(deal => deal.pipeline_status_id === sourceStatusId)
+          .map(deal => deal.id);
+        const sourceList = next[sourceStatusId] ?? sourceFallback;
+        next[sourceStatusId] = sourceList.filter(id => id !== dealId);
+      }
+      const destFallback = kanbanDeals
+        .filter(deal => deal.pipeline_status_id === potentialStatusId)
+        .map(deal => deal.id);
+      const destList = [...(next[potentialStatusId] ?? destFallback)];
+      if (overDeal && overDeal.pipeline_status_id === potentialStatusId) {
+        const insertAt = destList.indexOf(overDeal.id);
+        destList.splice(insertAt === -1 ? destList.length : insertAt, 0, dealId);
+      } else {
+        destList.push(dealId);
+      }
+      next[potentialStatusId] = destList;
+      return next;
+    });
 
     const { data, error } = await supabase
       .from('deals')
@@ -860,14 +973,36 @@ export default function Pipeline() {
     setTableRows(prev => prev.filter(deal => deal.id !== deletedId));
   }, []);
 
-
   const getDealsByStatusId = (statusId: string) => {
-    return kanbanDeals.filter(deal => deal.pipeline_status_id === statusId);
+    const ids = orderByStatus[statusId] ?? [];
+    const filteredDeals = debouncedSearch
+      ? kanbanDeals.filter(deal => {
+          const query = debouncedSearch.toLowerCase();
+          return (
+            (deal.client_name || '').toLowerCase().includes(query) ||
+            (deal.property_address || '').toLowerCase().includes(query)
+          );
+        })
+      : kanbanDeals;
+    const dealMap = new Map(filteredDeals.map(deal => [deal.id, deal]));
+    const ordered = ids.map(id => dealMap.get(id)).filter(Boolean) as Deal[];
+    const remainder = filteredDeals.filter(
+      deal => deal.pipeline_status_id === statusId && !ids.includes(deal.id)
+    );
+    return [...ordered, ...remainder];
   };
-
 
   const calculateNetCommission = (deal: Deal) =>
     deal.status === 'closed' ? calculateActualGCI(deal) : calculateExpectedGCI(deal);
+
+  const filteredTableRows = useMemo(() => {
+    if (!debouncedSearch) return tableRows;
+    const query = debouncedSearch.toLowerCase();
+    return tableRows.filter(deal =>
+      (deal.client_name || '').toLowerCase().includes(query) ||
+      (deal.property_address || '').toLowerCase().includes(query)
+    );
+  }, [debouncedSearch, tableRows]);
 
   const getDaysInStage = (stageEnteredAt: string) => {
     const entered = new Date(stageEnteredAt);
@@ -1098,6 +1233,38 @@ export default function Pipeline() {
   ]);
 
   const isInitialLoading = (viewMode === 'table' ? tableLoading : kanbanLoading) || statusesLoading;
+  const lastUpdatedLabel = lastRefreshedAt
+    ? `Last updated ${new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : null;
+  const dashboardStatusId = searchParams.get('statusId');
+  const dashboardStatusName = searchParams.get('statusName');
+  const isStageLockedFromDashboard = statusFilter !== 'all' && !!dashboardStatusId;
+  const stageLabel =
+    dashboardStatusName ||
+    combinedStatuses.find(status => status.id === dashboardStatusId)?.name ||
+    'Stage locked from Dashboard';
+  const clearStageLock = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('statusId');
+    nextParams.delete('statusName');
+    if (searchParams.get('view') === 'table' && dashboardStatusId) {
+      nextParams.delete('view');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+  const clearDashboardFilters = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('agents');
+    nextParams.delete('leadSources');
+    nextParams.delete('pipelineStages');
+    nextParams.delete('dealTypes');
+    nextParams.delete('statusId');
+    nextParams.delete('statusName');
+    if (searchParams.get('view') === 'table' && dashboardStatusId) {
+      nextParams.delete('view');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   return (
     <div className="space-y-6 min-h-full">
@@ -1113,6 +1280,15 @@ export default function Pipeline() {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex flex-col items-start gap-1 text-xs text-gray-500 sm:items-end">
+              {refreshing && (
+                <div className="inline-flex items-center gap-2 text-gray-500">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-[var(--app-accent)]" />
+                  <span>Refreshing…</span>
+                </div>
+              )}
+              {lastUpdatedLabel && <span>{lastUpdatedLabel}</span>}
+            </div>
             <div className="inline-flex items-center rounded-full border border-gray-200/80 bg-white/80 p-1 shadow-inner">
               <button
                 onClick={() => setViewMode('kanban')}
@@ -1136,6 +1312,23 @@ export default function Pipeline() {
                 <List className="w-4 h-4" />
                 <span>Table</span>
               </button>
+            </div>
+            <div className="relative">
+              <input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search client or address…"
+                className="h-10 w-full rounded-full border border-gray-200/80 bg-white/90 px-4 pr-8 text-sm text-gray-700 shadow-inner sm:w-56"
+              />
+              {searchText && (
+                <button
+                  type="button"
+                  onClick={() => setSearchText('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  ×
+                </button>
+              )}
             </div>
             <button
               onClick={() => {
@@ -1195,6 +1388,16 @@ export default function Pipeline() {
                     }`}
                   >
                     Focus On Me
+                  </button>
+                )}
+                {isStageLockedFromDashboard && (
+                  <button
+                    type="button"
+                    onClick={clearStageLock}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                  >
+                    Stage locked from Dashboard: {stageLabel}
+                    <span className="text-gray-400">x</span>
                   </button>
                 )}
                 {activeFilterChips.map((chip) => (
@@ -1271,16 +1474,25 @@ export default function Pipeline() {
         )}
 
         {dashboardFiltersActive && (
-          <div className="text-xs text-gray-600">
-            Dashboard filters applied (override local selections):&nbsp;
-            <span className="font-medium text-gray-900">
-              {[
-                dashboardAgentFilters.length ? `${dashboardAgentFilters.length} agent${dashboardAgentFilters.length === 1 ? '' : 's'}` : null,
-                dashboardLeadSourceFilters.length ? `${dashboardLeadSourceFilters.length} lead source${dashboardLeadSourceFilters.length === 1 ? '' : 's'}` : null,
-                dashboardDealTypeFilters.length ? `${dashboardDealTypeFilters.length} deal type${dashboardDealTypeFilters.length === 1 ? '' : 's'}` : null,
-                dashboardStageFilters.length ? `${dashboardStageFilters.length} stage filter${dashboardStageFilters.length === 1 ? '' : 's'}` : null
-              ].filter(Boolean).join(' · ')}
-            </span>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+            <div>
+              Dashboard filters applied (override local selections):&nbsp;
+              <span className="font-medium text-gray-900">
+                {[
+                  dashboardAgentFilters.length ? `${dashboardAgentFilters.length} agent${dashboardAgentFilters.length === 1 ? '' : 's'}` : null,
+                  dashboardLeadSourceFilters.length ? `${dashboardLeadSourceFilters.length} lead source${dashboardLeadSourceFilters.length === 1 ? '' : 's'}` : null,
+                  dashboardDealTypeFilters.length ? `${dashboardDealTypeFilters.length} deal type${dashboardDealTypeFilters.length === 1 ? '' : 's'}` : null,
+                  dashboardStageFilters.length ? `${dashboardStageFilters.length} stage filter${dashboardStageFilters.length === 1 ? '' : 's'}` : null
+                ].filter(Boolean).join(' · ')}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={clearDashboardFilters}
+              className="text-xs font-semibold text-[var(--app-accent)]"
+            >
+              Clear dashboard filters
+            </button>
           </div>
         )}
       </div>
@@ -1349,7 +1561,7 @@ export default function Pipeline() {
       ) : (
         <div className="overflow-x-auto">
           <PipelineTable
-            deals={tableRows}
+            deals={filteredTableRows}
             statuses={combinedStatuses}
             onDealClick={handleDealClick}
             calculateNetCommission={calculateNetCommission}
