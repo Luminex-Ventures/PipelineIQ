@@ -14,6 +14,7 @@ import {
   Edit2,
   Loader2
 } from 'lucide-react';
+import QuickAddTask from './QuickAddTask';
 import type { Database } from '../lib/database.types';
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getVisibleUserIds } from '../lib/rbac';
@@ -26,7 +27,6 @@ type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
 type DealInsert = Database['public']['Tables']['deals']['Insert'];
 type DealUpdate = Database['public']['Tables']['deals']['Update'];
 type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
-type TaskInsert = Database['public']['Tables']['tasks']['Insert'];
 type TaskUpdate = Database['public']['Tables']['tasks']['Update'];
 
 type FormState = {
@@ -89,9 +89,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
   const [pipelineStatuses, setPipelineStatuses] = useState<PipelineStatus[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDueDate, setNewTaskDueDate] = useState('');
-  const [showAddTaskForm, setShowAddTaskForm] = useState(false);
+  const [showQuickAddTask, setShowQuickAddTask] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [editingTaskDueDate, setEditingTaskDueDate] = useState('');
@@ -114,6 +112,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     setArchivedReason(deal?.archived_reason || '');
     setIsEditing(!deal);
     setSubmitError(null);
+    setShowQuickAddTask(false);
   }, [deal]);
 
   // Load supporting data
@@ -407,26 +406,6 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleAddTask = async () => {
-    if (!newTaskTitle.trim() || !deal || !user) return;
-
-    const taskOwnerId = deal.user_id || user.id;
-
-    const taskPayload: TaskInsert = {
-      deal_id: deal.id,
-      user_id: taskOwnerId,
-      title: newTaskTitle,
-      due_date: newTaskDueDate || null,
-      completed: false
-    };
-    await supabase.from('tasks').insert(taskPayload);
-
-    setNewTaskTitle('');
-    setNewTaskDueDate('');
-    setShowAddTaskForm(false);
-    loadTasks();
   };
 
   const toggleTaskComplete = async (taskId: string, completed: boolean) => {
@@ -1142,66 +1121,48 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                     <h3 className="font-semibold text-gray-900">Tasks</h3>
                     <span className="text-sm text-gray-500">({tasks.length})</span>
                   </div>
-                  {!showAddTaskForm && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAddTaskForm(true)}
-                      className="hig-btn-secondary text-sm py-2"
-                    >
-                      <Plus className="w-4 h-4" strokeWidth={2} />
-                      <span>Add Task</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddTask((prev) => !prev)}
+                    className="hig-btn-secondary text-sm py-2"
+                  >
+                    <Plus className="w-4 h-4" strokeWidth={2} />
+                    <span>Add Task</span>
+                  </button>
                 </div>
 
-                {showAddTaskForm && (
-                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200/60">
-                    <div className="space-y-3">
-                      <input
-                        id="task-title-input"
-                        type="text"
-                        value={newTaskTitle}
-                        onChange={e => setNewTaskTitle(e.target.value)}
-                        placeholder="Task description..."
-                        className="hig-input"
-                        autoFocus
-                        onKeyPress={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddTask();
-                          }
-                        }}
-                      />
-                      <div className="flex gap-3">
-                        <input
-                          type="date"
-                          value={newTaskDueDate}
-                          onChange={e => setNewTaskDueDate(e.target.value)}
-                          placeholder="Due date (optional)"
-                          className="hig-input flex-1"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddTaskForm(false);
-                            setNewTaskTitle('');
-                            setNewTaskDueDate('');
-                          }}
-                          className="hig-btn-secondary text-sm py-2"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleAddTask}
-                          disabled={!newTaskTitle.trim()}
-                          className="hig-btn-primary text-sm py-2"
-                        >
-                          <span>Add Task</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                {showQuickAddTask && deal && (
+                  <QuickAddTask
+                    contextDealId={deal.id}
+                    contextDealLabel={`${deal.client_name} — ${deal.property_address || 'Address TBD'}`}
+                    defaultDuePreset="today"
+                    allowDealChange
+                    dealById={{
+                      [deal.id]: {
+                        id: deal.id,
+                        user_id: deal.user_id,
+                        client_name: deal.client_name,
+                        property_address: deal.property_address,
+                        city: deal.city,
+                        state: deal.state,
+                        updated_at: deal.updated_at
+                      }
+                    }}
+                    onCreated={(createdTask) => {
+                      setTasks((prev) => {
+                        const next = [...prev, createdTask];
+                        return next.sort((a, b) => {
+                          if (!a.due_date && !b.due_date) return 0;
+                          if (!a.due_date) return -1;
+                          if (!b.due_date) return 1;
+                          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+                        });
+                      });
+                      setShowQuickAddTask(false);
+                    }}
+                    onCancel={() => setShowQuickAddTask(false)}
+                    autoFocus
+                  />
                 )}
 
                 <div className="space-y-2">

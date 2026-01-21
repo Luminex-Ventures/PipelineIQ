@@ -7,14 +7,13 @@ import {
   MapPin,
   User,
   AlertTriangle,
-  ArrowUpRight,
   Loader2,
-  Plus,
+  ArrowUpRight,
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
 import DealModal from '../components/DealModal';
-import { SingleSelectCombobox } from '../components/ui/SingleSelectCombobox';
+import QuickAddTask from '../components/QuickAddTask';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
@@ -56,9 +55,7 @@ type TaskNote = {
   content: string;
   created_at: string;
 };
-type TaskInsert = Database['public']['Tables']['tasks']['Insert'];
 type TaskUpdate = Database['public']['Tables']['tasks']['Update'];
-type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
 type AccessibleAgentRow = {
   user_id: string;
   display_name: string | null;
@@ -92,25 +89,23 @@ export default function Tasks() {
 
   const [deals, setDeals] = useState<DealSummary[]>([]);
   const [dealOwners, setDealOwners] = useState<Record<string, string>>({});
-  const [dealsLoading, setDealsLoading] = useState(true);
 
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedDeal, setSelectedDeal] =
     useState<Database['public']['Tables']['deals']['Row'] | null>(null);
+  const [lastOpenedDealId, setLastOpenedDealId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem('tasks_last_opened_deal');
+  });
+  const [showHeroQuickAdd, setShowHeroQuickAdd] = useState(false);
+  const [showListQuickAdd, setShowListQuickAdd] = useState(false);
   const taskListRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'compact'>(() => {
     if (typeof window === 'undefined') return 'list';
     const stored = window.localStorage.getItem('tasks_view_mode');
     return stored === 'compact' ? 'compact' : 'list';
   });
-
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDealId, setNewTaskDealId] = useState('');
-  const [newTaskDueDate, setNewTaskDueDate] = useState('');
-  const [newTaskDescription, setNewTaskDescription] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const isManagerRole =
     !!roleInfo && ['sales_manager', 'team_lead', 'admin'].includes(roleInfo.globalRole);
@@ -150,6 +145,15 @@ export default function Tasks() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('tasks_view_mode', viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (lastOpenedDealId) {
+      window.localStorage.setItem('tasks_last_opened_deal', lastOpenedDealId);
+    } else {
+      window.localStorage.removeItem('tasks_last_opened_deal');
+    }
+  }, [lastOpenedDealId]);
 
   const todayStart = useMemo(() => {
     const today = new Date();
@@ -222,11 +226,6 @@ export default function Tasks() {
       nextTask: datedTasks[0]?.task || null
     };
   }, [taskBase, effectiveTasks.length, todayStart]);
-
-  const selectedDealOption = useMemo(
-    () => deals.find((deal) => deal.id === newTaskDealId),
-    [deals, newTaskDealId]
-  );
 
   const shouldGroupDeals = useMemo(
     () => !!(roleInfo && ['sales_manager', 'team_lead'].includes(roleInfo.globalRole)),
@@ -401,7 +400,6 @@ export default function Tasks() {
   const fetchDeals = useCallback(async () => {
     if (!user) return;
     const requestId = ++dealsRequestIdRef.current;
-    setDealsLoading(true);
 
     try {
       let visibleUserIds: string[] = [user.id];
@@ -454,10 +452,6 @@ export default function Tasks() {
       console.error('Error resolving visible deals', err);
       setDeals([]);
       setDealOwners({});
-    } finally {
-      if (requestId === dealsRequestIdRef.current) {
-        setDealsLoading(false);
-      }
     }
   }, [roleInfo, user]);
 
@@ -508,15 +502,35 @@ export default function Tasks() {
     return result;
   }, [debouncedSearchQuery, optimisticTasks, statusFilter, taskBase, todayStart]);
 
-  useEffect(() => {
-    if (agentFilter === 'all') return;
-    const validDealIds = new Set(
-      deals.filter((deal) => deal.user_id === agentFilter).map((deal) => deal.id)
-    );
-    if (newTaskDealId && !validDealIds.has(newTaskDealId)) {
-      setNewTaskDealId('');
+  const dealById = useMemo(() => {
+    const map: Record<string, DealSummary> = {};
+    deals.forEach((deal) => {
+      map[deal.id] = deal;
+    });
+    return map;
+  }, [deals]);
+
+  const preferredDeal = useMemo<DealSummary | null>(() => {
+    if (selectedDeal) {
+      return {
+        id: selectedDeal.id,
+        user_id: selectedDeal.user_id,
+        client_name: selectedDeal.client_name,
+        property_address: selectedDeal.property_address,
+        city: selectedDeal.city,
+        state: selectedDeal.state,
+        updated_at: selectedDeal.updated_at
+      };
     }
-  }, [agentFilter, deals, newTaskDealId]);
+    if (lastOpenedDealId) {
+      return dealById[lastOpenedDealId] ?? null;
+    }
+    return null;
+  }, [dealById, lastOpenedDealId, selectedDeal]);
+
+  const preferredDealLabel = preferredDeal
+    ? `${preferredDeal.client_name} — ${preferredDeal.property_address || 'Address TBD'}`
+    : null;
 
 
   const resetCompletedTasks = useCallback(() => {
@@ -636,82 +650,31 @@ export default function Tasks() {
     return { label: 'Upcoming', className: 'bg-emerald-50 text-emerald-700' };
   };
 
+  const getStatusFilterLabel = (value: StatusFilterValue) => {
+    if (value === 'today') return 'Due today';
+    if (value === 'overdue') return 'Overdue';
+    if (value === 'upcoming') return 'Upcoming';
+    if (value === 'unscheduled') return 'No due date';
+    return 'All tasks';
+  };
+
+  const sortTasksByDueDate = useCallback(
+    (list: Task[]) =>
+      [...list].sort((a, b) => {
+        const aDue = normalizeDueDate(a.due_date);
+        const bDue = normalizeDueDate(b.due_date);
+        if (!aDue && !bDue) return 0;
+        if (!aDue) return 1;
+        if (!bDue) return -1;
+        return aDue.getTime() - bDue.getTime();
+      }),
+    [normalizeDueDate]
+  );
+
   const handleRowClick = (task: Task) => {
     setSelectedDeal(task.deals);
     setShowDealModal(true);
-  };
-
-  const handleCreateTask = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!user) return;
-
-    setCreateError(null);
-
-    if (!newTaskTitle.trim() || !newTaskDealId) {
-      setCreateError('Add a task name and choose a deal.');
-      return;
-    }
-
-    setCreating(true);
-
-    try {
-      const taskPayload: TaskInsert = {
-        user_id: selectedDealOption?.user_id || user.id,
-        deal_id: newTaskDealId,
-        title: newTaskTitle.trim(),
-        description: newTaskDescription.trim() || null,
-        due_date: newTaskDueDate || null,
-        completed: false
-      };
-      const { data: createdTask, error } = await supabase
-        .from('tasks')
-        .insert(taskPayload)
-        .select('id')
-        .single();
-
-      if (error) throw error;
-
-      let noteSaveError: string | null = null;
-
-      if (createdTask && newTaskDescription.trim()) {
-        const trimmedNote = newTaskDescription.trim();
-        const attemptNoteInsert = async (userId: string) => {
-          const payload: DealNoteInsert = {
-            deal_id: newTaskDealId,
-            task_id: createdTask?.id ?? null,
-            user_id: userId,
-            content: trimmedNote
-          };
-          return supabase.from('deal_notes').insert(payload);
-        };
-
-        let { error: noteError } = await attemptNoteInsert(user.id);
-
-        if (noteError && selectedDealOption?.user_id && selectedDealOption.user_id !== user.id) {
-          ({ error: noteError } = await attemptNoteInsert(selectedDealOption.user_id));
-        }
-
-        if (noteError) {
-          console.error('Error saving task note', noteError);
-          noteSaveError = 'Task saved, but note could not be saved for this deal.';
-        }
-      }
-
-      setNewTaskTitle('');
-      setNewTaskDealId('');
-      setNewTaskDueDate('');
-      setNewTaskDescription('');
-      setStatusFilter('all');
-      await fetchTasks();
-      if (noteSaveError) {
-        setCreateError(noteSaveError);
-      }
-    } catch (err) {
-      console.error('Error creating task', err);
-      setCreateError('Could not add this task. Please try again.');
-    } finally {
-      setCreating(false);
-    }
+    setLastOpenedDealId(task.deals.id);
   };
 
   const completeTask = async (task: Task) => {
@@ -793,6 +756,32 @@ export default function Tasks() {
       fetchCompletedTasksPage('reset');
     }
   };
+
+  const handleQuickAddCreated = useCallback(
+    (createdTask: Database['public']['Tables']['tasks']['Row'], deal: DealSummary | null) => {
+      if (!deal) return;
+      const taskWithDeal: Task = {
+        id: createdTask.id,
+        user_id: createdTask.user_id,
+        title: createdTask.title,
+        due_date: createdTask.due_date,
+        completed: createdTask.completed,
+        deal_id: createdTask.deal_id,
+        updated_at: createdTask.updated_at,
+        deals: {
+          id: deal.id,
+          client_name: deal.client_name,
+          property_address: deal.property_address,
+          city: deal.city,
+          state: deal.state,
+          next_task_description: deal.next_task_description
+        }
+      };
+      setTasks((prev) => sortTasksByDueDate([taskWithDeal, ...prev]));
+      setLastOpenedDealId(deal.id);
+    },
+    [sortTasksByDueDate]
+  );
 
   const renderCompletionButton = (task: Task, isVisuallyCompleted: boolean) => (
     <button
@@ -1177,15 +1166,18 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6">
-      <section className={`${surfaceClass} p-6 space-y-5`}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <section className={`${surfaceClass} p-5 space-y-4`}>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
               Tasks
             </p>
-            <h2 className="text-2xl font-semibold text-gray-900 mt-2">
-              What needs attention right now
-            </h2>
+            <h1 className="text-3xl font-semibold text-gray-900 mt-1">
+              Focus on the next actions that move deals forward
+            </h1>
+            <p className="text-sm text-gray-600 mt-2">
+              Triage today’s priorities, assign follow-ups, and keep every client on track without leaving this view.
+            </p>
           </div>
           {(refreshing || lastRefreshedAt) && (
             <div className="flex flex-col items-start gap-1 text-xs font-semibold text-gray-500 md:items-end">
@@ -1211,15 +1203,83 @@ export default function Tasks() {
           setStatusFilter={setStatusFilter}
         />
 
-        <div className="rounded-2xl border border-gray-100/80 bg-[var(--app-surface-muted)] p-5">
+        <div className="rounded-2xl border border-gray-100/80 bg-[var(--app-surface-muted)] p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Next Action
               </p>
             </div>
-            {taskStats.nextTask && (
-              <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowHeroQuickAdd((prev) => !prev)}
+              className="hig-btn-secondary text-sm py-2"
+            >
+              <span>+ Add task</span>
+            </button>
+          </div>
+          {taskStats.nextTask ? (
+            <>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {taskStats.nextTask.title}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {taskStats.nextTask.deals.client_name}
+                  </p>
+                  {taskStats.nextTask.deals.property_address && (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                      <MapPin className="h-3.5 w-3.5" />
+                      <span>
+                        {taskStats.nextTask.deals.property_address}
+                        {taskStats.nextTask.deals.city
+                          ? `, ${taskStats.nextTask.deals.city}`
+                          : ''}
+                        {taskStats.nextTask.deals.state
+                          ? `, ${taskStats.nextTask.deals.state}`
+                          : ''}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-start gap-2 text-sm text-gray-600 md:justify-end">
+                  {(() => {
+                    const due = normalizeDueDate(taskStats.nextTask!.due_date);
+                    const dueTs = due ? due.getTime() : null;
+                    const isOverdue = dueTs !== null && dueTs < todayStart;
+                    const isToday = dueTs !== null && dueTs === todayStart;
+                    const badgeClass = isOverdue
+                      ? 'text-red-600'
+                      : isToday
+                        ? 'text-amber-600'
+                        : due
+                          ? 'text-emerald-600'
+                          : 'text-gray-500';
+                    const badgeLabel = isOverdue
+                      ? 'Overdue'
+                      : isToday
+                        ? 'Due today'
+                        : due
+                          ? 'Upcoming'
+                          : 'No due date';
+                    return (
+                      <div className="flex items-center gap-2">
+                        <Calendar className={`h-4 w-4 ${badgeClass}`} />
+                        <div className="flex flex-col items-end">
+                          <span className={`text-xs font-semibold uppercase tracking-wide ${badgeClass}`}>
+                            {badgeLabel}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {formatDate(taskStats.nextTask!.due_date)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => handleRowClick(taskStats.nextTask!)}
@@ -1246,268 +1306,112 @@ export default function Tasks() {
                   )}
                 </button>
               </div>
-            )}
-          </div>
-          {taskStats.nextTask ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <div>
-                <p className="text-lg font-semibold text-gray-900">
-                  {taskStats.nextTask.title}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {taskStats.nextTask.deals.client_name}
-                </p>
-                {taskStats.nextTask.deals.property_address && (
-                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
-                    <MapPin className="h-3.5 w-3.5" />
-                    <span>
-                      {taskStats.nextTask.deals.property_address}
-                      {taskStats.nextTask.deals.city
-                        ? `, ${taskStats.nextTask.deals.city}`
-                        : ''}
-                      {taskStats.nextTask.deals.state
-                        ? `, ${taskStats.nextTask.deals.state}`
-                        : ''}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-start gap-2 text-sm text-gray-600 md:justify-end">
-                {(() => {
-                  const due = normalizeDueDate(taskStats.nextTask!.due_date);
-                  const dueTs = due ? due.getTime() : null;
-                  const isOverdue = dueTs !== null && dueTs < todayStart;
-                  const isToday = dueTs !== null && dueTs === todayStart;
-                  const badgeClass = isOverdue
-                    ? 'text-red-600'
-                    : isToday
-                      ? 'text-amber-600'
-                      : due
-                        ? 'text-emerald-600'
-                        : 'text-gray-500';
-                  const badgeLabel = isOverdue
-                    ? 'Overdue'
-                    : isToday
-                      ? 'Due today'
-                      : due
-                        ? 'Upcoming'
-                        : 'No due date';
-                  return (
-                    <div className="flex items-center gap-2">
-                      <Calendar className={`h-4 w-4 ${badgeClass}`} />
-                      <div className="flex flex-col items-end">
-                        <span className={`text-xs font-semibold uppercase tracking-wide ${badgeClass}`}>
-                          {badgeLabel}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {formatDate(taskStats.nextTask!.due_date)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
+            </>
           ) : (
             <p className="mt-3 text-sm text-gray-600">
               Add a due date to your most important task so it rises to the top.
             </p>
           )}
-        </div>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by client, task, property..."
-              className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
-            />
-            <div className="inline-flex items-center rounded-full border border-gray-200/70 bg-white p-1 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={`rounded-full px-3 py-1 transition ${
-                  viewMode === 'list'
-                    ? 'bg-gray-900 text-white'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                List
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('compact')}
-                className={`rounded-full px-3 py-1 transition ${
-                  viewMode === 'compact'
-                    ? 'bg-gray-900 text-white'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Compact
-              </button>
+          {showHeroQuickAdd && (
+            <div className="mt-4">
+              <QuickAddTask
+                contextDealId={taskStats.nextTask?.deal_id ?? preferredDeal?.id}
+                contextDealLabel={
+                  taskStats.nextTask
+                    ? `${taskStats.nextTask.deals.client_name} — ${
+                        taskStats.nextTask.deals.property_address || 'Address TBD'
+                      }`
+                    : preferredDealLabel
+                }
+                defaultDuePreset="today"
+                dealOptions={dealOptions}
+                dealById={dealById}
+                onCreated={(createdTask, deal) => {
+                  handleQuickAddCreated(createdTask, deal);
+                  setShowHeroQuickAdd(false);
+                }}
+                onCancel={() => setShowHeroQuickAdd(false)}
+              />
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {isManagerRole && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                  Agent
-                </span>
-                <select
-                  value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
-                  className="hig-input w-52"
-                >
-                  <option value="all">All agents</option>
-                  {agentOptions.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={async () => {
-                setShowCompleted((prev) => {
-                  const next = !prev;
-                  if (next) {
-                    resetCompletedTasks();
-                    fetchCompletedTasksPage('reset');
-                  }
-                  return next;
-                });
-              }}
-              className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
-                showCompleted
-                  ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
-                  : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
-              }`}
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              {showCompleted ? 'Hide completed' : 'View recently completed'}
-            </button>
-          </div>
+          )}
         </div>
       </section>
 
-      <div className={`${surfaceClass} p-6 space-y-4`}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
-              Add a task
-            </p>
-            <h2 className="text-2xl font-semibold text-gray-900 mt-1">
-              Assign the next move
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Attach a next step to any deal without leaving this page. Keep it short,
-              clear, and actionable.
-            </p>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-4 py-2 text-xs font-semibold text-gray-700 shadow-inner">
-            <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] shadow-[0_0_0_4px_rgba(0,122,255,0.12)]" />
-            {dealsLoading
-              ? 'Loading deals…'
-              : `${
-                  agentFilter === 'all'
-                    ? deals.length
-                    : deals.filter((d) => d.user_id === agentFilter).length
-                } deals available`}
-          </div>
-        </div>
-
-        <form onSubmit={handleCreateTask} className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <label className="hig-label">Task</label>
-            <input
-              type="text"
-              value={newTaskTitle}
-              onChange={(e) => {
-                setNewTaskTitle(e.target.value);
-                if (createError) setCreateError(null);
-              }}
-              placeholder="Call lender about pre-approval"
-              className="hig-input"
-            />
-          </div>
-
-          <div className="lg:col-span-4">
-            <SingleSelectCombobox
-              label="Deal"
-              value={newTaskDealId}
-              onChange={(next) => {
-                setNewTaskDealId(next);
-                if (createError) setCreateError(null);
-              }}
-              options={dealOptions}
-              placeholder="Search client or address..."
-              disabled={dealsLoading || deals.length === 0}
-              allowClear
-            />
-            {selectedDealOption && (
-              <p className="mt-1 text-xs text-gray-500">
-                {selectedDealOption.city && selectedDealOption.state
-                  ? `${selectedDealOption.city}, ${selectedDealOption.state}`
-                : selectedDealOption.city ||
-                    selectedDealOption.state ||
-                    'No location on file'}
-              </p>
-            )}
-          </div>
-
-          <div className="lg:col-span-2">
-            <label className="hig-label">Due date</label>
-            <input
-              type="date"
-              value={newTaskDueDate}
-              onChange={(e) => setNewTaskDueDate(e.target.value)}
-              className="hig-input"
-            />
-          </div>
-
-          <div className="lg:col-span-1 flex items-end">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by client, task, property..."
+            className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
+          />
+          <div className="inline-flex items-center rounded-full border border-gray-200/70 bg-white p-1 text-xs font-semibold">
             <button
-              type="submit"
-              className="hig-btn-primary w-full gap-2"
-              disabled={creating || dealsLoading || deals.length === 0}
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`rounded-full px-3 py-1 transition ${
+                viewMode === 'list'
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
             >
-              {creating ? (
-                'Adding…'
-              ) : (
-                <>
-                  <Plus className="h-4 w-4" />
-                  Add
-                </>
-              )}
+              List
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('compact')}
+              className={`rounded-full px-3 py-1 transition ${
+                viewMode === 'compact'
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Compact
             </button>
           </div>
-
-          <div className="lg:col-span-9">
-            <label className="hig-label">Notes (optional)</label>
-            <textarea
-              value={newTaskDescription}
-              onChange={(e) => setNewTaskDescription(e.target.value)}
-              placeholder="Context, prep work, or key talking points"
-              className="hig-input min-h-[80px]"
-            />
-          </div>
-
-          <div className="lg:col-span-3">
-            <div className="h-full rounded-xl border border-gray-200/70 bg-gray-50/80 px-4 py-3 text-sm text-gray-700 shadow-inner">
-              <p className="font-semibold text-gray-900">Give it clarity</p>
-              <p className="mt-1 text-gray-600">
-                Use short verbs, include the who/where, and set a date so it shows up
-                in the right bucket.
-              </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {isManagerRole && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+                Agent
+              </span>
+              <select
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                className="hig-input w-52"
+              >
+                <option value="all">All agents</option>
+                {agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
-
-          {createError && (
-            <div className="lg:col-span-12 text-sm text-red-600">{createError}</div>
           )}
-        </form>
+          <button
+            type="button"
+            onClick={async () => {
+              setShowCompleted((prev) => {
+                const next = !prev;
+                if (next) {
+                  resetCompletedTasks();
+                  fetchCompletedTasksPage('reset');
+                }
+                return next;
+              });
+            }}
+            className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
+              showCompleted
+                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
+                : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
+            }`}
+          >
+            <CheckCircle className="h-3.5 w-3.5" />
+            {showCompleted ? 'Hide completed' : 'View recently completed'}
+          </button>
+        </div>
       </div>
 
       {viewMode === 'list' ? (
@@ -1515,6 +1419,42 @@ export default function Tasks() {
           ref={taskListRef}
           className={`${surfaceClass} p-4 space-y-3 ${refreshing ? 'opacity-90' : ''}`}
         >
+          <div className="flex flex-col gap-1 px-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
+                Task list
+              </p>
+              <h2 className="text-2xl font-semibold text-gray-900 mt-1">
+                Work the current queue
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {getStatusFilterLabel(statusFilter)} · {filteredTasks.length} task
+                {filteredTasks.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowListQuickAdd((prev) => !prev)}
+              className="hig-btn-primary inline-flex items-center gap-2 px-4"
+            >
+              + Add task
+            </button>
+          </div>
+          {showListQuickAdd && (
+            <QuickAddTask
+              contextDealId={preferredDeal?.id}
+              contextDealLabel={preferredDealLabel}
+              defaultDuePreset="today"
+              dealOptions={dealOptions}
+              dealById={dealById}
+              onCreated={(createdTask, deal) => {
+                handleQuickAddCreated(createdTask, deal);
+                setShowListQuickAdd(false);
+              }}
+              onCancel={() => setShowListQuickAdd(false)}
+              autoFocus
+            />
+          )}
           {loading ? (
             <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
               Loading tasks…
@@ -1595,6 +1535,46 @@ export default function Tasks() {
           ref={taskListRef}
           className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}
         >
+          <div className="px-4 pt-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
+                  Task list
+                </p>
+                <h2 className="text-2xl font-semibold text-gray-900 mt-1">
+                  Work the current queue
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {getStatusFilterLabel(statusFilter)} · {filteredTasks.length} task
+                  {filteredTasks.length === 1 ? '' : 's'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowListQuickAdd((prev) => !prev)}
+                className="hig-btn-primary inline-flex items-center gap-2 px-4"
+              >
+                + Add task
+              </button>
+            </div>
+            {showListQuickAdd && (
+              <div className="mt-3">
+                <QuickAddTask
+                  contextDealId={preferredDeal?.id}
+                  contextDealLabel={preferredDealLabel}
+                  defaultDuePreset="today"
+                  dealOptions={dealOptions}
+                  dealById={dealById}
+                  onCreated={(createdTask, deal) => {
+                    handleQuickAddCreated(createdTask, deal);
+                    setShowListQuickAdd(false);
+                  }}
+                  onCancel={() => setShowListQuickAdd(false)}
+                  autoFocus
+                />
+              </div>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
