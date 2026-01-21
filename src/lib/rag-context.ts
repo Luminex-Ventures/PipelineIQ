@@ -29,6 +29,14 @@ export interface RAGContext {
   };
 }
 
+export interface RAGContextResult {
+  context: string;
+  meta: {
+    dealCount?: number;
+    taskCount?: number;
+  };
+}
+
 /**
  * Calculate GCI for a deal
  */
@@ -39,7 +47,7 @@ function calculateDealGCI(deal: DealRow): number {
 /**
  * Build comprehensive context for RAG
  */
-export async function buildRAGContext(): Promise<string> {
+export async function buildRAGContext(): Promise<RAGContextResult> {
   try {
     // Get current user
     const { data: { user } } = await supabase.auth.getUser();
@@ -75,6 +83,25 @@ export async function buildRAGContext(): Promise<string> {
       .order('updated_at', { ascending: false })
       .limit(100);
 
+    const now = new Date();
+    const recentYears = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
+    const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
+    const lastYearEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+    const yearlyClosedCounts = await Promise.all(
+      recentYears.map(async (year) => {
+        const yearStart = new Date(year, 0, 1);
+        const yearEnd = new Date(year, 11, 31, 23, 59, 59, 999);
+        const { count } = await supabase
+          .from('deals')
+          .select('id', { count: 'exact', head: true })
+          .in('user_id', visibleUserIds)
+          .eq('status', 'closed')
+          .gte('closed_at', yearStart.toISOString())
+          .lte('closed_at', yearEnd.toISOString());
+        return { year, count: count ?? 0 };
+      })
+    );
+
     // Fetch tasks
     const { data: tasks } = await supabase
       .from('tasks')
@@ -98,6 +125,7 @@ export async function buildRAGContext(): Promise<string> {
 
     // Calculate statistics
     const dealList = (deals ?? []) as DealRow[];
+    const taskList = (tasks ?? []) as TaskRow[];
     const closedDeals = dealList.filter((d) => d.status === 'closed');
     const activeDeals = dealList.filter((d) => d.status !== 'closed' && d.status !== 'dead');
     const inProgressDeals = dealList.filter((d) => d.status === 'in_progress');
@@ -134,6 +162,11 @@ In Progress: ${inProgressDeals.length}
 Total GCI (Closed): $${totalGCI.toLocaleString('en-US', { maximumFractionDigits: 2 })}
 Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
 
+=== RECENT YEAR SUMMARY ===
+${yearlyClosedCounts
+  .map((entry) => `Closed Deals (${entry.year}): ${entry.count}`)
+  .join('\n')}
+
 === RECENT DEALS (Last 20) ===
 `;
 
@@ -155,7 +188,6 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
 
     context += `=== UPCOMING TASKS ===
 `;
-    const taskList = (tasks ?? []) as TaskRow[];
     if (taskList.length > 0) {
       taskList.forEach((task, idx) => {
         context += `${idx + 1}. ${task.title}
@@ -213,7 +245,13 @@ Average Deal Value: $${avgDealValue.toLocaleString('en-US', { maximumFractionDig
       context += '\n';
     }
 
-    return context;
+    return {
+      context,
+      meta: {
+        dealCount: dealList.length,
+        taskCount: taskList.length
+      }
+    };
   } catch (error) {
     console.error('Error building RAG context:', error);
     throw error;

@@ -925,6 +925,63 @@ export default function Analytics() {
     yearlyStats.avgDaysToClose
   ]);
 
+  const focusAreas = useMemo(() => {
+    const items: Array<{ title: string; detail: string }> = [];
+
+    if (gciGoal > 0 && remainingGciToGoal > 0) {
+      let detail = `You need about ${formatCurrency(remainingGciToGoal)} more GCI to hit your annual goal.`;
+      if (neededMonthlyGciToHitGoal > 0) {
+        detail += ` That is roughly ${formatCurrency(neededMonthlyGciToHitGoal)} per month.`;
+      }
+      items.push({ title: 'Close the GCI gap', detail });
+    }
+
+    if (topLeadSource) {
+      items.push({
+        title: 'Scale your top channel',
+        detail: `${topLeadSource.name} is the most profitable source with ${formatCurrency(
+          topLeadSource.totalCommission
+        )} GCI. Increase nurture or budget here.`
+      });
+    }
+
+    if (underperformingSource) {
+      items.push({
+        title: 'Fix low conversion',
+        detail: `${underperformingSource.name} converts at ${underperformingSource.conversionRate.toFixed(
+          1
+        )}%. Adjust messaging or pause spend until it improves.`
+      });
+    }
+
+    if (yearlyStats.avgDaysToClose > 0) {
+      items.push({
+        title: 'Shorten time-to-close',
+        detail: `Average lead-to-close is ${yearlyStats.avgDaysToClose.toFixed(
+          0
+        )} days. Tighten follow-up cadence to reduce cycle time.`
+      });
+    }
+
+    if ((!topLeadSource || !underperformingSource) && yearlyStats.closedDeals === 0) {
+      items.push({
+        title: 'Build initial signal',
+        detail:
+          'Add a few deals to the pipeline this year to unlock clearer channel and cycle insights.'
+      });
+    }
+
+    return items.slice(0, 4);
+  }, [
+    gciGoal,
+    neededMonthlyGciToHitGoal,
+    remainingGciToGoal,
+    topLeadSource,
+    underperformingSource,
+    yearlyStats.avgDaysToClose,
+    yearlyStats.closedDeals
+  ]);
+
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
   const yearOptions = years.map((year) => ({ value: year.toString(), label: year.toString() }));
   const timeframeDescription = `Jan 1 – Dec 31, ${selectedYear}${isCurrentYear ? ' · In progress' : ''}`;
@@ -1608,84 +1665,45 @@ export default function Analytics() {
       </section>
 
       <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-        <h3 className="font-semibold text-gray-900 mb-2">Suggested Focus Areas</h3>
-        <p className="text-xs text-gray-500 mb-4">
-          Practical follow-ups informed by what the data is highlighting this year.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Suggested Focus Areas</h3>
+            <p className="text-xs text-gray-500">
+              Focused next steps pulled from your strongest signals this year.
+            </p>
+          </div>
+          <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+            Actionable
+          </span>
+        </div>
         {isInitialLoading ? (
           <ListSkeleton lines={4} />
         ) : (
           <>
-            {insights.length > 0 && (
-              <div className="mb-4 rounded-xl border border-gray-100/80 bg-white/80 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Insights</p>
-                <ul className="mt-3 space-y-2 text-sm text-gray-700">
-                  {insights.map((item, index) => (
-                    <li key={`insight-${index}`} className="leading-relaxed">
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {focusAreas.length > 0 ? (
+              <ol className="space-y-3">
+                {focusAreas.map((item, index) => (
+                  <li
+                    key={`${item.title}-${index}`}
+                    className="rounded-2xl border border-gray-100/80 bg-white px-4 py-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-xs font-semibold text-[var(--app-accent)]">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                        <p className="mt-1 text-sm text-gray-600">{item.detail}</p>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-gray-500">
+                Add a few deals to surface more specific focus recommendations.
+              </p>
             )}
-            <ul className="space-y-3 text-sm text-gray-700">
-            {gciGoal > 0 && remainingGciToGoal > 0 && (
-              <li className="leading-relaxed">
-                You need approximately{' '}
-                <span className="font-semibold">
-                  {formatCurrency(remainingGciToGoal)}
-                </span>{' '}
-                more GCI to hit your annual goal.
-                {neededMonthlyGciToHitGoal > 0 && (
-                  <>
-                    {' '}
-                    That&apos;s about{' '}
-                    <span className="font-semibold">
-                      {formatCurrency(neededMonthlyGciToHitGoal)} per month
-                    </span>{' '}
-                    including this month.
-                  </>
-                )}
-              </li>
-            )}
-
-            {topLeadSource && (
-              <li className="leading-relaxed">
-                <span className="font-semibold">{topLeadSource.name}</span> continues to be your most
-                profitable channel with{' '}
-                <span className="font-semibold">
-                  {formatCurrency(topLeadSource.totalCommission)}
-                </span>{' '}
-                in GCI. Consider increasing budget or nurture time here.
-              </li>
-            )}
-
-            {underperformingSource && (
-              <li className="leading-relaxed">
-                <span className="font-semibold">{underperformingSource.name}</span> is converting at{' '}
-                {underperformingSource.conversionRate.toFixed(1)}%. Revisit the script or pause the
-                spend until it improves.
-              </li>
-            )}
-
-            {yearlyStats.avgDaysToClose > 0 && (
-              <li className="leading-relaxed">
-                Average time from lead to close is{' '}
-                <span className="font-semibold">
-                  {yearlyStats.avgDaysToClose.toFixed(0)} days
-                </span>
-                . Tighten follow-up cadences or pre-qualification steps to reduce the cycle.
-              </li>
-            )}
-
-            {(!topLeadSource || !underperformingSource) &&
-              yearlyStats.closedDeals === 0 && (
-                <li className="leading-relaxed">
-                  Add a few deals to the pipeline this year to unlock richer insight. Once production
-                  starts, this dashboard will reveal which channels earn the most.
-                </li>
-              )}
-            </ul>
           </>
         )}
       </section>

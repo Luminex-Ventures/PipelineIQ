@@ -31,7 +31,8 @@ export interface LumaResponse {
 export async function queryLuma(
   userQuery: string,
   context: string,
-  conversationHistory: ChatMessage[] = []
+  conversationHistory: ChatMessage[] = [],
+  options?: { signal?: AbortSignal }
 ): Promise<LumaResponse> {
   try {
     // Build the system prompt with RAG context
@@ -81,12 +82,15 @@ Only include the metrics that are relevant to the user's query. If no metrics ar
     ];
 
     // Call OpenAI API
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.7,
-      max_tokens: 1000,
-    });
+    const completion = await openai.chat.completions.create(
+      {
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.7,
+        max_tokens: 1000,
+      },
+      options?.signal ? { signal: options.signal } : undefined
+    );
 
     const responseContent = completion.choices[0]?.message?.content || 
       'Sorry, I encountered an error processing your request.';

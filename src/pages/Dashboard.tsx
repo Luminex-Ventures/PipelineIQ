@@ -1428,60 +1428,6 @@ export default function Dashboard() {
     navigate(`/pipeline?${params.toString()}`);
   };
 
-  const deterministicInsights = useMemo(() => {
-    const insights: string[] = [];
-
-    if (monthlyData.length >= 2) {
-      const lastTwoMonths = monthlyData.slice(-2);
-      if (lastTwoMonths.length === 2) {
-        const [prevMonth, currentMonth] = lastTwoMonths;
-        if (currentMonth.gci > prevMonth.gci) {
-          const increase = ((currentMonth.gci - prevMonth.gci) / prevMonth.gci) * 100;
-          insights.push(`You're on track to beat last month by ${increase.toFixed(0)}% in GCI.`);
-        } else if (currentMonth.gci < prevMonth.gci && prevMonth.gci > 0) {
-          const decrease = ((prevMonth.gci - currentMonth.gci) / prevMonth.gci) * 100;
-          insights.push(`GCI is down ${decrease.toFixed(0)}% compared to last month.`);
-        }
-      }
-    }
-
-    const stalledByStatus = new Map<string, number>();
-    pipelineHealth.forEach(status => {
-      if (status.stalledCount > 0) {
-        stalledByStatus.set(status.name, status.stalledCount);
-      }
-    });
-
-    if (stalledByStatus.size > 0) {
-      const topStalled = Array.from(stalledByStatus.entries())
-        .sort((a, b) => b[1] - a[1])[0];
-      insights.push(`${topStalled[1]} deal${topStalled[1] > 1 ? 's have' : ' has'} been stalled in '${topStalled[0]}' for 30+ days.`);
-    }
-
-    if (leadSourceData.length > 0) {
-      const topSource = leadSourceData[0];
-      insights.push(`${topSource.name} is your top performing lead source with ${formatCurrency(topSource.gci)} in closed deals.`);
-    }
-
-    if (stats.conversionRate > 0) {
-      if (stats.conversionRate >= 0.3) {
-        insights.push(`Strong ${formatPercent(stats.conversionRate)} conversion rate - keep up the momentum!`);
-      } else if (stats.conversionRate < 0.15) {
-        insights.push(`Conversion rate at ${formatPercent(stats.conversionRate)} - consider focusing on lead quality.`);
-      }
-    }
-
-    if (upcomingDeals.length > 0 && projectedGCI > 0) {
-      insights.push(`${upcomingDeals.length} deals projected to close soon with ${formatCurrency(projectedGCI)} potential GCI.`);
-    }
-
-    if (insights.length === 0) {
-      insights.push('Keep adding deals to your pipeline to get personalized insights.');
-    }
-
-    return insights;
-  }, [stats, pipelineHealth, leadSourceData, monthlyData, upcomingDeals, projectedGCI]);
-
   const aiIsFresh = useMemo(() => {
     if (aiInsightsState.status !== 'ready') return false;
     if (aiInsightsState.key !== queryKey) return false;
@@ -1491,7 +1437,13 @@ export default function Dashboard() {
     );
   }, [aiInsightsState, queryKey]);
 
-  const displayedInsights = aiIsFresh ? aiInsightsState.insights : deterministicInsights;
+  const isCurrentInsights = aiInsightsState.key === queryKey;
+  const showInsightsSkeleton =
+    aiInsightsState.status === 'idle' ||
+    aiInsightsState.status === 'loading' ||
+    !isCurrentInsights;
+  const showInsightsError = aiInsightsState.status === 'error' && isCurrentInsights;
+  const showInsightsList = aiIsFresh && isCurrentInsights;
   const showInsightsSpinner = aiInsightsState.status === 'loading' && !aiIsFresh;
 
   // Widget render functions
@@ -1517,34 +1469,42 @@ export default function Dashboard() {
   };
 
   const renderLumaInsights = () => (
-    <div className="hig-card p-4 bg-gradient-to-br from-blue-50 to-white border-blue-200/60">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-[rgb(0,122,255)] flex items-center justify-center">
-          <Sparkles className="w-4 h-4 text-white" strokeWidth={2} />
+    <div className="hig-card p-5 bg-gradient-to-br from-blue-50 via-white to-sky-50 border-blue-200/70">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-9 h-9 rounded-xl bg-[rgb(0,122,255)] flex items-center justify-center shadow-[0_8px_20px_rgba(0,122,255,0.25)]">
+          <Sparkles className="w-4.5 h-4.5 text-white" strokeWidth={2} />
         </div>
-        <h2 className="text-sm font-semibold text-gray-900">Luma Insights</h2>
+        <div>
+          <h2 className="text-base font-semibold tracking-tight text-gray-900">Luma Insights</h2>
+          <p className="text-xs text-gray-500">AI-generated highlights from your latest activity.</p>
+        </div>
         {showInsightsSpinner && (
           <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
         )}
       </div>
-      {displayedInsights.length > 0 ? (
+      {showInsightsSkeleton ? (
         <div className="space-y-2">
-          {displayedInsights.slice(0, 3).map((insight, index) => (
-            <div key={index} className="flex items-start gap-2">
-              <div className="w-1 h-1 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
-              <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
+          <div className="h-4 w-5/6 rounded-full bg-blue-100/70 animate-pulse"></div>
+          <div className="h-4 w-4/5 rounded-full bg-blue-100/70 animate-pulse"></div>
+          <div className="h-4 w-3/4 rounded-full bg-blue-100/70 animate-pulse"></div>
+        </div>
+      ) : showInsightsError ? (
+        <p className="text-sm text-gray-600">
+          Luma insights are unavailable right now. Please try again in a moment.
+        </p>
+      ) : showInsightsList ? (
+        <div className="space-y-2">
+          {aiInsightsState.insights.slice(0, 3).map((insight, index) => (
+            <div key={index} className="flex items-start gap-2.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
+              <p className="text-sm text-gray-800 leading-relaxed">{insight}</p>
             </div>
           ))}
         </div>
       ) : (
-        <div className="space-y-2">
-          {deterministicInsights.slice(0, 3).map((insight, index) => (
-            <div key={index} className="flex items-start gap-2">
-              <div className="w-1 h-1 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
-              <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
-            </div>
-          ))}
-        </div>
+        <p className="text-sm text-gray-600">
+          No Luma insights yet. Try adjusting filters or refreshing.
+        </p>
       )}
     </div>
   );
