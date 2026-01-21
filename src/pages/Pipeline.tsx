@@ -1279,67 +1279,69 @@ export default function Pipeline() {
               Monitor every opportunity, shift deals between stages, and launch new work without leaving this view.
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex flex-col items-start gap-1 text-xs text-gray-500 sm:items-end">
+          <div className="flex flex-col gap-3 items-end text-right md:ml-auto">
+            <div className="flex flex-col items-end gap-1 text-xs font-semibold text-gray-500">
               {refreshing && (
-                <div className="inline-flex items-center gap-2 text-gray-500">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-[var(--app-accent)]" />
-                  <span>Refreshing…</span>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+                  Updating…
                 </div>
               )}
               {lastUpdatedLabel && <span>{lastUpdatedLabel}</span>}
             </div>
-            <div className="inline-flex items-center rounded-full border border-gray-200/80 bg-white/80 p-1 shadow-inner">
-              <button
-                onClick={() => setViewMode('kanban')}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
-                  viewMode === 'kanban'
-                    ? 'bg-[var(--app-accent)] text-white shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <LayoutGrid className="w-4 h-4" />
-                <span>Kanban</span>
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
-                  viewMode === 'table'
-                    ? 'bg-[var(--app-accent)] text-white shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <List className="w-4 h-4" />
-                <span>Table</span>
-              </button>
-            </div>
-            <div className="relative">
-              <input
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="Search client or address…"
-                className="h-10 w-full rounded-full border border-gray-200/80 bg-white/90 px-4 pr-8 text-sm text-gray-700 shadow-inner sm:w-56"
-              />
-              {searchText && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="inline-flex items-center rounded-full border border-gray-200/80 bg-white/80 p-1 shadow-inner">
                 <button
-                  type="button"
-                  onClick={() => setSearchText('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => setViewMode('kanban')}
+                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
+                    viewMode === 'kanban'
+                      ? 'bg-[var(--app-accent)] text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
                 >
-                  ×
+                  <LayoutGrid className="w-4 h-4" />
+                  <span>Kanban</span>
                 </button>
-              )}
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
+                    viewMode === 'table'
+                      ? 'bg-[var(--app-accent)] text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <List className="w-4 h-4" />
+                  <span>Table</span>
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search client or address…"
+                  className="h-10 w-full rounded-full border border-gray-200/80 bg-white/90 px-4 pr-8 text-sm text-gray-700 shadow-inner sm:w-56"
+                />
+                {searchText && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchText('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedDeal(null);
+                  setShowModal(true);
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/50 bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_16px_rgba(15,23,42,0.12)] transition hover:bg-[var(--app-accent-dark,#0052cc)]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Deal</span>
+              </button>
             </div>
-            <button
-              onClick={() => {
-                setSelectedDeal(null);
-                setShowModal(true);
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/50 bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_16px_rgba(15,23,42,0.12)] transition hover:bg-[var(--app-accent-dark,#0052cc)]"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Deal</span>
-            </button>
           </div>
         </div>
 

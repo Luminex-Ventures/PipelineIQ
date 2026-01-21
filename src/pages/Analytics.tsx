@@ -945,24 +945,22 @@ export default function Analytics() {
           </p>
         </div>
         <div className="flex flex-col gap-3 items-start sm:items-end">
-            <div className="flex items-center gap-3 text-left sm:text-right">
-            <div className="min-h-[20px] flex flex-col items-start gap-1 text-xs font-semibold text-gray-500">
-              {isRefreshing ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                  Updating…
-                </span>
-              ) : null}
-              {!isRefreshing && lastRefreshedAt ? (
-                <span>Last updated {formatLastUpdated(lastRefreshedAt)}</span>
-              ) : null}
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400">
-                Timeframe
-              </p>
-              <p className="text-sm text-gray-500">{timeframeDescription}</p>
-            </div>
+          <div className="min-h-[20px] flex flex-col items-end gap-1 text-xs font-semibold text-gray-500 sm:text-right">
+            {isRefreshing ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
+                Updating…
+              </span>
+            ) : null}
+            {!isRefreshing && lastRefreshedAt ? (
+              <span>Last updated {formatLastUpdated(lastRefreshedAt)}</span>
+            ) : null}
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400">
+              Timeframe
+            </p>
+            <p className="text-sm text-gray-500">{timeframeDescription}</p>
           </div>
           <SegmentedControl
             options={yearOptions}
