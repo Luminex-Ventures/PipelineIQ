@@ -12,6 +12,7 @@
     "dev": "node ./node_modules/vite/dist/node/cli.js",
     "build": "node ./node_modules/vite/dist/node/cli.js build",
     "lint": "eslint .",
+    "lint:ui": "node scripts/check-ui-classes.js",
     "preview": "node ./node_modules/vite/dist/node/cli.js preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },

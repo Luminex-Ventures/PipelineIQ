@@ -56,7 +56,7 @@ export async function generateDashboardInsights(data: InsightsRequest): Promise<
       messages: [
         {
           role: 'system',
-          content: 'You are Luma, an AI assistant for real estate agents. Provide concise, actionable insights based on the dashboard data. Focus on trends, opportunities, and areas needing attention. Keep each insight to 1-2 sentences. Be specific with numbers and percentages. Return 3-5 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
+          content: 'You are Luma, an AI assistant for real estate agents. Address the agent directly in second person (use "you" and "your"). Avoid third-person phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, opportunities, and areas needing attention. Keep each insight to 1-2 sentences. Be specific with numbers and percentages. Return 3-5 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
         },
         {
           role: 'user',
@@ -96,7 +96,7 @@ export async function generateDashboardInsights(data: InsightsRequest): Promise<
 function buildInsightsPrompt(data: InsightsRequest): string {
   const { stats, pipelineHealth, leadSourceData, monthlyData, upcomingDealsCount, projectedGCI } = data;
 
-  let prompt = `Analyze this real estate agent's dashboard data and provide 3-5 actionable insights:\n\n`;
+  let prompt = `Analyze this real estate dashboard data and provide 3-5 actionable insights addressed directly to the agent in second person (use "you" and "your"):\n\n`;
 
   prompt += `Performance Metrics:\n`;
   prompt += `- YTD GCI: $${stats.ytdGCI.toLocaleString()}\n`;
@@ -153,4 +153,3 @@ function buildInsightsPrompt(data: InsightsRequest): string {
 
   return prompt;
 }
-

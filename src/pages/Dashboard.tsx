@@ -1814,6 +1814,7 @@ export default function Dashboard() {
                 <Line
                   type="monotone"
                   dataKey="gci"
+                  name="GCI"
                   stroke="#0ea5e9"
                   strokeWidth={2}
                   dot={{ r: 3, fill: '#0ea5e9' }}
@@ -1822,6 +1823,7 @@ export default function Dashboard() {
                 <Line
                   type="monotone"
                   dataKey="trend"
+                  name="Trend"
                   stroke="#ef4444"
                   strokeWidth={1.5}
                   dot={false}
