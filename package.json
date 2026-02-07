@@ -1,16 +1,21 @@
 {
+  
   "name": "vite-react-typescript-starter",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "node ./node_modules/vite/bin/vite.js",
-    "build": "node ./node_modules/vite/bin/vite.js build",
-    "lint": "eslint .",
-    "preview": "node ./node_modules/vite/bin/vite.js preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "postinstall": "node scripts/fixViteBin.cjs"
+  "engines": {
+    "node": "20.x"
   },
+
+  "scripts": {
+  "dev": "vite",
+  "build": "vite build",
+  "lint": "eslint .",
+  "preview": "vite preview",
+  "typecheck": "tsc --noEmit -p tsconfig.app.json"
+}
+,
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
