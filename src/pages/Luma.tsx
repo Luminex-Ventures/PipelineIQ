@@ -223,7 +223,7 @@ export default function Luma() {
                   type="submit"
                   aria-label="Send message"
                   disabled={!input.trim()}
-                  className="inline-flex items-center gap-2 rounded-full bg-[var(--app-accent)] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[rgb(0,100,210)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
+                  className="inline-flex items-center gap-2 rounded-full bg-[var(--app-accent)] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
                 >
                   {loading ? <span className="text-xs">Sending</span> : <span>Send</span>}
                   <Send className="h-4 w-4" />
@@ -397,7 +397,7 @@ function MessageBubble({ message }: { message: Message }) {
       <div
         className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? 'bg-[var(--app-accent)] text-white shadow-[0_12px_30px_rgba(0,122,255,0.2)]'
+            ? 'bg-[var(--app-accent)] text-white shadow-[0_12px_30px_rgba(var(--app-accent-rgb),0.2)]'
             : 'border border-gray-200 bg-white text-gray-900 shadow-sm'
         }`}
       >

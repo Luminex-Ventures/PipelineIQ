@@ -4,18 +4,19 @@
 
 @layer base {
   :root {
-    --app-bg-start: #f4f7ff;
-    --app-bg-mid: #fbfcff;
-    --app-bg-end: #ffffff;
-    --app-surface: #ffffff;
-    --app-surface-muted: #f6f8ff;
+    --app-bg-start: #feffff;
+    --app-bg-mid: #feffff;
+    --app-bg-end: #feffff;
+    --app-surface: #feffff;
+    --app-surface-muted: rgba(44, 62, 80, 0.04);
     --app-border: rgba(15, 23, 42, 0.08);
     --app-border-strong: rgba(15, 23, 42, 0.12);
-    --app-text-primary: #0f172a;
-    --app-text-secondary: #475569;
-    --app-text-tertiary: #94a3b8;
-    --app-accent: #007aff;
-    --app-accent-strong: #0a84ff;
+    --app-text-primary: #2c3e50;
+    --app-text-secondary: rgba(44, 62, 80, 0.75);
+    --app-text-tertiary: rgba(44, 62, 80, 0.5);
+    --app-accent: #2c3e50;
+    --app-accent-strong: #2c3e50;
+    --app-accent-rgb: 44, 62, 80;
     --app-radius: 1.25rem;
     --app-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.08);
     --app-shadow-diffused: 0 25px 80px rgba(15, 23, 42, 0.08);
@@ -54,7 +55,7 @@
   }
 
   .hig-btn-primary {
-    @apply bg-[rgb(0,122,255)] hover:bg-[rgb(0,106,224)] active:bg-[rgb(0,92,200)] text-white font-medium px-5 py-2 rounded-lg transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
+    @apply bg-[var(--app-accent)] hover:bg-[var(--app-accent)] active:bg-[var(--app-accent)] text-white font-medium px-5 py-2 rounded-lg transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
   }
 
   .hig-btn-secondary {
@@ -62,11 +63,11 @@
   }
 
   .hig-btn-text {
-    @apply text-[rgb(0,122,255)] hover:text-[rgb(0,106,224)] active:text-[rgb(0,92,200)] font-medium px-3 py-2 rounded-lg hover:bg-gray-100/50 transition-colors duration-150 text-[15px] min-h-[44px] inline-flex items-center justify-center;
+    @apply text-[var(--app-accent)] hover:text-[var(--app-accent)] active:text-[var(--app-accent)] font-medium px-3 py-2 rounded-lg hover:bg-gray-100/50 transition-colors duration-150 text-[15px] min-h-[44px] inline-flex items-center justify-center;
   }
 
   .hig-input {
-    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[rgb(0,122,255)]/20 focus:border-[rgb(0,122,255)] transition-all duration-150 min-h-[44px];
+    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[rgba(var(--app-accent-rgb),0.2)] focus:border-[var(--app-accent)] transition-all duration-150 min-h-[44px];
   }
 
   .hig-label {
@@ -134,7 +135,7 @@
     color: #0f172a;
   }
   .analytics-multi-select option:checked {
-    background-color: rgba(0, 122, 255, 0.16);
+    background-color: rgba(var(--app-accent-rgb), 0.16);
     color: #0f172a;
     font-weight: 600;
   }

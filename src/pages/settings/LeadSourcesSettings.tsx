@@ -300,7 +300,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-[rgb(0,122,255)]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--app-accent)]" />
       </div>
     );
   }
@@ -493,7 +493,7 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                         onClick={() => setFormData({ ...formData, payout_structure: option.value })}
                         className={`text-left rounded-2xl border p-4 transition-all ${
                           isActive
-                            ? 'border-[rgb(0,122,255)] bg-[rgb(0,122,255)]/5'
+                            ? 'border-[var(--app-accent)] bg-[var(--app-accent)]/5'
                             : 'border-gray-200 hover:border-gray-300'
                         }`}
                       >
@@ -593,14 +593,14 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                 <ol className="space-y-3 text-sm text-gray-800">
                   {formData.payout_structure === 'partnership' && (
                     <li className="flex items-center gap-3">
-                      <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[rgb(0,122,255)]/10 text-[rgb(0,122,255)] text-xs font-semibold">
+                      <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)] text-xs font-semibold">
                         1
                       </span>
                       Pay partner first ({formData.partnership_split_rate || 0}% of gross commission)
                     </li>
                   )}
                   <li className="flex items-center gap-3">
-                    <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[rgb(0,122,255)]/10 text-[rgb(0,122,255)] text-xs font-semibold">
+                    <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)] text-xs font-semibold">
                       {formData.payout_structure === 'partnership' ? '2' : '1'}
                     </span>
                     Split the remaining commission with your brokerage ({formData.brokerage_split_rate || 0}% to broker)

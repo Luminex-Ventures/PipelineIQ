@@ -41,8 +41,8 @@ export default function ContractScribeComingSoon() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col">
-      <div className="absolute inset-0 bg-gradient-to-br from-[#f4f7fb] via-white to-[#eef4fa] pointer-events-none" />
+    <div className="min-h-screen bg-[var(--app-bg-end)] text-slate-900 flex flex-col">
+      <div className="absolute inset-0 bg-gradient-to-br from-[var(--app-bg-start)] via-[var(--app-bg-mid)] to-[var(--app-bg-end)] pointer-events-none" />
       <header className="relative z-10 border-b border-slate-200/60">
         <div className="max-w-5xl mx-auto px-6 py-6 flex items-center">
           <div className="flex items-center gap-3">
@@ -75,11 +75,11 @@ export default function ContractScribeComingSoon() {
                 if (status !== 'idle') setStatus('idle');
               }}
               placeholder="Enter your work email"
-              className="flex-1 rounded-2xl border border-slate-200/80 bg-white/90 px-5 py-3 text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#0E4B72]/20 focus:border-[#0E4B72]/50"
+              className="flex-1 rounded-2xl border border-slate-200/80 bg-white/90 px-5 py-3 text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)]/20 focus:border-[var(--app-accent)]/50"
             />
             <button
               type="submit"
-              className="rounded-2xl bg-[#0E4B72] text-white font-semibold px-6 py-3 text-sm shadow-[0_12px_24px_rgba(14,75,114,0.25)] hover:bg-[#0b3c5b] transition-colors"
+              className="rounded-2xl bg-[var(--app-accent)] text-white font-semibold px-6 py-3 text-sm shadow-[0_12px_24px_rgba(var(--app-accent-rgb),0.25)] hover:bg-[var(--app-accent)] transition-colors"
               disabled={status === 'loading'}
             >
               {status === 'loading' ? 'Joining…' : status === 'success' ? 'Added!' : 'Join the Waitlist'}
@@ -100,7 +100,7 @@ export default function ContractScribeComingSoon() {
                 key={feature.title}
                 className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] hover:-translate-y-1 transition-transform"
               >
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#0E4B72] mb-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--app-accent)] mb-3">
                   Coming Feature
                 </p>
                 <h3 className="text-lg font-semibold text-slate-900 mb-2">{feature.title}</h3>

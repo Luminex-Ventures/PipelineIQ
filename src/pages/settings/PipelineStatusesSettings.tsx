@@ -66,7 +66,7 @@ function SortableStatusItem({ status, onEdit, onDelete }: {
       <div className="flex items-center gap-2">
         <button
           onClick={() => onEdit(status)}
-          className="p-2 text-gray-600 hover:text-[rgb(0,122,255)] hover:bg-blue-50 rounded-lg transition"
+          className="p-2 text-gray-600 hover:text-[var(--app-accent)] hover:bg-blue-50 rounded-lg transition"
           title="Edit status"
         >
           <Pencil className="w-4 h-4" strokeWidth={2} />
@@ -103,7 +103,7 @@ function StatusPreviewItem({
           <p className="text-sm font-semibold text-gray-900">{status.name}</p>
           <p className="text-xs text-gray-500">Order {status.sort_order}</p>
           {hasPersonalOverride && (
-            <p className="text-[11px] font-semibold text-[rgb(0,122,255)]">Personalized</p>
+            <p className="text-[11px] font-semibold text-[var(--app-accent)]">Personalized</p>
           )}
         </div>
       </div>
@@ -111,7 +111,7 @@ function StatusPreviewItem({
         <div className="flex items-center gap-2">
           <button
             onClick={() => onPersonalize(status)}
-            className="px-3 py-1.5 text-xs font-semibold text-[rgb(0,122,255)] hover:bg-blue-50 rounded-lg transition"
+            className="px-3 py-1.5 text-xs font-semibold text-[var(--app-accent)] hover:bg-blue-50 rounded-lg transition"
           >
             Personalize color
           </button>
@@ -276,7 +276,7 @@ export default function PipelineStatusesSettings({ canEdit = true }: PipelineSta
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-[rgb(0,122,255)]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--app-accent)]" />
       </div>
     );
   }

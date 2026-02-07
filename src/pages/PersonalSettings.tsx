@@ -73,28 +73,28 @@ export default function PersonalSettings() {
                   <button
                     key={section.id}
                     onClick={() => setActiveSection(section.id)}
-                    className={`group w-full rounded-2xl border px-4 py-3 text-left transition-all duration-200 ${
-                      isActive
-                        ? 'border-[rgb(0,122,255)] bg-[rgba(0,122,255,0.06)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.2)]'
-                        : 'border-white/60 bg-white hover:-translate-y-[1px] hover:border-[rgba(0,122,255,0.25)] hover:bg-[rgba(0,122,255,0.04)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(0,122,255,0.35)]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`rounded-2xl border p-2 ${
-                          isActive
-                            ? 'border-[rgba(0,122,255,0.3)] bg-white'
-                            : 'border-gray-100 bg-gray-50 group-hover:border-[rgba(0,122,255,0.2)] group-hover:bg-white'
-                        }`}
+                      className={`group w-full rounded-2xl border px-4 py-3 text-left transition-all duration-200 ${
+                        isActive
+                        ? 'border-[var(--app-accent)] bg-[rgba(var(--app-accent-rgb),0.06)] shadow-[inset_0_0_0_1px_rgba(var(--app-accent-rgb),0.2)]'
+                        : 'border-white/60 bg-white hover:-translate-y-[1px] hover:border-[rgba(var(--app-accent-rgb),0.25)] hover:bg-[rgba(var(--app-accent-rgb),0.04)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.06)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(var(--app-accent-rgb),0.35)]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`rounded-2xl border p-2 ${
+                            isActive
+                            ? 'border-[rgba(var(--app-accent-rgb),0.3)] bg-white'
+                            : 'border-gray-100 bg-gray-50 group-hover:border-[rgba(var(--app-accent-rgb),0.2)] group-hover:bg-white'
+                          }`}
                       >
                         <Icon
                           className={`w-4 h-4 ${
-                            isActive ? 'text-[rgb(0,122,255)]' : 'text-gray-500 group-hover:text-[rgb(0,122,255)]'
+                            isActive ? 'text-[var(--app-accent)]' : 'text-gray-500 group-hover:text-[var(--app-accent)]'
                           }`}
                         />
                       </span>
                       <div>
-                        <p className={`text-sm font-semibold ${isActive ? 'text-[rgb(0,122,255)]' : 'text-gray-800'}`}>
+                        <p className={`text-sm font-semibold ${isActive ? 'text-[var(--app-accent)]' : 'text-gray-800'}`}>
                           {section.label}
                         </p>
                         <p className="text-xs text-gray-500">{section.description}</p>

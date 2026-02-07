@@ -151,7 +151,7 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 className="w-6 h-6 animate-spin text-[rgb(0,122,255)]" />
+        <Loader2 className="w-6 h-6 animate-spin text-[var(--app-accent)]" />
       </div>
     );
   }
@@ -247,7 +247,7 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleEditNote(note)}
-                      className="p-1.5 text-gray-600 hover:text-[rgb(0,122,255)] hover:bg-blue-50 rounded-lg transition"
+                      className="p-1.5 text-gray-600 hover:text-[var(--app-accent)] hover:bg-blue-50 rounded-lg transition"
                       title="Edit note"
                     >
                       <Edit2 className="w-4 h-4" strokeWidth={2} />

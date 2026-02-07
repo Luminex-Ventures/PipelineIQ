@@ -401,7 +401,7 @@ export function AppHeader() {
                   <p className="text-[11px] text-gray-500">Team activity</p>
                 </div>
                 {hasUnread && (
-                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[rgb(0,122,255)] shadow-[0_0_0_4px_rgba(0,122,255,0.14)]"></span>
+                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[var(--app-accent)] shadow-[0_0_0_4px_rgba(var(--app-accent-rgb),0.2)]"></span>
                 )}
                 {!hasUnread && hasRecent && (
                   <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-gray-300 shadow-[0_0_0_4px_rgba(148,163,184,0.25)]"></span>

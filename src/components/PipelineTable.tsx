@@ -743,7 +743,7 @@ export default function PipelineTable({
             </button>
             <button
               onClick={() => setShowImportModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[rgb(0,122,255)] hover:bg-[rgb(0,110,230)] text-white rounded-lg transition-colors whitespace-nowrap"
+              className="flex items-center gap-2 px-4 py-2 bg-[var(--app-accent)] hover:bg-[rgb(0,110,230)] text-white rounded-lg transition-colors whitespace-nowrap"
             >
               <Upload className="w-4 h-4" />
               <span className="hidden sm:inline">Import Deals</span>

@@ -38,6 +38,8 @@ import type { Database } from '../lib/database.types';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
 import { Skeleton } from '../components/ui/Skeleton';
+import { Text } from '../ui/Text';
+import { WidgetCard, WidgetHeader } from '../ui/Widget';
 import { STATUS_LABELS } from '../constants/statusLabels';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
@@ -329,7 +331,7 @@ function RefreshOverlay({
 }) {
   return (
     <div className="relative">
-      <div className={active ? 'opacity-70 transition-opacity' : 'transition-opacity'}>
+      <div className={active ? 'opacity-70 transition-opacity duration-200' : 'opacity-100 transition-opacity duration-200'}>
         {children}
       </div>
       {active && (
@@ -341,6 +343,61 @@ function RefreshOverlay({
       )}
     </div>
   );
+}
+
+function useStabilizedFlag(
+  active: boolean,
+  { delayMs = 0, minDurationMs = 300 }: { delayMs?: number; minDurationMs?: number } = {}
+) {
+  const [visible, setVisible] = useState(active);
+  const shownAtRef = useRef<number | null>(active ? Date.now() : null);
+  const delayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (delayRef.current) {
+      clearTimeout(delayRef.current);
+      delayRef.current = null;
+    }
+    if (hideRef.current) {
+      clearTimeout(hideRef.current);
+      hideRef.current = null;
+    }
+
+    if (active) {
+      if (delayMs === 0) {
+        setVisible(true);
+        shownAtRef.current = Date.now();
+        return;
+      }
+      delayRef.current = setTimeout(() => {
+        setVisible(true);
+        shownAtRef.current = Date.now();
+      }, delayMs);
+      return;
+    }
+
+    if (!visible) return;
+    const shownAt = shownAtRef.current ?? Date.now();
+    const elapsed = Date.now() - shownAt;
+    const remaining = Math.max(0, minDurationMs - elapsed);
+    if (remaining === 0) {
+      setVisible(false);
+      shownAtRef.current = null;
+      return;
+    }
+    hideRef.current = setTimeout(() => {
+      setVisible(false);
+      shownAtRef.current = null;
+    }, remaining);
+  }, [active, delayMs, minDurationMs, visible]);
+
+  useEffect(() => () => {
+    if (delayRef.current) clearTimeout(delayRef.current);
+    if (hideRef.current) clearTimeout(hideRef.current);
+  }, []);
+
+  return visible;
 }
 
 export default function Dashboard() {
@@ -376,6 +433,8 @@ export default function Dashboard() {
   const filterCtxReqRef = useRef(0);
   const insightsReqRef = useRef(0);
   const [agentsReady, setAgentsReady] = useState(false);
+  const showRefreshingOverlay = useStabilizedFlag(refreshing, { delayMs: 150, minDurationMs: 350 });
+  const showInitialLoading = useStabilizedFlag(loading, { delayMs: 0, minDurationMs: 350 });
   const [dealTypeStats, setDealTypeStats] = useState<DealTypeBreakdown[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGETS]);
   const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
@@ -1469,19 +1528,18 @@ export default function Dashboard() {
   };
 
   const renderLumaInsights = () => (
-    <div className="hig-card p-5 bg-gradient-to-br from-blue-50 via-white to-sky-50 border-blue-200/70">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-9 h-9 rounded-xl bg-[rgb(0,122,255)] flex items-center justify-center shadow-[0_8px_20px_rgba(0,122,255,0.25)]">
-          <Sparkles className="w-4.5 h-4.5 text-white" strokeWidth={2} />
-        </div>
-        <div>
-          <h2 className="text-base font-semibold tracking-tight text-gray-900">Luma Insights</h2>
-          <p className="text-xs text-gray-500">AI-generated highlights from your latest activity.</p>
-        </div>
-        {showInsightsSpinner && (
-          <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-[rgb(0,122,255)]"></div>
-        )}
-      </div>
+    <WidgetCard className="bg-gradient-to-br from-blue-50 via-white to-sky-50 border-blue-200/70">
+      <WidgetHeader
+        className="mb-4"
+        icon={<Sparkles className="w-4 h-4 text-[var(--app-accent)]" strokeWidth={2} />}
+        title="Luma Insights"
+        subtitle="AI-generated highlights from your latest activity."
+        rightSlot={
+          showInsightsSpinner ? (
+            <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--app-accent)]"></div>
+          ) : null
+        }
+      />
       {showInsightsSkeleton ? (
         <div className="space-y-2">
           <div className="h-4 w-5/6 rounded-full bg-blue-100/70 animate-pulse"></div>
@@ -1489,53 +1547,58 @@ export default function Dashboard() {
           <div className="h-4 w-3/4 rounded-full bg-blue-100/70 animate-pulse"></div>
         </div>
       ) : showInsightsError ? (
-        <p className="text-sm text-gray-600">
+        <Text variant="muted" className="text-gray-600">
           Luma insights are unavailable right now. Please try again in a moment.
-        </p>
+        </Text>
       ) : showInsightsList ? (
         <div className="space-y-2">
           {aiInsightsState.insights.slice(0, 3).map((insight, index) => (
             <div key={index} className="flex items-start gap-2.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-[rgb(0,122,255)] mt-2 flex-shrink-0"></div>
-              <p className="text-sm text-gray-800 leading-relaxed">{insight}</p>
+              <div className="w-1.5 h-1.5 rounded-full bg-[var(--app-accent)] mt-2 flex-shrink-0"></div>
+              <Text variant="body" className="text-gray-800 leading-relaxed">
+                {insight}
+              </Text>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-sm text-gray-600">
+        <Text variant="muted" className="text-gray-600">
           No Luma insights yet. Try adjusting filters or refreshing.
-        </p>
+        </Text>
       )}
-    </div>
+    </WidgetCard>
   );
 
   const renderPipelineHealth = () => (
-    <div className="hig-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-            <Target className="w-4 h-4 text-[rgb(0,122,255)]" strokeWidth={2} />
+    <WidgetCard className="p-4">
+      <WidgetHeader
+        className="mb-3"
+        icon={<Target className="w-4 h-4 text-[var(--app-accent)]" strokeWidth={2} />}
+        title="Pipeline Health"
+        rightSlot={
+          <div className="text-right">
+            <Text as="div" variant="h2">
+              {totalActiveDeals}
+            </Text>
+            <Text as="div" variant="muted">
+              Deals
+            </Text>
           </div>
-          <h2 className="text-sm font-semibold text-gray-900">Pipeline Health</h2>
-        </div>
-        <div className="text-right">
-          <div className="text-lg font-semibold text-gray-900">{totalActiveDeals}</div>
-          <div className="text-xs text-gray-500">Deals</div>
-        </div>
-      </div>
+        }
+      />
 
       {pipelineHealth.length === 0 ? (
-        <div className="text-sm text-gray-500">
-          No active deals in your pipeline yet.
-        </div>
+        <Text variant="muted">No active deals in your pipeline yet.</Text>
       ) : (
         <>
           <div className="mb-3 p-3 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Pipeline Value</span>
-              <span className="text-sm font-semibold text-[rgb(0,122,255)]">
+              <Text as="span" variant="muted" className="text-gray-600">
+                Pipeline Value
+              </Text>
+              <Text as="span" variant="body" className="font-semibold text-[var(--app-accent)]">
                 {formatCurrency(pipelineValue)}
-              </span>
+              </Text>
             </div>
           </div>
 
@@ -1564,21 +1627,29 @@ export default function Dashboard() {
                         className="w-2 h-2 rounded-full"
                         style={{ backgroundColor: getColorValue(status.color) }}
                       />
-                      <span className="text-sm font-medium text-gray-900">{status.name}</span>
+                      <Text as="span" variant="body" className="font-medium">
+                        {status.name}
+                      </Text>
                       {status.stalledCount > 0 && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-50 rounded">
                           <Clock className="w-3 h-3 text-orange-600" strokeWidth={2} />
-                          <span className="text-xs text-orange-700">{status.stalledCount}</span>
+                          <Text as="span" variant="muted" className="text-orange-700">
+                            {status.stalledCount}
+                          </Text>
                         </div>
                       )}
                     </div>
-                    <span className="text-sm font-semibold text-gray-900">{status.count}</span>
+                    <Text as="span" variant="body" className="font-semibold">
+                      {status.count}
+                    </Text>
                   </div>
                   <div className="flex items-center justify-between mt-1">
-                    <span className="text-sm text-[rgb(0,122,255)] font-medium">
+                    <Text as="span" variant="body" className="font-medium text-[var(--app-accent)]">
                       {formatCurrency(status.expectedGCI)}
-                    </span>
-                    <span className="text-xs text-gray-500">{percentage.toFixed(0)}%</span>
+                    </Text>
+                    <Text as="span" variant="muted">
+                      {percentage.toFixed(0)}%
+                    </Text>
                   </div>
                 </div>
               );
@@ -1589,29 +1660,30 @@ export default function Dashboard() {
             <div className="mt-3 pt-3 border-t border-gray-200/60">
               <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-lg">
                 <AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />
-                <span className="text-sm text-orange-700">
+                <Text as="span" variant="muted" className="text-orange-700">
                   {totalStalledCount} deals stalled 30+ days
-                </span>
+                </Text>
               </div>
             </div>
           )}
         </>
       )}
-    </div>
+    </WidgetCard>
   );
 
   const renderAlertsActions = () => (
-    <div className="hig-card p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
-          <AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />
-        </div>
-        <h2 className="text-sm font-semibold text-gray-900">Alerts & Actions</h2>
-      </div>
+    <WidgetCard className="p-4">
+      <WidgetHeader
+        className="mb-3"
+        icon={<AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />}
+        title="Alerts & Actions"
+      />
 
       {stalledDeals.length > 0 ? (
         <div className="mb-3">
-          <div className="text-sm font-medium text-gray-500 mb-2">Stalled Deals</div>
+          <Text variant="muted" className="font-medium mb-2">
+            Stalled Deals
+          </Text>
           <div className="space-y-2">
             {stalledDeals.slice(0, 3).map(deal => (
               <div
@@ -1620,17 +1692,17 @@ export default function Dashboard() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 text-sm truncate">
+                    <Text as="div" variant="body" className="font-medium truncate">
                       {deal.client_name}
-                    </div>
-                    <div className="text-sm text-gray-600 mt-0.5 truncate">
+                    </Text>
+                    <Text as="div" variant="muted" className="text-gray-600 mt-0.5 truncate">
                       {deal.property_address}
-                    </div>
+                    </Text>
                   </div>
                   <div className="px-2 py-1 bg-orange-100 rounded flex-shrink-0">
-                    <div className="text-sm text-orange-700 font-semibold">
+                    <Text as="div" variant="body" className="text-orange-700 font-semibold">
                       {getDaysInStage(deal.stage_entered_at)}d
-                    </div>
+                    </Text>
                   </div>
                 </div>
               </div>
@@ -1641,25 +1713,39 @@ export default function Dashboard() {
         <div className="mb-3 p-3 bg-green-50 rounded-lg">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
-            <span className="text-sm text-green-700">All deals moving smoothly</span>
+            <Text as="span" variant="muted" className="text-green-700">
+              All deals moving smoothly
+            </Text>
           </div>
         </div>
       )}
 
       <div className="pt-3 border-t border-gray-200/60">
-        <div className="text-sm font-medium text-gray-500 mb-2">Quick Actions</div>
+        <Text variant="muted" className="font-medium mb-2">
+          Quick Actions
+        </Text>
         <div className="space-y-2">
-          <button className="w-full py-2.5 px-3 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2" onClick={handleAddClient}>
+          <button
+            className="w-full py-2.5 px-3 font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+            onClick={handleAddClient}
+          >
             <Users className="w-4 h-4" strokeWidth={2} />
-            <span>New Client</span>
+            <Text as="span" variant="body">
+              New Client
+            </Text>
           </button>
-          <button className="w-full py-2.5 px-3 text-sm font-medium text-white bg-[rgb(0,122,255)] rounded-lg hover:bg-[rgb(0,106,224)] transition-colors flex items-center justify-center gap-2" onClick={handleOpenLuma}>
+          <button
+            className="w-full py-2.5 px-3 font-medium text-white bg-[var(--app-accent)] rounded-lg hover:bg-[var(--app-accent)] transition-colors flex items-center justify-center gap-2"
+            onClick={handleOpenLuma}
+          >
             <Sparkles className="w-4 h-4" strokeWidth={2} />
-            <span>Ask Luma</span>
+            <Text as="span" variant="body" className="text-white">
+              Ask Luma
+            </Text>
           </button>
         </div>
       </div>
-    </div>
+    </WidgetCard>
   );
 
   const renderMonthlyMomentum = () => {
@@ -1689,25 +1775,26 @@ export default function Dashboard() {
     }));
 
     return (
-      <div className="hig-card p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4 text-emerald-600" strokeWidth={2} />
-            </div>
-            <h2 className="text-sm font-semibold text-gray-900">Monthly Momentum</h2>
-          </div>
-          {change !== null && (
-            <div
-              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
-                change >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-              }`}
-            >
-              {change >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-              {change >= 0 ? '+' : ''}{change.toFixed(1)}%
-            </div>
-          )}
-        </div>
+      <WidgetCard className="p-4">
+        <WidgetHeader
+          className="mb-3"
+          icon={<TrendingUp className="w-4 h-4 text-emerald-600" strokeWidth={2} />}
+          title="Monthly Momentum"
+          rightSlot={
+            change !== null ? (
+              <div
+                className={`flex items-center gap-1 px-2 py-1 rounded ${
+                  change >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                }`}
+              >
+                {change >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                <Text as="span" variant="muted" className="font-semibold">
+                  {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+                </Text>
+              </div>
+            ) : null
+          }
+        />
         {hasData ? (
           <>
             <ResponsiveContainer width="100%" height={180}>
@@ -1742,83 +1829,85 @@ export default function Dashboard() {
                 />
               </LineChart>
             </ResponsiveContainer>
-            <div className="mt-3 pt-3 border-t border-gray-200/60 flex items-center justify-center gap-4 text-xs text-gray-600">
+            <div className="mt-3 pt-3 border-t border-gray-200/60 flex items-center justify-center gap-4">
               <div className="flex items-center gap-1.5">
                 <span className="h-1 w-4 rounded bg-[#0ea5e9]"></span>
-                <span>Monthly GCI</span>
+                <Text as="span" variant="muted" className="text-gray-600">
+                  Monthly GCI
+                </Text>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="h-1 w-4 rounded bg-[#ef4444]"></span>
-                <span>Trend</span>
+                <Text as="span" variant="muted" className="text-gray-600">
+                  Trend
+                </Text>
               </div>
               {bestMonth && (
-                <span className="text-gray-400">Best: {bestMonth.month}</span>
+                <Text as="span" variant="muted" className="text-gray-400">
+                  Best: {bestMonth.month}
+                </Text>
               )}
             </div>
           </>
         ) : (
-          <div className="text-sm text-gray-500">
-            No closed deals yet in this period.
-          </div>
+          <Text variant="muted">No closed deals yet in this period.</Text>
         )}
-      </div>
+      </WidgetCard>
     );
   };
 
   const renderDealTypeMix = () => (
-    <div className="hig-card p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
-          <Activity className="w-4 h-4 text-purple-600" strokeWidth={2} />
-        </div>
-        <h2 className="text-sm font-semibold text-gray-900">Deal Type Mix</h2>
-      </div>
+    <WidgetCard className="p-4">
+      <WidgetHeader
+        className="mb-3"
+        icon={<Activity className="w-4 h-4 text-purple-600" strokeWidth={2} />}
+        title="Deal Type Mix"
+      />
       {dealTypeStats.length > 0 ? (
         <div className="space-y-2">
           {dealTypeStats.map((stat) => (
             <div key={stat.dealType} className="p-3 rounded-lg border border-gray-100 bg-gray-50/50">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-semibold text-gray-900">
+                <Text as="span" variant="body" className="font-semibold">
                   {DEAL_TYPE_LABELS[stat.dealType]}
-                </span>
-                <span className="text-sm font-semibold text-gray-900">
+                </Text>
+                <Text as="span" variant="body" className="font-semibold">
                   {formatPercent(stat.percentage)}
-                </span>
+                </Text>
               </div>
-              <div className="text-sm text-gray-600 mb-2">
+              <Text variant="muted" className="text-gray-600 mb-2">
                 {stat.count} {stat.count === 1 ? 'deal' : 'deals'} · {formatCurrency(stat.gci)}
-              </div>
+              </Text>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(stat.statusCounts)
                   .sort((a, b) => b[1] - a[1])
                   .map(([status, count]) => (
-                    <span
+                    <Text
                       key={status}
-                      className="inline-flex items-center px-2 py-1 rounded bg-white text-xs text-gray-700"
+                      as="span"
+                      variant="muted"
+                      className="inline-flex items-center px-2 py-1 rounded bg-white text-gray-700"
                     >
                       {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')} ({count})
-                    </span>
+                    </Text>
                   ))}
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="text-sm text-gray-500">
-          No active deals in your pipeline.
-        </div>
+        <Text variant="muted">No active deals in your pipeline.</Text>
       )}
-    </div>
+    </WidgetCard>
   );
 
   const renderLeadSource = () => (
-    <div className="hig-card p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-cyan-50 flex items-center justify-center">
-          <Users className="w-4 h-4 text-cyan-600" strokeWidth={2} />
-        </div>
-        <h2 className="text-sm font-semibold text-gray-900">Lead Source Performance</h2>
-      </div>
+    <WidgetCard className="p-4">
+      <WidgetHeader
+        className="mb-3"
+        icon={<Users className="w-4 h-4 text-cyan-600" strokeWidth={2} />}
+        title="Lead Source Performance"
+      />
       {leadSourceData.length > 0 ? (
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={leadSourceData} layout="vertical">
@@ -1844,54 +1933,57 @@ export default function Dashboard() {
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="text-sm text-gray-500">
-          No closed deals in this period.
-        </div>
+        <Text variant="muted">No closed deals in this period.</Text>
       )}
-    </div>
+    </WidgetCard>
   );
 
   const renderUpcomingDeals = () => (
-    <div className="hig-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-            <Calendar className="w-4 h-4 text-indigo-600" strokeWidth={2} />
+    <WidgetCard className="p-4">
+      <WidgetHeader
+        className="mb-3"
+        icon={<Calendar className="w-4 h-4 text-indigo-600" strokeWidth={2} />}
+        title="Forecasted Closings"
+        rightSlot={
+          <div className="text-right">
+            <Text as="div" variant="body" className="font-semibold">
+              {formatCurrency(projectedGCI)}
+            </Text>
+            <Text as="div" variant="muted">
+              30-day
+            </Text>
           </div>
-          <h2 className="text-sm font-semibold text-gray-900">Forecasted Closings</h2>
-        </div>
-        <div className="text-right">
-          <div className="text-sm font-semibold text-gray-900">{formatCurrency(projectedGCI)}</div>
-          <div className="text-xs text-gray-500">30-day</div>
-        </div>
-      </div>
+        }
+      />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
         {filteredUpcomingDeals.map(deal => (
           <div
             key={deal.id}
             className="p-3 border border-gray-200/60 rounded-lg hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
           >
-            <div className="text-sm font-medium text-gray-900 truncate">{deal.client_name}</div>
-            <div className="text-sm text-gray-600 mt-1 truncate">
+            <Text as="div" variant="body" className="font-medium truncate">
+              {deal.client_name}
+            </Text>
+            <Text as="div" variant="muted" className="text-gray-600 mt-1 truncate">
               {deal.property_address}
-            </div>
+            </Text>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-sm font-semibold text-[rgb(0,122,255)]">
+              <Text as="span" variant="body" className="font-semibold text-[var(--app-accent)]">
                 {formatCurrency(calculateExpectedGCI(deal))}
-              </span>
+              </Text>
               <ChevronRight className="w-4 h-4 text-gray-400" strokeWidth={2} />
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </WidgetCard>
   );
 
-  const isInitialLoading = loading;
+  const isInitialLoading = showInitialLoading;
 
   return (
     <div className="space-y-6">
-      <RefreshOverlay active={refreshing}>
+      <RefreshOverlay active={showInitialLoading}>
         <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_10px_40px_rgba(15,23,42,0.08)] p-6 space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div>
@@ -1903,29 +1995,33 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
+                <Text variant="micro" className="text-gray-500">
                   {getTodayFormatted()}
-                </p>
-                <h1 className="text-3xl font-semibold text-gray-900 mt-1">
+                </Text>
+                <Text as="h1" variant="h1" className="mt-1">
                   {greetingText || getGreeting(user?.user_metadata?.name)}
-                </h1>
-                <p className="text-sm text-gray-600 mt-2">
+                </Text>
+                <Text variant="muted" className="text-gray-600 mt-2">
                   {stats.closingNext7Days} deal{stats.closingNext7Days === 1 ? '' : 's'} closing soon (next 7 days) ·{' '}
                   {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
-                </p>
+                </Text>
               </>
             )}
           </div>
           {(refreshing || lastRefreshedAt > 0) && (
-            <div className="flex flex-col items-end gap-1 text-xs font-semibold text-gray-500 lg:ml-auto">
+            <div className="flex flex-col items-end gap-1 lg:ml-auto">
               {refreshing && (
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                  Updating…
+                  <Text as="span" variant="muted" className="font-semibold text-gray-500">
+                    Updating…
+                  </Text>
                 </div>
               )}
               {lastRefreshedAt > 0 && (
-                <div>Last updated {formatLastUpdated(lastRefreshedAt)}</div>
+                <Text as="div" variant="muted" className="font-semibold text-gray-500">
+                  Last updated {formatLastUpdated(lastRefreshedAt)}
+                </Text>
               )}
             </div>
           )}
@@ -1982,7 +2078,7 @@ export default function Dashboard() {
                   onClick={selectMyData}
                   className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                     isFocusOnMeActive
-                      ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
+                      ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(var(--app-accent-rgb),0.25)]'
                       : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
                   }`}
                 >
@@ -2064,12 +2160,12 @@ export default function Dashboard() {
       )}
 
       {/* KPI cards - not draggable */}
-      <RefreshOverlay active={refreshing}>
+      <RefreshOverlay active={showRefreshingOverlay}>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
           <div className="hig-card p-4" title="Gross commission income from closed deals in the selected date range.">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                <DollarSign className="w-4 h-4 text-[rgb(0,122,255)]" strokeWidth={2} />
+                <DollarSign className="w-4 h-4 text-[var(--app-accent)]" strokeWidth={2} />
               </div>
               <span className="text-sm text-gray-600">Total GCI</span>
             </div>
@@ -2109,7 +2205,7 @@ export default function Dashboard() {
       </RefreshOverlay>
 
       {/* Draggable Widgets */}
-      <RefreshOverlay active={refreshing} label="Refreshing widgets…">
+      <RefreshOverlay active={showRefreshingOverlay} label="Refreshing widgets…">
         {isInitialLoading ? (
           <div className="columns-1 lg:columns-2 gap-2 space-y-2">
             {Array.from({ length: 4 }).map((_, index) => (

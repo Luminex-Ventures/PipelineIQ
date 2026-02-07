@@ -21,7 +21,7 @@ export function SegmentedControl({ options, value, onChange, className = '' }: S
           onClick={() => onChange(option.value)}
           className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-150 min-h-[40px] ${
             value === option.value
-              ? 'bg-[rgb(0,122,255)] text-white shadow-sm'
+              ? 'bg-[var(--app-accent)] text-white shadow-sm'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >

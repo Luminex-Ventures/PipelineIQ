@@ -1385,7 +1385,7 @@ export default function Pipeline() {
                     onClick={selectMyData}
                     className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                       isFocusOnMeActive
-                        ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(0,122,255,0.25)]'
+                        ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(var(--app-accent-rgb),0.25)]'
                         : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
                     }`}
                   >

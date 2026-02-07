@@ -20,7 +20,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-[rgb(var(--color-app-bg))] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgb(0,122,255)]"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--app-accent)]"></div>
       </div>
     );
   }
@@ -57,7 +57,7 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-[rgb(var(--color-app-bg))] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgb(0,122,255)]"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--app-accent)]"></div>
       </div>
     );
   }

@@ -656,7 +656,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
           >
             {initializing && deal && (
               <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-4 py-3 text-sm text-gray-700 flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-[rgb(0,122,255)]" />
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--app-accent)]" />
                 <span>Loading deal details…</span>
               </div>
             )}
@@ -1360,7 +1360,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                           type="checkbox"
                           checked={archived}
                           onChange={e => setArchived(e.target.checked)}
-                          className="h-5 w-5 rounded border-gray-300 text-[rgb(0,122,255)] focus:ring-[rgb(0,122,255)]"
+                          className="h-5 w-5 rounded border-gray-300 text-[var(--app-accent)] focus:ring-[var(--app-accent)]"
                         />
                       </label>
                       <div className="md:col-span-2">
