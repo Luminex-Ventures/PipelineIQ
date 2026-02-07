@@ -620,6 +620,35 @@ export default function Dashboard() {
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id;
   const isAllAgentsSelected =
     selectedAgentIds.length === 0 || selectedAgentIds.length === availableAgents.length;
+  const insightsAudience = useMemo(() => {
+    if (!user || !roleInfo) {
+      return { label: 'you', mode: 'self' as const };
+    }
+
+    const isSelfView =
+      roleInfo.globalRole === 'agent' ||
+      (selectedAgentIds.length === 1 && selectedAgentIds[0] === user.id);
+    if (isSelfView) {
+      return { label: 'you', mode: 'self' as const };
+    }
+
+    const pool = isAllAgentsSelected ? availableAgents : availableAgents.filter((agent) => selectedAgentIds.includes(agent.id));
+    const names = pool.map((agent) => agent.label || agent.email || 'Agent');
+
+    if (names.length === 0) {
+      return { label: 'the team', mode: 'group' as const };
+    }
+    if (names.length === 1) {
+      return { label: names[0], mode: 'group' as const };
+    }
+    if (names.length === 2) {
+      return { label: `${names[0]} and ${names[1]}`, mode: 'group' as const };
+    }
+    if (names.length === 3) {
+      return { label: `${names[0]}, ${names[1]} and ${names[2]}`, mode: 'group' as const };
+    }
+    return { label: `the ${names.length} agents`, mode: 'group' as const };
+  }, [availableAgents, isAllAgentsSelected, roleInfo, selectedAgentIds, user]);
   const scopeDescription = useMemo(() => {
     const formatList = (items: string[], fallbackLabel: string) => {
       if (items.length === 0) return fallbackLabel;
@@ -1329,7 +1358,10 @@ export default function Dashboard() {
         leadSourceData,
         monthlyData,
         upcomingDealsCount: upcomingDeals.length,
-        projectedGCI
+        projectedGCI,
+        audienceLabel: insightsAudience.label,
+        audienceMode: insightsAudience.mode,
+        filterSummary: scopeDescription
       });
 
       if (reqId !== insightsReqRef.current) return;
@@ -1359,7 +1391,9 @@ export default function Dashboard() {
     monthlyData,
     upcomingDeals.length,
     projectedGCI,
-    queryKey
+    queryKey,
+    insightsAudience,
+    scopeDescription
   ]);
 
   useEffect(() => {

@@ -42,6 +42,9 @@ export interface InsightsRequest {
   monthlyData: MonthlyData[];
   upcomingDealsCount: number;
   projectedGCI: number;
+  audienceLabel: string;
+  audienceMode: 'self' | 'group';
+  filterSummary: string;
 }
 
 /**
@@ -56,7 +59,7 @@ export async function generateDashboardInsights(data: InsightsRequest): Promise<
       messages: [
         {
           role: 'system',
-          content: 'You are Luma, an AI assistant for real estate agents. Address the agent directly in second person (use "you" and "your"). Avoid third-person phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, opportunities, and areas needing attention. Keep each insight to 1-2 sentences. Be specific with numbers and percentages. Return 3-5 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
+          content: 'You are Luma, an AI assistant for real estate agents. Address the audience based on the provided audience instructions. Avoid phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, opportunities, and areas needing attention. Keep each insight to 1-2 sentences. Be specific with numbers and percentages. Return 3-5 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
         },
         {
           role: 'user',
@@ -94,9 +97,26 @@ export async function generateDashboardInsights(data: InsightsRequest): Promise<
 }
 
 function buildInsightsPrompt(data: InsightsRequest): string {
-  const { stats, pipelineHealth, leadSourceData, monthlyData, upcomingDealsCount, projectedGCI } = data;
+  const {
+    stats,
+    pipelineHealth,
+    leadSourceData,
+    monthlyData,
+    upcomingDealsCount,
+    projectedGCI,
+    audienceLabel,
+    audienceMode,
+    filterSummary
+  } = data;
 
-  let prompt = `Analyze this real estate dashboard data and provide 3-5 actionable insights addressed directly to the agent in second person (use "you" and "your"):\n\n`;
+  let prompt = `Analyze this real estate dashboard data and provide 3-5 actionable insights.\n`;
+  prompt += `Audience: ${audienceLabel}\n`;
+  prompt += `Filter context: ${filterSummary}\n`;
+  if (audienceMode === 'self') {
+    prompt += `Address the audience directly in second person (use "you" and "your").\n\n`;
+  } else {
+    prompt += `Address the audience as a group by name (e.g., "Nora and Charles are...", "The team is..."). Do not use second-person ("you/your"). Avoid third-person generic phrases like "the agent".\n\n`;
+  }
 
   prompt += `Performance Metrics:\n`;
   prompt += `- YTD GCI: $${stats.ytdGCI.toLocaleString()}\n`;
