@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Home, TrendingUp, Calendar, Clock, Trash2, Edit3, Search, Upload, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { getColorByName } from '../lib/colors';
@@ -99,6 +99,39 @@ interface ColumnConfig {
   render: (props: ColumnRenderProps) => ReactNode;
 }
 
+const COLUMN_WIDTHS: Record<ColumnId, number> = {
+  client: 240,
+  clientEmail: 220,
+  clientPhone: 150,
+  property: 280,
+  city: 150,
+  state: 110,
+  zip: 110,
+  dealType: 150,
+  pipelineStatus: 180,
+  status: 150,
+  leadSource: 180,
+  expectedPrice: 160,
+  actualPrice: 160,
+  netCommission: 180,
+  grossCommissionRate: 150,
+  brokerageSplitRate: 170,
+  referralOutRate: 160,
+  referralInRate: 160,
+  transactionFee: 160,
+  daysInStage: 160,
+  stageEnteredAt: 160,
+  closeDate: 150,
+  closedAt: 150,
+  nextTaskDescription: 240,
+  nextTaskDueDate: 160,
+  createdAt: 150,
+  updatedAt: 150
+};
+const DEFAULT_COLUMN_WIDTH = 160;
+const MIN_COLUMN_WIDTH = 120;
+const MAX_COLUMN_WIDTH = 420;
+
 const COLUMN_DEFINITIONS: ColumnConfig[] = [
   {
     id: 'client',
@@ -106,10 +139,10 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
     defaultVisible: true,
     cellClassName: 'px-4 py-4 align-top whitespace-nowrap cursor-pointer',
     render: ({ deal }) => (
-      <div>
-        <div className="text-sm font-medium text-gray-900">{deal.client_name || '—'}</div>
-        {deal.client_email && <div className="text-xs text-gray-500">{deal.client_email}</div>}
-        {deal.client_phone && <div className="text-xs text-gray-500">{deal.client_phone}</div>}
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-gray-900 truncate">{deal.client_name || '—'}</div>
+        {deal.client_email && <div className="text-xs text-gray-500 truncate">{deal.client_email}</div>}
+        {deal.client_phone && <div className="text-xs text-gray-500 truncate">{deal.client_phone}</div>}
       </div>
     )
   },
@@ -139,12 +172,12 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
     defaultVisible: true,
     cellClassName: 'px-4 py-4 text-sm text-gray-900 cursor-pointer min-w-[220px]',
     render: ({ deal }) => (
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2 min-w-0">
         <Home className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-        <div>
-          <div>{deal.property_address || '—'}</div>
+        <div className="min-w-0">
+          <div className="truncate">{deal.property_address || '—'}</div>
           {(deal.city || deal.state) && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 truncate">
               {[deal.city, deal.state].filter(Boolean).join(', ')}
             </div>
           )}
@@ -209,7 +242,7 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
                   : formatStatusLabel(deal.deal_type);
 
       return (
-        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClasses}`}>
+        <span className={`h-6 px-2 inline-flex items-center justify-center text-xs leading-none font-semibold rounded-full ${badgeClasses}`}>
           {label}
         </span>
       );
@@ -224,7 +257,7 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
       const status = getStatusForDeal(deal);
       if (!status) {
         return (
-          <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-700">
+          <span className="h-6 px-2 inline-flex items-center justify-center text-xs leading-none font-semibold rounded-full bg-gray-100 text-gray-700">
             No Status
           </span>
         );
@@ -232,7 +265,7 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
       const statusColor = getColorByName(status.color);
       return (
         <span
-          className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full"
+          className="h-6 px-2 inline-flex items-center justify-center text-xs leading-none font-semibold rounded-full"
           style={{ backgroundColor: statusColor.bg, color: statusColor.text }}
         >
           {status.name}
@@ -245,7 +278,7 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
     label: 'System Status',
     cellClassName: 'px-4 py-4 whitespace-nowrap cursor-pointer',
     render: ({ deal }) => (
-      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-700">
+      <span className="h-6 px-2 inline-flex items-center justify-center text-xs leading-none font-semibold rounded-full bg-gray-100 text-gray-700">
         {formatStatusLabel(deal.status)}
       </span>
     )
@@ -268,8 +301,8 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
     id: 'expectedPrice',
     label: 'Expected Price',
     defaultVisible: true,
-    headerClassName: 'text-right',
-    cellClassName: 'px-4 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer text-right',
+    headerClassName: 'text-center',
+    cellClassName: 'px-4 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer text-center',
     render: ({ deal }) => (
       <span>{formatCurrencyValue(deal.actual_sale_price || deal.expected_sale_price)}</span>
     )
@@ -285,8 +318,8 @@ const COLUMN_DEFINITIONS: ColumnConfig[] = [
     id: 'netCommission',
     label: 'Net Commission',
     defaultVisible: true,
-    headerClassName: 'text-right',
-    cellClassName: 'px-4 py-4 whitespace-nowrap text-sm font-semibold text-green-600 cursor-pointer text-right',
+    headerClassName: 'text-center',
+    cellClassName: 'px-4 py-4 whitespace-nowrap text-sm font-semibold text-green-600 cursor-pointer text-center',
     render: ({ deal, calculateNetCommission }) => (
       <span>{formatCurrencyValue(calculateNetCommission(deal))}</span>
     )
@@ -450,6 +483,17 @@ export default function PipelineTable({
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showColumnManager, setShowColumnManager] = useState(false);
+  const [columnWidths, setColumnWidths] = useState<Record<ColumnId, number>>(() =>
+    COLUMN_DEFINITIONS.reduce((acc, column) => {
+      acc[column.id] = COLUMN_WIDTHS[column.id] ?? DEFAULT_COLUMN_WIDTH;
+      return acc;
+    }, {} as Record<ColumnId, number>)
+  );
+  const resizingRef = useRef<{
+    columnId: ColumnId;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
   const [internalSortConfig, setInternalSortConfig] = useState<{ column: ColumnId | 'pipelineOrder'; direction: 'asc' | 'desc' }>({
     column: 'pipelineOrder',
     direction: 'asc'
@@ -476,6 +520,20 @@ export default function PipelineTable({
     window.localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumnIds));
   }, [visibleColumnIds]);
 
+  useEffect(() => {
+    setColumnWidths(prev => {
+      const next = { ...prev };
+      let changed = false;
+      COLUMN_DEFINITIONS.forEach(column => {
+        if (!next[column.id]) {
+          next[column.id] = COLUMN_WIDTHS[column.id] ?? DEFAULT_COLUMN_WIDTH;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
   const toggleColumnVisibility = (columnId: ColumnId) => {
     setVisibleColumnIds(prev => {
       if (prev.includes(columnId)) {
@@ -493,6 +551,34 @@ export default function PipelineTable({
 
   const visibleColumns = COLUMN_DEFINITIONS.filter(column => visibleColumnIds.includes(column.id));
   const columnCount = visibleColumns.length + 1; // +1 for checkbox column
+  const gridTemplate = useMemo(() => {
+    const widths = ['44px', ...visibleColumns.map(column => `${columnWidths[column.id] ?? DEFAULT_COLUMN_WIDTH}px`)];
+    return widths.join(' ');
+  }, [columnWidths, visibleColumns]);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const { columnId, startX, startWidth } = resizingRef.current;
+      const delta = event.clientX - startX;
+      const nextWidth = Math.min(
+        MAX_COLUMN_WIDTH,
+        Math.max(MIN_COLUMN_WIDTH, startWidth + delta)
+      );
+      setColumnWidths(prev => ({ ...prev, [columnId]: nextWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizingRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
   const resolvedSearchQuery = searchQuery ?? internalSearchQuery;
   const resolvedSortConfig = sortConfig ?? internalSortConfig;
   const resolvedPage = page ?? 1;
@@ -702,10 +788,14 @@ export default function PipelineTable({
       resolvedSortColumnId === columnId ||
       (resolvedSortConfig.column === 'pipelineOrder' && columnId === 'pipelineStatus');
     if (!isActive) {
-      return <ArrowUpDown className="w-3 h-3 text-gray-300" />;
+      return (
+        <span className="inline-flex w-4 justify-end">
+          <ArrowUpDown className="w-3 h-3 text-gray-300" />
+        </span>
+      );
     }
     return (
-      <span className="text-[11px] font-semibold text-gray-500">
+      <span className="inline-flex w-4 justify-end text-[11px] font-semibold text-gray-500">
         {resolvedSortConfig.direction === 'asc' ? '↑' : '↓'}
       </span>
     );
@@ -856,56 +946,88 @@ export default function PipelineTable({
       )}
 
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th scope="col" className="px-4 py-3 text-left">
+        <div className="min-w-full">
+          <div className="bg-gray-50 border-b border-gray-200">
+            <div
+              role="row"
+              className="grid items-center divide-x divide-gray-200/60"
+              style={{ gridTemplateColumns: gridTemplate }}
+            >
+              <div role="columnheader" className="px-4 py-3 text-left">
                 <input
                   type="checkbox"
                   checked={sortedDeals.length > 0 && selectedDeals.size === sortedDeals.length}
                   onChange={toggleSelectAll}
                   className="w-4 h-4 text-sky-600 border-gray-300 rounded focus:ring-sky-500 cursor-pointer"
                 />
-              </th>
-              {visibleColumns.map(column => (
-                <th
-                  key={column.id}
-                  scope="col"
-                  className={`px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider ${column.headerClassName || ''}`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleColumnSort(column.id)}
-                    className="flex items-center gap-1 text-left uppercase tracking-wider text-[11px]"
+              </div>
+              {visibleColumns.map(column => {
+                const headerAlign = column.headerClassName?.includes('text-right') ? 'justify-end text-right' : 'justify-start text-left';
+                return (
+                  <div
+                    key={column.id}
+                    role="columnheader"
+                    className={`px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider relative ${column.headerClassName || ''}`}
                   >
-                    <span>{column.label}</span>
-                    {renderSortIndicator(column.id)}
-                  </button>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort(column.id)}
+                      className={`flex items-center gap-1 w-full uppercase tracking-wider text-[11px] ${headerAlign}`}
+                    >
+                      <span className="truncate">{column.label}</span>
+                      {renderSortIndicator(column.id)}
+                    </button>
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        resizingRef.current = {
+                          columnId: column.id,
+                          startX: event.clientX,
+                          startWidth: columnWidths[column.id] ?? DEFAULT_COLUMN_WIDTH
+                        };
+                      }}
+                    >
+                      <div className="ml-auto h-full w-px bg-transparent hover:bg-gray-200" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="bg-white divide-y divide-gray-200">
             {sortedDeals.length === 0 ? (
-              <tr>
-                <td colSpan={columnCount} className="px-4 py-8 text-center text-sm text-gray-500">
+              <div
+                className="grid"
+                style={{ gridTemplateColumns: gridTemplate }}
+              >
+                <div className="px-4 py-8 text-center text-sm text-gray-500" style={{ gridColumn: '1 / -1' }}>
                   No deals yet. Create your first deal to get started!
-                </td>
-              </tr>
+                </div>
+              </div>
             ) : (
               sortedDeals.map(deal => (
-                <tr key={deal.id} className="hover:bg-gray-50 transition">
-                  <td className="px-4 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                <div
+                  key={deal.id}
+                  role="row"
+                  className="grid items-center hover:bg-gray-50 transition"
+                  style={{ gridTemplateColumns: gridTemplate }}
+                >
+                  <div className="px-4 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selectedDeals.has(deal.id)}
                       onChange={() => toggleDealSelection(deal.id)}
                       className="w-4 h-4 text-sky-600 border-gray-300 rounded focus:ring-sky-500 cursor-pointer"
                     />
-                  </td>
+                  </div>
                   {visibleColumns.map(column => (
-                    <td
+                    <div
                       key={column.id}
+                      role="cell"
                       className={column.cellClassName || 'px-4 py-4 text-sm text-gray-900 cursor-pointer'}
                       onClick={() => !column.disableClick && onDealClick(deal)}
                     >
@@ -916,13 +1038,13 @@ export default function PipelineTable({
                         getDaysInStage,
                         getStatusForDeal
                       })}
-                    </td>
+                    </div>
                   ))}
-                </tr>
+                </div>
               ))
             )}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       {serverMode && totalCount !== undefined && (

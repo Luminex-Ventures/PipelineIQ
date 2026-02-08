@@ -13,6 +13,7 @@ import TemplateSelectionModal from '../components/TemplateSelectionModal';
 import { ScopePanel } from '../components/ui/ScopePanel';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Card } from '../ui/Card';
+import { MetricTile } from '../ui/MetricTile';
 import { PageShell } from '../ui/PageShell';
 import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { Text } from '../ui/Text';
@@ -151,6 +152,7 @@ export default function Pipeline() {
   const { statuses, loading: statusesLoading, applyTemplate, createCustomWorkflow } = usePipelineStatuses();
   const [kanbanDeals, setKanbanDeals] = useState<Deal[]>([]);
   const [tableRows, setTableRows] = useState<Deal[]>([]);
+  const [summaryDeals, setSummaryDeals] = useState<Deal[]>([]);
   const [tableTotal, setTableTotal] = useState(0);
   const [kanbanLoading, setKanbanLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(true);
@@ -522,15 +524,28 @@ export default function Pipeline() {
         query = query.in('user_id', visibleUserIds);
       }
 
-      if (isSalesManager) {
-        if (selectedAgentIds.length > 0) {
-          query = query.in('user_id', selectedAgentIds);
-        }
-        if (selectedLeadSourceIds.length > 0) {
-          query = query.in('lead_source_id', selectedLeadSourceIds);
-        }
-        if (selectedDealTypeIds.length > 0) {
-          query = query.in('deal_type', selectedDealTypeIds);
+      if (effectiveFilters.agentIds.length > 0) {
+        query = query.in('user_id', effectiveFilters.agentIds);
+      }
+      if (effectiveFilters.leadSourceIds.length > 0) {
+        query = query.in('lead_source_id', effectiveFilters.leadSourceIds);
+      }
+      if (effectiveFilters.dealTypes.length > 0) {
+        query = query.in('deal_type', effectiveFilters.dealTypes);
+      }
+      if (effectiveFilters.stageIds.length > 0) {
+        const pipelineStageIds = effectiveFilters.stageIds.filter(id => !id.startsWith('status:'));
+        const statusStageIds = effectiveFilters.stageIds
+          .filter(id => id.startsWith('status:'))
+          .map(id => id.replace('status:', ''));
+        if (pipelineStageIds.length > 0 && statusStageIds.length > 0) {
+          query = query.or(
+            `pipeline_status_id.in.(${pipelineStageIds.join(',')}),status.in.(${statusStageIds.join(',')})`
+          );
+        } else if (pipelineStageIds.length > 0) {
+          query = query.in('pipeline_status_id', pipelineStageIds);
+        } else if (statusStageIds.length > 0) {
+          query = query.in('status', statusStageIds);
         }
       }
 
@@ -557,7 +572,7 @@ export default function Pipeline() {
         setRefreshing(false);
       }
     }
-  }, [isSalesManager, resolveVisibleUserIds, roleInfo, selectedAgentIds, selectedDealTypeIds, selectedLeadSourceIds, user]);
+  }, [effectiveFilters, resolveVisibleUserIds, roleInfo, user]);
 
   const loadTableDeals = useCallback(async () => {
     if (!user || !roleInfo) return;
@@ -782,9 +797,83 @@ export default function Pipeline() {
     }
   }, [effectiveFilters, tablePage, tablePageSize, tableSearch, tableSortConfig, viewMode]);
 
+  const loadSummaryDeals = useCallback(async () => {
+    if (!user || !roleInfo) return;
+
+    try {
+      const visibleUserIds = await resolveVisibleUserIds();
+      const currentYear = new Date().getFullYear();
+      const yearStartDateOnly = `${currentYear}-01-01`;
+      const yearStartTs = `${currentYear}-01-01T00:00:00.000Z`;
+      const closedInRangeOrClause = [
+        'status.neq.closed',
+        `and(status.eq.closed,or(close_date.gte.${yearStartDateOnly},and(close_date.is.null,closed_at.gte.${yearStartTs})))`,
+      ].join(',');
+
+      let query = supabase
+        .from('deals')
+        .select(DEALS_SELECT)
+        .neq('status', 'dead')
+        .or(closedInRangeOrClause);
+
+      if (visibleUserIds.length === 1) {
+        query = query.eq('user_id', visibleUserIds[0]);
+      } else if (visibleUserIds.length > 1) {
+        query = query.in('user_id', visibleUserIds);
+      }
+
+      if (effectiveFilters.agentIds.length > 0) {
+        query = query.in('user_id', effectiveFilters.agentIds);
+      }
+      if (effectiveFilters.leadSourceIds.length > 0) {
+        query = query.in('lead_source_id', effectiveFilters.leadSourceIds);
+      }
+      if (effectiveFilters.dealTypes.length > 0) {
+        query = query.in('deal_type', effectiveFilters.dealTypes);
+      }
+      if (effectiveFilters.stageIds.length > 0) {
+        const pipelineStageIds = effectiveFilters.stageIds.filter(id => !id.startsWith('status:'));
+        const statusStageIds = effectiveFilters.stageIds
+          .filter(id => id.startsWith('status:'))
+          .map(id => id.replace('status:', ''));
+        if (pipelineStageIds.length > 0 && statusStageIds.length > 0) {
+          query = query.or(
+            `pipeline_status_id.in.(${pipelineStageIds.join(',')}),status.in.(${statusStageIds.join(',')})`
+          );
+        } else if (pipelineStageIds.length > 0) {
+          query = query.in('pipeline_status_id', pipelineStageIds);
+        } else if (statusStageIds.length > 0) {
+          query = query.in('status', statusStageIds);
+        }
+      }
+      if (effectiveFilters.statusStageId) {
+        if (effectiveFilters.statusStageId.startsWith('status:')) {
+          query = query.eq('status', effectiveFilters.statusStageId.replace('status:', ''));
+        } else {
+          query = query.eq('pipeline_status_id', effectiveFilters.statusStageId);
+        }
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error loading summary deals', error);
+        setSummaryDeals([]);
+        return;
+      }
+      setSummaryDeals(data || []);
+    } catch (err) {
+      console.error('Error loading summary deals', err);
+      setSummaryDeals([]);
+    }
+  }, [effectiveFilters, resolveVisibleUserIds, roleInfo, user]);
+
   useEffect(() => {
     loadLeadSources();
   }, [loadLeadSources]);
+
+  useEffect(() => {
+    loadSummaryDeals();
+  }, [loadSummaryDeals]);
 
   useEffect(() => {
     setAvailableDealTypeFilters(DEAL_TYPE_OPTIONS);
@@ -1068,7 +1157,6 @@ export default function Pipeline() {
     }).format(amount);
   };
 
-  const summaryDeals = viewMode === 'table' ? tableRows : kanbanDeals;
   const metrics = getSummaryMetrics(summaryDeals);
   const summaryPills = [
     { label: 'Buyers', value: metrics.buyers, display: metrics.buyers.toString() },
@@ -1076,7 +1164,7 @@ export default function Pipeline() {
     { label: 'Renters', value: metrics.renters, display: metrics.renters.toString() },
     { label: 'Landlords', value: metrics.landlords, display: metrics.landlords.toString() },
     { label: 'Net Commission', value: metrics.totalCommission, display: formatCurrency(metrics.totalCommission) }
-  ].filter(pill => pill.value > 0);
+  ];
 
   const clearAllFilters = () => {
     setSelectedAgentIds([]);
@@ -1085,7 +1173,7 @@ export default function Pipeline() {
     setSelectedDealTypeIds([]);
   };
 
-  const showFilterPanel = viewMode === 'table' || (isSalesManager && viewMode === 'kanban');
+  const showFilterPanel = viewMode === 'table' || viewMode === 'kanban';
   const showStageFilter = viewMode === 'table';
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
   const isFocusOnMeActive = showFocusOnMe && selectedAgentIds.length === 1 && selectedAgentIds[0] === user?.id;
@@ -1301,12 +1389,15 @@ export default function Pipeline() {
         <div className={['flex flex-col gap-3 items-end', ui.align.right].join(' ')}>
           <LastUpdatedStatus refreshing={refreshing} label={lastUpdatedLabel} />
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Text as="span" variant="micro" className={ui.tone.faint}>
+              View:
+            </Text>
             <div className={viewToggleWrap}>
               <button
                 onClick={() => setViewMode('kanban')}
                 className={[
                   viewToggleButton,
-                  viewMode === 'kanban' ? 'bg-[var(--app-accent)]' : 'hover:bg-gray-100/70',
+                  viewMode === 'kanban' ? 'bg-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/30' : 'hover:bg-gray-100/70',
                   viewMode === 'kanban' ? ui.tone.inverse : ui.tone.subtle
                 ].join(' ')}
               >
@@ -1323,7 +1414,7 @@ export default function Pipeline() {
                 onClick={() => setViewMode('table')}
                 className={[
                   viewToggleButton,
-                  viewMode === 'table' ? 'bg-[var(--app-accent)]' : 'hover:bg-gray-100/70',
+                  viewMode === 'table' ? 'bg-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/30' : 'hover:bg-gray-100/70',
                   viewMode === 'table' ? ui.tone.inverse : ui.tone.subtle
                 ].join(' ')}
               >
@@ -1368,25 +1459,31 @@ export default function Pipeline() {
         </div>
       )}
     >
-      <Card className="space-y-5">
+      <div className="space-y-5">
         {isInitialLoading ? (
-          <div className="flex flex-wrap gap-3">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <Skeleton key={`pill-skeleton-${index}`} className="h-8 w-28" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Card key={`kpi-skeleton-${index}`} padding="cardTight" className="bg-white/70">
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-6 w-20" />
+                </div>
+              </Card>
             ))}
           </div>
-        ) : summaryPills.length > 0 && (
-          <div className="flex flex-wrap gap-3">
-            {summaryPills.map(pill => (
-              <div key={pill.label} className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'inline-flex items-center gap-2 bg-white'].join(' ')}>
-                <Text as="span" variant="micro" className={ui.tone.faint}>
-                  {pill.label}
-                </Text>
-                <Text as="span" variant="body" className="font-semibold">
-                  {pill.display}
-                </Text>
-              </div>
-            ))}
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {summaryPills.map((pill) => {
+              const isNet = pill.label === 'Net Commission';
+              return (
+                <MetricTile
+                  key={pill.label}
+                  label={pill.label}
+                  value={isNet ? pill.display : `${pill.display} deals`}
+                  valueClassName={isNet ? 'text-emerald-700' : undefined}
+                />
+              );
+            })}
           </div>
         )}
 
@@ -1443,7 +1540,7 @@ export default function Pipeline() {
             </button>
           </div>
         )}
-      </Card>
+      </div>
 
       {isInitialLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

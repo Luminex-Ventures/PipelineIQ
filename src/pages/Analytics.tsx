@@ -9,6 +9,7 @@ import { runAnalyticsDateChecks } from '../lib/analyticsDateRules';
 import { useAnalyticsFilterPersistence } from '../hooks/useAnalyticsFilterPersistence';
 import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { Card } from '../ui/Card';
+import { MetricTile } from '../ui/MetricTile';
 import { PageShell } from '../ui/PageShell';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
@@ -1054,51 +1055,53 @@ export default function Analytics() {
           <StatCardsSkeleton />
         ) : (
           <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-            <Card>
-              <Text as="span" variant="micro" className={ui.tone.blue}>Pipeline</Text>
-              <Text as="div" variant="h2" className="analytics-mt-2">
-                {formatNumber(yearlyStats.closedDeals)}
-              </Text>
-              <Text variant="muted" className="analytics-mt-1">Closed deals</Text>
-              <Text variant="muted" className="analytics-mt-3">
-                {yearlyStats.buyerDeals} buyer • {yearlyStats.sellerDeals} seller
-              </Text>
-            </Card>
-            <Card>
-              <Text as="span" variant="micro" className={ui.tone.success}>Volume</Text>
-              <Text as="div" variant="h2" className="analytics-mt-2">
-                {formatCurrency(yearlyStats.totalVolume)}
-              </Text>
-              <Text variant="muted" className="analytics-mt-1">Total sales volume</Text>
-              <Text variant="muted" className="analytics-mt-3">
-                Avg sale price • {formatCurrency(yearlyStats.avgSalePrice)}
-              </Text>
-            </Card>
-            <Card>
-              <Text as="span" variant="micro" className={ui.tone.warningStrong}>Net GCI</Text>
-              <Text as="div" variant="h2" className="analytics-mt-2">
-                {formatCurrency(yearlyStats.totalGCI)}
-              </Text>
-              <Text variant="muted" className="analytics-mt-1">Total earnings after splits</Text>
-              <Text variant="muted" className="analytics-mt-3">
-                Avg commission • {formatCurrency(yearlyStats.avgCommission)}
-              </Text>
-            </Card>
-            <Card>
-              <Text as="span" variant="micro" className={ui.tone.infoStrong}>Pace</Text>
-              <Text as="div" variant="h2" className="analytics-mt-2">
-                {formatNumber(closingThisMonthStats.count)}
-              </Text>
-              <Text variant="muted" className="analytics-mt-1">Deals closing this month</Text>
-              <Text variant="muted" className="analytics-mt-3">
-                GCI this month • {formatCurrency(closingThisMonthStats.gci)}
-              </Text>
-              {yearlyStats.avgDaysToClose > 0 && (
-                <Text variant="muted" className="analytics-mt-1">
-                  Avg time to close • {yearlyStats.avgDaysToClose.toFixed(0)} days
+            <MetricTile
+              label="Pipeline"
+              value={formatNumber(yearlyStats.closedDeals)}
+              sublabel="Closed deals"
+              footer={(
+                <Text variant="muted">
+                  {yearlyStats.buyerDeals} buyer • {yearlyStats.sellerDeals} seller
                 </Text>
               )}
-            </Card>
+            />
+            <MetricTile
+              label="Volume"
+              value={formatCurrency(yearlyStats.totalVolume)}
+              sublabel="Total sales volume"
+              footer={(
+                <Text variant="muted">
+                  Avg sale price • {formatCurrency(yearlyStats.avgSalePrice)}
+                </Text>
+              )}
+            />
+            <MetricTile
+              label="Net GCI"
+              value={formatCurrency(yearlyStats.totalGCI)}
+              sublabel="Total earnings after splits"
+              footer={(
+                <Text variant="muted">
+                  Avg commission • {formatCurrency(yearlyStats.avgCommission)}
+                </Text>
+              )}
+            />
+            <MetricTile
+              label="Pace"
+              value={formatNumber(closingThisMonthStats.count)}
+              sublabel="Deals closing this month"
+              footer={(
+                <>
+                  <Text variant="muted">
+                    GCI this month • {formatCurrency(closingThisMonthStats.gci)}
+                  </Text>
+                  {yearlyStats.avgDaysToClose > 0 && (
+                    <Text variant="muted">
+                      Avg time to close • {yearlyStats.avgDaysToClose.toFixed(0)} days
+                    </Text>
+                  )}
+                </>
+              )}
+            />
           </div>
         )}
       </section>

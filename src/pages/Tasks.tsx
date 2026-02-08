@@ -867,6 +867,8 @@ export default function Tasks() {
     const notes = notesByTask[task.id] || [];
     const expanded = !!expandedNotes[task.id];
     const isVisuallyCompleted = !!completedVisual[task.id];
+    const due = normalizeDueDate(task.due_date);
+    const isOverdue = !!due && due.getTime() < todayStart && !isVisuallyCompleted;
 
     return (
       <tr
@@ -876,7 +878,12 @@ export default function Tasks() {
         }`}
         onClick={() => handleRowClick(task)}
       >
-        <td className="tasks-cell">
+        <td
+          className={[
+            'tasks-cell',
+            isOverdue ? 'border-l-2 border-rose-400/60 pl-4' : ''
+          ].join(' ')}
+        >
           <div className="flex items-start gap-3">
             {renderCompletionButton(task, isVisuallyCompleted)}
             <div>
@@ -1169,7 +1176,7 @@ export default function Tasks() {
     };
 
     const urgencyPillBase = [
-      'group flex w-full flex-col gap-2 transition focus:outline-none',
+      'group flex w-full flex-col gap-2 transition focus:outline-none cursor-pointer hover:shadow-sm hover:-translate-y-0.5',
       ui.align.left,
       ui.radius.card,
       ui.border.subtle,
@@ -1270,23 +1277,16 @@ export default function Tasks() {
         />
       ) : null}
     >
-      <Card className="space-y-4">
+      <div className="space-y-4">
         <UrgencyFilterBar
           taskStats={taskStats}
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
         />
 
-        <Card padding="cardTight" className="bg-[var(--app-surface-muted)]">
+        <Card padding="cardTight">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Text as="span" variant="micro">Next Action</Text>
-            <button
-              type="button"
-              onClick={() => setShowHeroQuickAdd((prev) => !prev)}
-              className="hig-btn-secondary"
-            >
-              <span>+ Add task</span>
-            </button>
           </div>
           {taskStats.nextTask ? (
             <>
@@ -1382,42 +1382,23 @@ export default function Tasks() {
               Add a due date to your most important task so it rises to the top.
             </Text>
           )}
-          {showHeroQuickAdd && (
-            <div className="tasks-mt-4">
-              <QuickAddTask
-                contextDealId={taskStats.nextTask?.deal_id ?? preferredDeal?.id}
-                contextDealLabel={
-                  taskStats.nextTask
-                    ? `${taskStats.nextTask.deals.client_name} — ${
-                        taskStats.nextTask.deals.property_address || 'Address TBD'
-                      }`
-                    : preferredDealLabel
-                }
-                defaultDuePreset="today"
-                dealOptions={dealOptions}
-                dealById={dealById}
-                onCreated={(createdTask, deal) => {
-                  handleQuickAddCreated(createdTask, deal);
-                  setShowHeroQuickAdd(false);
-                }}
-                onCancel={() => setShowHeroQuickAdd(false)}
-              />
-            </div>
-          )}
         </Card>
-      </Card>
+      </div>
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <FormField label="Search" className="w-full md:min-w-[280px]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <FormField
+            label={<Text as="span" variant="micro" className="sr-only">Search</Text>}
+            className="w-full md:min-w-[280px] space-y-0"
+          >
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by client, task, property..."
-              className={['hig-input', ui.radius.pill].join(' ')}
+              className={['hig-input', ui.radius.pill, 'h-10'].join(' ')}
             />
           </FormField>
-          <div className={viewToggleWrap}>
+          <div className={[viewToggleWrap, 'h-10 items-center'].join(' ')}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -1454,13 +1435,16 @@ export default function Tasks() {
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 lg:justify-end">
           {isManagerRole && (
-            <FormField label="Agent">
+            <FormField
+              label={<Text as="span" variant="micro" className="sr-only">Agent</Text>}
+              className="space-y-0"
+            >
               <select
                 value={agentFilter}
                 onChange={(e) => setAgentFilter(e.target.value)}
-                className="hig-input w-52"
+                className="hig-input w-52 h-10"
               >
                 <option value="all">All agents</option>
                 {agentOptions.map((agent) => (
@@ -1485,6 +1469,7 @@ export default function Tasks() {
             }}
             className={[
               filterPillBase,
+              'h-10',
               showCompleted ? 'bg-[var(--app-accent)]/10' : 'bg-white hover:bg-gray-50/80',
               showCompleted ? ui.tone.accent : ui.tone.subtle
             ].join(' ')}

@@ -5,6 +5,7 @@ import { buildRAGContext } from '../lib/rag-context';
 import '../lib/rag-debug'; // Enable debug helper in console
 import { PageShell } from '../ui/PageShell';
 import { Card } from '../ui/Card';
+import { MetricTile } from '../ui/MetricTile';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
 
@@ -491,13 +492,14 @@ function SupportingStatsBlock({ data }: { data: SupportingData }) {
   if (knownStats.length === 0 && extraStats.length === 0) return null;
 
   return (
-    <div className={[ui.radius.card, ui.border.subtle, ui.pad.cardTight, 'bg-gray-50/60 space-y-3'].join(' ')}>
+    <div className={[ui.pad.cardTight, 'space-y-3'].join(' ')}>
       <div className="grid gap-3 sm:grid-cols-2">
         {knownStats.map((stat) => (
-          <Card key={stat.key} padding="cardTight">
-            <Text variant="micro">{stat.label}</Text>
-            <Text as="div" variant="h2">{stat.format(data[stat.key] as number)}</Text>
-          </Card>
+          <MetricTile
+            key={stat.key}
+            label={stat.label}
+            value={stat.format(data[stat.key] as number)}
+          />
         ))}
       </div>
 
@@ -514,10 +516,11 @@ function SupportingStatsBlock({ data }: { data: SupportingData }) {
           {expanded && (
             <div className="grid gap-3 sm:grid-cols-2">
               {extraStats.map(([key, value]) => (
-                <Card key={key} padding="cardTight">
-                  <Text variant="micro">{formatLabel(key)}</Text>
-                  <Text as="div" variant="h2">{formatNumber(value as number)}</Text>
-                </Card>
+                <MetricTile
+                  key={key}
+                  label={formatLabel(key)}
+                  value={formatNumber(value as number)}
+                />
               ))}
             </div>
           )}

@@ -69,6 +69,13 @@ interface PipelineColumnProps {
   getDaysInStage: (stageEnteredAt: string) => number;
 }
 
+const STAGE_SUBTITLES: Record<string, string> = {
+  Lead: 'New opportunities',
+  'In Progress': 'Actively working',
+  'Under Contract': 'Committed deals',
+  Closed: 'Completed deals'
+};
+
 export default function PipelineColumn({
   status,
   label,
@@ -83,6 +90,18 @@ export default function PipelineColumn({
   });
 
   const statusColor = getColorByName(color);
+  const subtitle = STAGE_SUBTITLES[label] ?? '';
+  const totalExpected = deals.reduce((sum, deal) => {
+    const value = deal.actual_sale_price || deal.expected_sale_price || 0;
+    return sum + value;
+  }, 0);
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(amount);
+
   const dealTypeGroups = DEAL_TYPE_ORDER
     .map(type => ({
       type,
@@ -97,24 +116,35 @@ export default function PipelineColumn({
 
   return (
     <div className="flex-shrink-0 w-72 sm:w-80 flex flex-col">
-      <div
-        className="rounded-lg p-2.5 sm:p-3 mb-2 sm:mb-3 flex-shrink-0"
-        style={{
-          backgroundColor: statusColor.bg,
-          color: statusColor.text
-        }}
-      >
-        <h3 className="font-semibold text-sm sm:text-base">{label}</h3>
-        <span className="text-xs sm:text-sm opacity-80">{deals.length} deal{deals.length !== 1 ? 's' : ''}</span>
-      </div>
+      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 shadow-[0_6px_14px_rgba(15,23,42,0.05)]">
+        <div
+          className="px-3 py-3 rounded-t-xl border-b border-gray-200/70"
+          style={{
+            backgroundColor: statusColor.bg,
+            color: statusColor.text
+          }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-0.5">
+              <h3 className="font-semibold text-sm sm:text-base">{label}</h3>
+              {subtitle && <div className="text-[11px] opacity-80">{subtitle}</div>}
+            </div>
+            <div className="flex flex-col items-end text-[11px] opacity-80">
+              <span className="inline-flex items-center rounded-full bg-white/70 px-2 py-0.5 font-semibold text-[11px]">
+                {deals.length}
+              </span>
+              <span className="mt-1">{formatCurrency(totalExpected)}</span>
+            </div>
+          </div>
+        </div>
 
-      <div
-        ref={setNodeRef}
-        className={`flex-1 min-h-[600px] rounded-lg p-3 transition overflow-y-auto ${
-          isOver ? 'bg-blue-50 ring-2 ring-blue-400' : 'bg-gray-50'
-        }`}
-        style={{ minHeight: '600px' }}
-      >
+        <div
+          ref={setNodeRef}
+          className={`flex-1 min-h-[520px] p-3 transition overflow-y-auto ${
+            isOver ? 'bg-blue-50 ring-2 ring-blue-400' : 'bg-gray-50/70'
+          }`}
+          style={{ minHeight: '520px' }}
+        >
         {deals.length === 0 ? (
           <div className="h-full min-h-[560px] flex items-center justify-center">
             <div className="text-center text-gray-400">
@@ -159,6 +189,7 @@ export default function PipelineColumn({
             ))}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

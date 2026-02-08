@@ -40,6 +40,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { Text } from '../ui/Text';
 import { WidgetCard, WidgetHeader } from '../ui/Widget';
 import { Card } from '../ui/Card';
+import { MetricTile } from '../ui/MetricTile';
 import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { PageShell } from '../ui/PageShell';
 import { ui } from '../ui/tokens';
@@ -1642,7 +1643,7 @@ export default function Dashboard() {
       <div className="space-y-3">
         <WidgetHeader
           icon={<Target className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
-          title="Pipeline Health"
+          title="Pipeline Distribution"
           rightSlot={
             <div className={ui.align.right}>
               <Text as="div" variant="h2">
@@ -1662,7 +1663,6 @@ export default function Dashboard() {
             <div className="space-y-2">
               {pipelineHealth.map(status => {
                 if (status.count === 0) return null;
-                const percentage = totalActiveDeals > 0 ? (status.count / totalActiveDeals) * 100 : 0;
 
                 return (
                   <div
@@ -1692,25 +1692,14 @@ export default function Dashboard() {
                         <Text as="span" variant="body" className="font-medium">
                           {status.name}
                         </Text>
-                        {status.stalledCount > 0 && (
-                          <div className={['flex items-center gap-1 bg-orange-50', ui.radius.control, ui.pad.chipTight].join(' ')}>
-                            <Clock className={`w-3 h-3 ${ui.tone.warning}`} strokeWidth={2} />
-                            <Text as="span" variant="muted" className={ui.tone.warningStrong}>
-                              {status.stalledCount}
-                            </Text>
-                          </div>
-                        )}
                       </div>
                       <Text as="span" variant="body" className="font-semibold">
-                        {status.count}
+                        {status.count} deals
                       </Text>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <Text as="span" variant="body" className={`font-medium ${ui.tone.accent}`}>
-                        {formatCurrency(status.expectedGCI)}
-                      </Text>
+                    <div className="flex items-center justify-end">
                       <Text as="span" variant="muted">
-                        {percentage.toFixed(0)}%
+                        {formatCurrency(status.expectedGCI)}
                       </Text>
                     </div>
                   </div>
@@ -2145,62 +2134,49 @@ export default function Dashboard() {
           <div className="space-y-4">
             <Text variant="micro" className="text-gray-500">PIPELINE (ACTIVE DEALS)</Text>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card padding="cardTight" className="bg-purple-50/40">
-                <div className="space-y-2">
-                  <Text variant="micro" className="font-semibold text-gray-700">ACTIVE DEALS</Text>
-                  <Text as="div" variant="h2">{totalActiveDeals}</Text>
-                  <Text variant="muted">Across pipeline</Text>
-                </div>
-              </Card>
-              <Card padding="cardTight" className="bg-blue-50/40">
-                <div className="space-y-2">
-                  <Text variant="micro" className="font-semibold text-gray-700">PIPELINE VALUE</Text>
-                  <Text as="div" variant="h2">{formatCurrency(pipelineValue)}</Text>
-                  <Text variant="muted">Active stages only</Text>
-                </div>
-              </Card>
-              <Card padding="cardTight" className="bg-blue-50/40">
-                <div className="space-y-2">
-                  <Text variant="micro" className="font-semibold text-gray-700">CLOSING IN 7 DAYS</Text>
-                  <Text as="div" variant="h2">{stats.closingNext7Days}</Text>
-                  <Text variant="muted">Active deals closing in 7 days</Text>
-                </div>
-              </Card>
-              <Card padding="cardTight" className="bg-emerald-50/40">
-                <div className="space-y-2">
-                  <Text variant="micro" className="font-semibold text-gray-700">PROJECTED GCI (30D)</Text>
-                  <Text as="div" variant="h2">{formatCurrency(projectedGCI)}</Text>
-                  <Text variant="muted">Next 30 days</Text>
-                </div>
-              </Card>
+              <MetricTile
+                label="ACTIVE DEALS"
+                value={totalActiveDeals}
+                sublabel="Across pipeline"
+                className="bg-purple-50/40"
+              />
+              <MetricTile
+                label="PIPELINE VALUE"
+                value={formatCurrency(pipelineValue)}
+                sublabel="Active stages only"
+                className="bg-blue-50/40"
+              />
+              <MetricTile
+                label="CLOSING IN 7 DAYS"
+                value={stats.closingNext7Days}
+                sublabel="Active deals closing in 7 days"
+                className="bg-blue-50/40"
+              />
+              <MetricTile
+                label="PROJECTED GCI (30D)"
+                value={formatCurrency(projectedGCI)}
+                sublabel="Next 30 days"
+                className="bg-emerald-50/40"
+              />
             </div>
 
             <Text variant="micro" className="text-gray-500">PERFORMANCE (YTD RESULTS)</Text>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Card padding="cardTight" title="Gross commission income from closed deals in the selected date range.">
-                <div className="space-y-1.5">
-                  <Text as="div" variant="micro" className="font-semibold text-gray-700">
-                    TOTAL GCI
-                  </Text>
-                  <Text as="div" variant="h2">{formatCurrency(stats.ytdGCI)}</Text>
-                </div>
-              </Card>
-              <Card padding="cardTight" title="Number of deals marked closed within the selected date range.">
-                <div className="space-y-1.5">
-                  <Text as="div" variant="micro" className="font-semibold text-gray-700">
-                    CLOSED DEALS
-                  </Text>
-                  <Text as="div" variant="h2">{stats.ytdDeals}</Text>
-                </div>
-              </Card>
-              <Card padding="cardTight" title="Closed deals divided by all deals created in the selected date range.">
-                <div className="space-y-1.5">
-                  <Text as="div" variant="micro" className="font-semibold text-gray-700">
-                    CONVERSION RATE
-                  </Text>
-                  <Text as="div" variant="h2">{formatPercent(stats.conversionRate)}</Text>
-                </div>
-              </Card>
+              <MetricTile
+                label="TOTAL GCI"
+                value={formatCurrency(stats.ytdGCI)}
+                title="Gross commission income from closed deals in the selected date range."
+              />
+              <MetricTile
+                label="CLOSED DEALS"
+                value={stats.ytdDeals}
+                title="Number of deals marked closed within the selected date range."
+              />
+              <MetricTile
+                label="CONVERSION RATE"
+                value={formatPercent(stats.conversionRate)}
+                title="Closed deals divided by all deals created in the selected date range."
+              />
             </div>
             <div className="h-px bg-gray-200/60" />
           </div>

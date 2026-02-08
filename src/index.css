@@ -189,7 +189,7 @@
   }
 
   .tasks-table-head-row {
-    @apply uppercase tracking-wide text-gray-500;
+    @apply uppercase tracking-wide text-gray-700;
   }
 
   .tasks-table-head-cell {

@@ -27,7 +27,7 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
     <div
       onClick={onClick}
       data-deal-id={deal.id}
-      className={`rounded-2xl border border-gray-100/80 bg-white/95 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)] ring-1 ring-black/5 cursor-move transition-transform duration-200 ${
+      className={`rounded-xl border border-gray-200/70 bg-white p-3 shadow-[0_4px_10px_rgba(15,23,42,0.06)] cursor-move transition-transform duration-200 ${
         isDragging ? 'opacity-60' : 'hover:-translate-y-0.5'
       }`}
     >
@@ -47,14 +47,21 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-600">
-        <div className="flex items-center gap-1 text-gray-500">
-          <Clock className="w-3.5 h-3.5 text-gray-400" />
+      <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+        <span className="truncate">
+          {deal.deal_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-400">
+        <div className="flex items-center gap-1">
+          {daysInStage >= 70 && <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />}
+          <Clock className="w-3.5 h-3.5 text-gray-300" />
           <span>{daysInStage}d in stage</span>
         </div>
         {deal.lead_sources ? (
-          <div className="flex items-center gap-1 text-gray-500 justify-end">
-            <TrendingUp className="w-3.5 h-3.5 text-gray-400" />
+          <div className="flex items-center gap-1 justify-end">
+            <TrendingUp className="w-3.5 h-3.5 text-gray-300" />
             <span className="truncate">{deal.lead_sources.name}</span>
           </div>
         ) : (
@@ -62,16 +69,16 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 text-xs">
+      <div className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs">
         <div>
           <div className="text-[11px] uppercase tracking-wide text-gray-400">Net Commission</div>
-          <div className="text-sm font-semibold text-emerald-600">
+          <div className="text-sm font-semibold text-emerald-700">
             {formatCurrency(netCommission)}
           </div>
         </div>
         <div className="text-right">
           <div className="text-[11px] uppercase tracking-wide text-gray-400">Close Date</div>
-          <div className="text-sm font-semibold text-gray-900">
+          <div className="text-sm font-medium text-gray-500">
             {deal.close_date
               ? new Date(deal.close_date).toLocaleDateString(undefined, {
                   month: 'short',
