@@ -131,7 +131,7 @@ export default function PersonalPreferencesSettings() {
             </span>
           </div>
           <p className="mt-2 text-sm text-gray-500">
-            Used to forecast take-home pay inside PipelineIQ.
+            Used to forecast take-home pay inside Luma-IQ.
           </p>
         </div>
 

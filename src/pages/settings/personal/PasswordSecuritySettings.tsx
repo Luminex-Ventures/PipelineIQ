@@ -34,7 +34,7 @@ export default function PasswordSecuritySettings() {
       <div className="mb-6">
         <h2 className="hig-text-heading mb-2">Password &amp; Security</h2>
         <p className="text-sm text-gray-600">
-          Update your login password. Changes apply immediately across all PipelineIQ sessions.
+          Update your login password. Changes apply immediately across all Luma-IQ sessions.
         </p>
       </div>
 

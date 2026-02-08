@@ -35,7 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         <div className="max-w-md rounded-2xl border border-[var(--app-border)] bg-white/90 p-6 text-center shadow-xl space-y-3">
           <p className="text-lg font-semibold text-gray-900">Account deactivated</p>
           <p className="text-sm text-gray-600">
-            Your PipelineIQ access has been suspended. Please reach out to an administrator if you believe this is a mistake.
+            Your Luma-IQ access has been suspended. Please reach out to an administrator if you believe this is a mistake.
           </p>
           <button
             onClick={signOut}

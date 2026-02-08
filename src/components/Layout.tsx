@@ -46,8 +46,8 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <img
-                src="/image.png"
-                alt="PipelineIQ"
+                src="/LumaIQ.png"
+                alt="Luma-IQ"
                 className="h-10"
               />
             </div>

@@ -94,7 +94,7 @@ VITE_OPENAI_API_KEY=your_openai_api_key
 
 ### 🔐 Role-Based Permissions
 
-Luma strictly respects PipelineIQ's role-based access control:
+Luma strictly respects Luma-IQ's role-based access control:
 
 **Sales Manager / Admin:**
 - ✅ Full access to ALL workspace data
@@ -225,7 +225,7 @@ To verify permissions are working correctly, test with different user roles:
 - Check browser console for detailed error messages
 
 ### "User not authenticated"
-- Ensure user is logged in to PipelineIQ
+- Ensure user is logged in to Luma-IQ
 - Check Supabase authentication is working
 
 ### Slow responses
@@ -261,5 +261,5 @@ If you're not seeing the expected data:
 For issues or questions, check:
 - OpenAI API documentation: [platform.openai.com/docs](https://platform.openai.com/docs)
 - OpenAI status page: [status.openai.com](https://status.openai.com)
-- PipelineIQ documentation: See README.md
+- Luma-IQ documentation: See README.md
 

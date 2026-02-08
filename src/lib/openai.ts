@@ -36,7 +36,7 @@ export async function queryLuma(
 ): Promise<LumaResponse> {
   try {
     // Build the system prompt with RAG context
-    const systemPrompt = `You are Luma, an AI assistant for real estate agents using PipelineIQ. 
+    const systemPrompt = `You are Luma, an AI assistant for real estate agents using Luma-IQ. 
 You help users understand their pipeline data, deals, tasks, and performance metrics.
 
 CONTEXT FROM DATABASE:

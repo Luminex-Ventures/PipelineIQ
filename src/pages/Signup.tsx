@@ -139,13 +139,13 @@ export default function Signup({ onToggle, presetToken }: SignupProps) {
     <div className="min-h-screen bg-[rgb(var(--color-app-bg))] flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center mb-8">
-          <img src="/PipelineIQ.png" alt="PipelineIQ" className="h-16" />
+          <img src="/LumaIQ.png" alt="Luma-IQ" className="h-16" />
         </div>
         <h2 className="text-center text-2xl font-semibold text-gray-900 mb-2">
           Accept your invitation
         </h2>
         <p className="text-center hig-text-caption">
-          PipelineIQ access is invite-only. Paste the invite code from your email to continue.
+          Luma-IQ access is invite-only. Paste the invite code from your email to continue.
         </p>
       </div>
 

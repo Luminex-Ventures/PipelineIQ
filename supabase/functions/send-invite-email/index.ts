@@ -10,7 +10,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const APP_ORIGIN = Deno.env.get('APP_ORIGIN');
-const FROM_EMAIL = Deno.env.get('INVITE_FROM_EMAIL') || 'PipelineIQ <no-reply@pipelineiq.app>';
+const FROM_EMAIL = Deno.env.get('INVITE_FROM_EMAIL') || 'Luma-IQ <no-reply@luma-iq.app>';
 
 interface InviteRequestBody {
   inviteId: string;
@@ -72,16 +72,16 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'RESEND_API_KEY is not configured' }, 500);
     }
 
-    const subject = `You're invited to ${workspaceName} on PipelineIQ`;
+    const subject = `You're invited to ${workspaceName} on Luma-IQ`;
     const text = [
-      `You have been invited to join ${workspaceName} on PipelineIQ.`,
+      `You have been invited to join ${workspaceName} on Luma-IQ.`,
       `Invite link: ${inviteUrl}`,
       `This invite expires on ${new Date(invite.expires_at).toLocaleString()}.`,
     ].join('\n\n');
 
     const html = `
       <div style="font-family: Arial, sans-serif; color: #0f172a; padding: 16px;">
-        <p style="font-size: 16px; margin: 0 0 12px;">You have been invited to join <strong>${workspaceName}</strong> on PipelineIQ.</p>
+        <p style="font-size: 16px; margin: 0 0 12px;">You have been invited to join <strong>${workspaceName}</strong> on Luma-IQ.</p>
         <p style="margin: 0 0 16px;">Click the button below to accept your invite and get started.</p>
         <a href="${inviteUrl}" style="display: inline-block; background: #0a84ff; color: #ffffff; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600;">Accept Invite</a>
         <p style="margin: 16px 0 6px; font-size: 13px;">If the button doesn't work, copy and paste this link:</p>

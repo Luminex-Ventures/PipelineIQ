@@ -32,10 +32,10 @@ export default function Login({ onToggle }: LoginProps) {
     <div className="min-h-screen bg-[rgb(var(--color-app-bg))] flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center mb-8">
-          <img src="/PipelineIQ.png" alt="PipelineIQ" className="h-16" />
+          <img src="/LumaIQ.png" alt="Luma-IQ" className="h-16" />
         </div>
         <h2 className="text-center text-2xl font-semibold text-gray-900 mb-2">
-          Sign in to PipelineIQ
+          Sign in to Luma-IQ
         </h2>
         <p className="text-center hig-text-caption">
           Welcome back! Please sign in to continue.
@@ -97,7 +97,7 @@ export default function Login({ onToggle }: LoginProps) {
               </div>
               <div className="relative flex justify-center text-sm">
                 <span className="px-2 bg-white text-gray-500">
-                  New to PipelineIQ?
+                  New to Luma-IQ?
                 </span>
               </div>
             </div>

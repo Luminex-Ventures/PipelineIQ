@@ -26,7 +26,7 @@ const defaultIntegrations: Record<string, IntegrationState> = {
   },
   marketing: {
     provider: 'Zapier',
-    description: 'Push new leads into PipelineIQ automatically.',
+    description: 'Push new leads into Luma-IQ automatically.',
     status: 'not_connected'
   }
 };

@@ -58,7 +58,7 @@ export default function NotificationSettings() {
       <div className="mb-6">
         <h2 className="hig-text-heading mb-2">Notifications</h2>
         <p className="text-sm text-gray-600">
-          Choose which alerts to receive. These preferences only affect your PipelineIQ account.
+          Choose which alerts to receive. These preferences only affect your Luma-IQ account.
         </p>
       </div>
 
