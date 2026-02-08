@@ -304,14 +304,15 @@ export function AppHeader() {
           <div className="hidden lg:flex w-80" ref={searchRef}>
             <div className="relative w-full">
               <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
-                <Search className="h-4 w-4 text-gray-400" />
+                <Search className="h-4 w-4" style={{ color: '#1e3a5f' }} />
               </div>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search deals, people, addresses..."
-                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[var(--app-accent)] focus:bg-white focus:ring-2 focus:ring-[var(--app-accent)]/20 focus:outline-none transition-colors"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-10 text-sm placeholder:text-gray-400 focus:border-[var(--app-accent)] focus:bg-white focus:ring-2 focus:ring-[rgba(212,136,58,0.2)] focus:outline-none transition-colors"
+                style={{ color: '#1e3a5f' }}
               />
               {searchQuery && (
                 <button
@@ -368,7 +369,10 @@ export function AppHeader() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleGlobalNewDeal}
-            className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-[var(--app-accent)] px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-[var(--app-accent)]/90"
+            className="hidden sm:inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md"
+            style={{ backgroundColor: '#1e3a5f' }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#D4883A')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1e3a5f')}
           >
             <Plus className="h-4 w-4" />
             New deal
@@ -385,7 +389,10 @@ export function AppHeader() {
                   setHasUnread(false);
                   setLastViewedAt(new Date());
                 }}
-                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg transition hover:bg-gray-100"
+                style={{ color: '#1e3a5f' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
                 aria-label="Notifications"
               >
                 <Bell className="h-5 w-5" />
@@ -467,7 +474,10 @@ export function AppHeader() {
                       setShowUserMenu(false);
                       navigate('/settings');
                     }}
-                    className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-50"
+                    className="flex w-full items-center gap-3 px-4 py-2 text-sm transition hover:bg-gray-50"
+                    style={{ color: '#1e3a5f' }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
                   >
                     <Settings className="h-4 w-4" />
                     <span>Personal Settings</span>

@@ -40,7 +40,7 @@ export default function Login({ onToggle }: LoginProps) {
         <div className="w-full lg:w-1/2 p-8 lg:p-12 xl:p-16">
           {/* Logo */}
           <div className="mb-10">
-            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-[50px]" />
+            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-[75px]" />
           </div>
 
           {/* Header */}
@@ -57,7 +57,7 @@ export default function Login({ onToggle }: LoginProps) {
           <div className="flex gap-3 mb-6">
             <button
               type="button"
-              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 border border-gray-200 rounded-xl transition-all hover:border-[rgba(212,136,58,0.3)] hover:bg-[rgba(212,136,58,0.03)]"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -65,11 +65,11 @@ export default function Login({ onToggle }: LoginProps) {
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
               </svg>
-              <span className="text-sm font-medium text-gray-700">Google</span>
+              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }}>Google</span>
             </button>
             <button
               type="button"
-              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 border border-gray-200 rounded-xl transition-all hover:border-[rgba(212,136,58,0.3)] hover:bg-[rgba(212,136,58,0.03)]"
             >
               <svg className="w-5 h-5" viewBox="0 0 23 23">
                 <path fill="#f35325" d="M1 1h10v10H1z"/>
@@ -77,7 +77,7 @@ export default function Login({ onToggle }: LoginProps) {
                 <path fill="#05a6f0" d="M1 12h10v10H1z"/>
                 <path fill="#ffba08" d="M12 12h10v10H12z"/>
               </svg>
-              <span className="text-sm font-medium text-gray-700">Microsoft</span>
+              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }}>Microsoft</span>
             </button>
           </div>
 
@@ -101,12 +101,12 @@ export default function Login({ onToggle }: LoginProps) {
 
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="email" className="block text-sm font-medium mb-2" style={{ color: '#1e3a5f' }}>
                 Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" />
+                  <Mail className="h-5 w-5" style={{ color: 'rgba(30, 58, 95, 0.4)' }} />
                 </div>
                 <input
                   id="email"
@@ -114,7 +114,10 @@ export default function Login({ onToggle }: LoginProps) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400/50 focus:border-orange-400 transition-colors bg-gray-50/50"
+                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl transition-all bg-gray-50/50 hover:border-gray-300 focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ color: '#1e3a5f' }}
+                  onFocus={(e) => e.target.style.boxShadow = '0 0 0 3px rgba(212, 136, 58, 0.2)'}
+                  onBlur={(e) => e.target.style.boxShadow = 'none'}
                   placeholder="Enter your email"
                 />
               </div>
@@ -122,12 +125,12 @@ export default function Login({ onToggle }: LoginProps) {
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="password" className="block text-sm font-medium mb-2" style={{ color: '#1e3a5f' }}>
                 Password
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
+                  <Lock className="h-5 w-5" style={{ color: 'rgba(30, 58, 95, 0.4)' }} />
                 </div>
                 <input
                   id="password"
@@ -135,13 +138,19 @@ export default function Login({ onToggle }: LoginProps) {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-12 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400/50 focus:border-orange-400 transition-colors bg-gray-50/50"
+                  className="w-full pl-11 pr-12 py-3 border border-gray-200 rounded-xl transition-all bg-gray-50/50 hover:border-gray-300 focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ color: '#1e3a5f' }}
+                  onFocus={(e) => e.target.style.boxShadow = '0 0 0 3px rgba(212, 136, 58, 0.2)'}
+                  onBlur={(e) => e.target.style.boxShadow = 'none'}
                   placeholder="Enter your password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center transition-colors"
+                  style={{ color: 'rgba(30, 58, 95, 0.4)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(30, 58, 95, 0.4)'}
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
@@ -159,7 +168,13 @@ export default function Login({ onToggle }: LoginProps) {
                 />
                 <span className="ml-2 text-sm text-gray-600">Remember me</span>
               </label>
-              <a href="#" className="text-sm font-medium" style={{ color: '#D4883A' }}>
+              <a 
+                href="#" 
+                className="text-sm font-medium transition-colors"
+                style={{ color: '#1e3a5f' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
+              >
                 Forgot password?
               </a>
             </div>
@@ -169,9 +184,9 @@ export default function Login({ onToggle }: LoginProps) {
               type="submit"
               disabled={loading}
               className="w-full py-3.5 px-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 hover:shadow-lg flex items-center justify-center gap-2"
-              style={{ backgroundColor: '#D4883A' }}
-              onMouseEnter={(e) => !loading && (e.currentTarget.style.backgroundColor = '#C07830')}
-              onMouseLeave={(e) => !loading && (e.currentTarget.style.backgroundColor = '#D4883A')}
+              style={{ backgroundColor: '#1e3a5f' }}
+              onMouseEnter={(e) => !loading && (e.currentTarget.style.backgroundColor = '#D4883A')}
+              onMouseLeave={(e) => !loading && (e.currentTarget.style.backgroundColor = '#1e3a5f')}
             >
               {loading ? 'Logging in...' : (
                 <>
@@ -184,11 +199,13 @@ export default function Login({ onToggle }: LoginProps) {
 
           {/* Create account link */}
           <div className="mt-8 text-center">
-            <span className="text-gray-500">Don't have an account? </span>
+            <span style={{ color: 'rgba(30, 58, 95, 0.6)' }}>Don't have an account? </span>
             <button
               onClick={onToggle}
-              className="font-semibold hover:underline"
-              style={{ color: '#D4883A' }}
+              className="font-semibold transition-colors"
+              style={{ color: '#1e3a5f' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
+              onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
             >
               Create an account
             </button>

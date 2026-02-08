@@ -23,35 +23,40 @@ export const ui = {
     subtle: 'border border-gray-100/80'
   },
   shadow: {
-    card: 'shadow-[0_10px_30px_rgba(15,23,42,0.08)]',
-    hero: 'shadow-[0_20px_60px_rgba(15,23,42,0.16)]'
+    card: 'shadow-[0_10px_30px_rgba(30,58,95,0.08)]',
+    hero: 'shadow-[0_20px_60px_rgba(30,58,95,0.16)]'
   },
   align: {
     left: 'text-left',
     right: 'text-right',
     center: 'text-center'
   },
+  // Brand colors
+  brand: {
+    navy: '#1e3a5f',
+    orange: '#D4883A'
+  },
   text: {
-    h1: 'text-3xl font-semibold tracking-tight text-gray-900',
-    h2: 'text-xl font-semibold text-gray-900',
-    body: 'text-[15px] text-gray-900',
-    muted: 'text-sm text-gray-500',
-    micro: 'text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400'
+    h1: 'text-3xl font-semibold tracking-tight text-[#1e3a5f]',
+    h2: 'text-xl font-semibold text-[#1e3a5f]',
+    body: 'text-[15px] text-[#1e3a5f]',
+    muted: 'text-sm text-[rgba(30,58,95,0.6)]',
+    micro: 'text-[11px] font-semibold uppercase tracking-[0.25em] text-[rgba(30,58,95,0.5)]'
   },
   tone: {
-    primary: 'text-gray-900',
-    muted: 'text-gray-600',
-    subtle: 'text-gray-500',
-    faint: 'text-gray-400',
+    primary: 'text-[#1e3a5f]',
+    muted: 'text-[rgba(30,58,95,0.7)]',
+    subtle: 'text-[rgba(30,58,95,0.6)]',
+    faint: 'text-[rgba(30,58,95,0.5)]',
     accent: 'text-[var(--app-accent)]',
     inverse: 'text-white',
     success: 'text-emerald-600',
     successStrong: 'text-green-700',
-    warning: 'text-orange-600',
-    warningStrong: 'text-orange-700',
+    warning: 'text-[var(--app-accent)]',
+    warningStrong: 'text-[#c27830]',
     info: 'text-cyan-600',
     infoStrong: 'text-indigo-600',
-    blue: 'text-blue-600',
+    blue: 'text-[#1e3a5f]',
     purple: 'text-purple-600',
     rose: 'text-rose-600'
   }

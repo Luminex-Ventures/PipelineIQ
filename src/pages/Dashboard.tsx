@@ -1782,30 +1782,48 @@ export default function Dashboard() {
         </div>
       </WidgetCard>
 
-      <WidgetCard className={ui.pad.cardTight}>
-        <div className="space-y-3">
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
           <WidgetHeader
-            icon={<Sparkles className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
+            icon={<Sparkles className="w-4 h-4" style={{ color: '#D4883A' }} strokeWidth={2} />}
             title="Quick Actions"
           />
-          <div className="space-y-2">
+          <div className="space-y-3">
             <button
-              className={`w-full ${ui.pad.cardTight} hig-btn-secondary flex items-center justify-center gap-2`}
+              className="w-full py-3 px-4 rounded-lg border border-gray-200 flex items-center justify-center gap-2 transition-all"
+              style={{ color: '#1e3a5f', backgroundColor: '#ffffff' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#D4883A';
+                e.currentTarget.style.backgroundColor = 'rgba(212, 136, 58, 0.05)';
+                e.currentTarget.style.color = '#D4883A';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e5e7eb';
+                e.currentTarget.style.backgroundColor = '#ffffff';
+                e.currentTarget.style.color = '#1e3a5f';
+              }}
               onClick={handleAddClient}
             >
               <Users className="w-4 h-4" strokeWidth={2} />
-              <Text as="span" variant="body">
+              <span className="font-medium text-[15px]" style={{ color: 'inherit' }}>
                 New Client
-              </Text>
+              </span>
             </button>
             <button
-              className={`w-full ${ui.pad.cardTight} hig-btn-primary flex items-center justify-center gap-2`}
+              className="w-full py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm"
+              style={{ backgroundColor: '#1e3a5f', color: '#ffffff' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#D4883A';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#1e3a5f';
+              }}
               onClick={handleOpenLuma}
             >
               <Sparkles className="w-4 h-4" strokeWidth={2} />
-              <Text as="span" variant="body" className={ui.tone.inverse}>
+              <span className="font-medium text-[15px] text-white">
                 Ask Luma
-              </Text>
+              </span>
             </button>
           </div>
         </div>

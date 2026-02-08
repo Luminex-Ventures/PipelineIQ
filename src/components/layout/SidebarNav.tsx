@@ -55,8 +55,14 @@ function NavItemButton({ item, isActive, isCollapsed, onClick }: NavItemButtonPr
     <div className="relative">
       <button
         onClick={onClick}
-        onMouseEnter={() => isCollapsed && setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
+        onMouseEnter={(e) => {
+          if (isCollapsed) setShowTooltip(true);
+          if (!isActive) e.currentTarget.style.color = '#D4883A';
+        }}
+        onMouseLeave={(e) => {
+          setShowTooltip(false);
+          if (!isActive) e.currentTarget.style.color = '#1e3a5f';
+        }}
         onFocus={() => isCollapsed && setShowTooltip(true)}
         onBlur={() => setShowTooltip(false)}
         aria-label={item.label}
@@ -64,10 +70,11 @@ function NavItemButton({ item, isActive, isCollapsed, onClick }: NavItemButtonPr
           'group relative flex w-full items-center transition-colors duration-150',
           isCollapsed ? 'justify-center px-3 py-2.5' : 'gap-3 px-3 py-2.5',
           isActive
-            ? 'bg-blue-50 text-[var(--app-accent)]'
-            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+            ? 'bg-[rgba(212,136,58,0.08)]'
+            : 'hover:bg-gray-100',
           ui.radius.control,
         ].join(' ')}
+        style={{ color: isActive ? '#D4883A' : '#1e3a5f' }}
       >
         {/* Active indicator bar (Jira-style left border) */}
         {isActive && (
@@ -80,10 +87,7 @@ function NavItemButton({ item, isActive, isCollapsed, onClick }: NavItemButtonPr
         )}
         
         <Icon
-          className={[
-            'h-5 w-5 flex-shrink-0 transition-colors',
-            isActive ? 'text-[var(--app-accent)]' : 'text-gray-500 group-hover:text-gray-700',
-          ].join(' ')}
+          className="h-5 w-5 flex-shrink-0 transition-colors"
           strokeWidth={2}
         />
         
@@ -91,10 +95,7 @@ function NavItemButton({ item, isActive, isCollapsed, onClick }: NavItemButtonPr
           <Text
             as="span"
             variant="body"
-            className={[
-              'whitespace-nowrap font-medium',
-              isActive ? 'text-[var(--app-accent)]' : '',
-            ].join(' ')}
+            className="whitespace-nowrap font-medium"
           >
             {item.label}
           </Text>
@@ -150,18 +151,9 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
         isCollapsed ? 'justify-center px-2' : 'px-4',
       ].join(' ')}>
         {isCollapsed ? (
-          <div className="h-8 w-8 rounded-lg bg-[var(--app-accent)] flex items-center justify-center">
-            <Sparkles className="h-4 w-4 text-white" strokeWidth={2} />
-          </div>
+          <img src="/LumaIQ-icon.png" alt="Luma-IQ" className="h-8 w-8" />
         ) : (
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-[var(--app-accent)] flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-white" strokeWidth={2} />
-            </div>
-            <Text as="span" variant="body" className="font-semibold text-gray-900">
-              Luma-IQ
-            </Text>
-          </div>
+          <img src="/LumaIQ-header.png" alt="Luma-IQ" className="h-10" />
         )}
       </div>
 
@@ -219,8 +211,14 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
             <button
               type="button"
               onClick={onToggle}
-              onMouseEnter={() => isCollapsed && setShowCollapseTooltip(true)}
-              onMouseLeave={() => setShowCollapseTooltip(false)}
+              onMouseEnter={(e) => {
+                if (isCollapsed) setShowCollapseTooltip(true);
+                e.currentTarget.style.color = '#D4883A';
+              }}
+              onMouseLeave={(e) => {
+                setShowCollapseTooltip(false);
+                e.currentTarget.style.color = '#1e3a5f';
+              }}
               onFocus={() => isCollapsed && setShowCollapseTooltip(true)}
               onBlur={() => setShowCollapseTooltip(false)}
               aria-pressed={!isCollapsed}
@@ -229,16 +227,17 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
               className={[
                 'group flex w-full items-center transition-colors duration-150',
                 isCollapsed ? 'justify-center px-3 py-2.5' : 'gap-3 px-3 py-2.5',
-                'text-gray-500 hover:bg-gray-100 hover:text-gray-700',
+                'hover:bg-gray-100',
                 ui.radius.control,
               ].join(' ')}
+              style={{ color: '#1e3a5f' }}
             >
               {isCollapsed ? (
                 <ChevronRight className="h-5 w-5" strokeWidth={2} />
               ) : (
                 <>
                   <ChevronLeft className="h-5 w-5" strokeWidth={2} />
-                  <Text as="span" variant="body" className="font-medium text-gray-600">
+                  <Text as="span" variant="body" className="font-medium">
                     Collapse
                   </Text>
                 </>

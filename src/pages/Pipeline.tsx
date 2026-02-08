@@ -1439,35 +1439,57 @@ export default function Pipeline() {
                 onClick={() => setViewMode('kanban')}
                 className={[
                   viewToggleButton,
-                  viewMode === 'kanban' ? 'bg-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/30' : 'hover:bg-gray-100/70',
-                  viewMode === 'kanban' ? ui.tone.inverse : ui.tone.subtle
+                  viewMode === 'kanban' ? 'bg-[#1e3a5f] ring-1 ring-[#1e3a5f]/30' : ''
                 ].join(' ')}
+                style={{ 
+                  color: viewMode === 'kanban' ? '#ffffff' : '#1e3a5f',
+                  backgroundColor: viewMode === 'kanban' ? '#1e3a5f' : 'transparent'
+                }}
+                onMouseEnter={(e) => {
+                  if (viewMode !== 'kanban') {
+                    e.currentTarget.style.backgroundColor = 'rgba(212, 136, 58, 0.1)';
+                    e.currentTarget.style.color = '#D4883A';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (viewMode !== 'kanban') {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#1e3a5f';
+                  }
+                }}
               >
                 <LayoutGrid className="w-4 h-4" />
-                <Text
-                  as="span"
-                  variant="body"
-                  className={['font-medium', viewMode === 'kanban' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
-                >
+                <span className="font-medium text-[15px]" style={{ color: 'inherit' }}>
                   Kanban
-                </Text>
+                </span>
               </button>
               <button
                 onClick={() => setViewMode('table')}
                 className={[
                   viewToggleButton,
-                  viewMode === 'table' ? 'bg-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/30' : 'hover:bg-gray-100/70',
-                  viewMode === 'table' ? ui.tone.inverse : ui.tone.subtle
+                  viewMode === 'table' ? 'bg-[#1e3a5f] ring-1 ring-[#1e3a5f]/30' : ''
                 ].join(' ')}
+                style={{ 
+                  color: viewMode === 'table' ? '#ffffff' : '#1e3a5f',
+                  backgroundColor: viewMode === 'table' ? '#1e3a5f' : 'transparent'
+                }}
+                onMouseEnter={(e) => {
+                  if (viewMode !== 'table') {
+                    e.currentTarget.style.backgroundColor = 'rgba(212, 136, 58, 0.1)';
+                    e.currentTarget.style.color = '#D4883A';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (viewMode !== 'table') {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#1e3a5f';
+                  }
+                }}
               >
                 <List className="w-4 h-4" />
-                <Text
-                  as="span"
-                  variant="body"
-                  className={['font-medium', viewMode === 'table' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
-                >
+                <span className="font-medium text-[15px]" style={{ color: 'inherit' }}>
                   Table
-                </Text>
+                </span>
               </button>
             </div>
             <div className="relative">

@@ -4,22 +4,36 @@
 
 @layer base {
   :root {
-    --app-bg-start: #feffff;
-    --app-bg-mid: #feffff;
-    --app-bg-end: #feffff;
-    --app-surface: #feffff;
-    --app-surface-muted: rgba(44, 62, 80, 0.04);
-    --app-border: rgba(15, 23, 42, 0.08);
-    --app-border-strong: rgba(15, 23, 42, 0.12);
-    --app-text-primary: #2c3e50;
-    --app-text-secondary: rgba(44, 62, 80, 0.75);
-    --app-text-tertiary: rgba(44, 62, 80, 0.5);
-    --app-accent: #2c3e50;
-    --app-accent-strong: #2c3e50;
-    --app-accent-rgb: 44, 62, 80;
+    /* Luma-IQ Brand Color System */
+    /* Navy (structure/text) */
+    --luma-navy: #1e3a5f;
+    --luma-navy-light: #2c4a6e;
+    --luma-navy-rgb: 30, 58, 95;
+    /* Orange (accent/action) */
+    --luma-orange: #D4883A;
+    --luma-orange-hover: #C07830;
+    --luma-orange-light: rgba(212, 136, 58, 0.1);
+    --luma-orange-rgb: 212, 136, 58;
+    
+    /* App tokens mapped to brand */
+    --app-bg-start: #f8f9fa;
+    --app-bg-mid: #f8f9fa;
+    --app-bg-end: #f8f9fa;
+    --app-surface: #ffffff;
+    --app-surface-muted: rgba(30, 58, 95, 0.04);
+    --app-border: rgba(30, 58, 95, 0.10);
+    --app-border-strong: rgba(30, 58, 95, 0.15);
+    --app-text-primary: #1e3a5f;
+    --app-text-secondary: rgba(30, 58, 95, 0.75);
+    --app-text-tertiary: rgba(30, 58, 95, 0.5);
+    /* Accent = Orange (for actions/highlights) */
+    --app-accent: #D4883A;
+    --app-accent-hover: #C07830;
+    --app-accent-strong: #C07830;
+    --app-accent-rgb: 212, 136, 58;
     --app-radius: 1.25rem;
-    --app-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.08);
-    --app-shadow-diffused: 0 25px 80px rgba(15, 23, 42, 0.08);
+    --app-shadow-soft: 0 12px 30px rgba(30, 58, 95, 0.08);
+    --app-shadow-diffused: 0 25px 80px rgba(30, 58, 95, 0.08);
   }
 
   body {
@@ -53,43 +67,53 @@
   }
 
   .hig-card-hover {
-    @apply hig-card hover:shadow-md hover:border-gray-300/60 transition-all duration-200;
+    @apply hig-card hover:shadow-md hover:border-[rgba(var(--app-accent-rgb),0.3)] transition-all duration-200;
   }
 
   .hig-btn-primary {
-    @apply bg-[var(--app-accent)] hover:bg-[var(--app-accent)] active:bg-[var(--app-accent)] text-white font-medium px-5 py-2 rounded-lg transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
+    @apply bg-[var(--luma-navy)] hover:bg-[var(--app-accent)] active:bg-[var(--app-accent-hover)] text-white font-semibold px-5 py-2 rounded-lg transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center hover:shadow-md;
   }
 
   .hig-btn-secondary {
-    @apply bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-900 font-medium px-5 py-2 rounded-lg border border-gray-300 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
+    @apply bg-white text-[var(--luma-navy)] font-medium px-5 py-2 rounded-lg border border-gray-200 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-[15px] min-h-[44px] inline-flex items-center justify-center;
+  }
+  .hig-btn-secondary:hover {
+    background-color: var(--app-accent);
+    border-color: var(--app-accent);
+    color: white;
   }
 
   .hig-btn-text {
-    @apply text-[var(--app-accent)] hover:text-[var(--app-accent)] active:text-[var(--app-accent)] font-medium px-3 py-2 rounded-lg hover:bg-gray-100/50 transition-colors duration-150 text-[15px] min-h-[44px] inline-flex items-center justify-center;
+    @apply text-[var(--luma-navy)] font-medium px-3 py-2 rounded-lg transition-all duration-150 text-[15px] min-h-[44px] inline-flex items-center justify-center;
+  }
+  .hig-btn-text:hover {
+    color: var(--app-accent);
+    background-color: rgba(var(--app-accent-rgb), 0.08);
   }
 
   .hig-input {
-    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[rgba(var(--app-accent-rgb),0.2)] focus:border-[var(--app-accent)] transition-all duration-150 min-h-[44px];
+    @apply w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-[15px] text-[var(--luma-navy)] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[rgba(var(--app-accent-rgb),0.25)] focus:border-[var(--app-accent)] transition-all duration-150 min-h-[44px];
   }
 
   .hig-label {
-    @apply block text-sm font-medium text-gray-700 mb-2;
+    @apply block text-sm font-medium text-[var(--luma-navy)] mb-2;
   }
 
   .hig-text-display {
-    @apply text-[28px] font-semibold tracking-tight text-gray-900;
+    @apply text-[28px] font-semibold tracking-tight text-[var(--luma-navy)];
   }
 
   .hig-text-heading {
-    @apply text-xl font-semibold text-gray-900;
+    @apply text-xl font-semibold text-[var(--luma-navy)];
   }
 
   .hig-text-body {
-    @apply text-[15px] text-gray-900;
+    @apply text-[15px] text-[var(--luma-navy)];
   }
 
   .hig-text-caption {
-    @apply text-[13px] text-gray-500;
+    @apply text-[13px];
+    color: rgba(var(--luma-navy-rgb), 0.6);
   }
 
   .hig-badge {
@@ -101,7 +125,7 @@
   }
 
   .hig-badge-warning {
-    @apply hig-badge bg-orange-100 text-orange-800;
+    @apply hig-badge bg-[rgba(var(--app-accent-rgb),0.15)] text-[var(--app-accent)];
   }
 
   .hig-badge-danger {
@@ -109,11 +133,98 @@
   }
 
   .hig-badge-neutral {
-    @apply hig-badge bg-gray-100 text-gray-700;
+    @apply hig-badge bg-gray-100;
+    color: rgba(var(--luma-navy-rgb), 0.7);
+  }
+
+  .hig-badge-accent {
+    @apply hig-badge bg-[rgba(var(--app-accent-rgb),0.1)] text-[var(--app-accent)];
   }
 
   .hig-divider {
     @apply border-t border-gray-200/60;
+  }
+
+  /* Interactive list items with orange hover */
+  .hig-list-item {
+    @apply px-4 py-3 transition-colors duration-150 cursor-pointer hover:bg-[rgba(var(--app-accent-rgb),0.04)];
+  }
+
+  .hig-list-item-active {
+    @apply bg-[rgba(var(--app-accent-rgb),0.08)] border-l-2 border-l-[var(--app-accent)];
+  }
+
+  /* Links - navy default, orange on hover */
+  .hig-link {
+    @apply text-[var(--luma-navy)] hover:text-[var(--app-accent)] transition-colors duration-150 cursor-pointer;
+  }
+
+  .hig-link-subtle {
+    @apply transition-colors duration-150 cursor-pointer;
+    color: rgba(var(--luma-navy-rgb), 0.7);
+  }
+  .hig-link-subtle:hover {
+    color: var(--app-accent);
+  }
+
+  /* Tab styles - navy default, orange active */
+  .hig-tab {
+    @apply px-4 py-2 text-sm font-medium transition-colors duration-150 border-b-2 border-transparent;
+    color: rgba(var(--luma-navy-rgb), 0.6);
+  }
+  .hig-tab:hover {
+    color: var(--luma-navy);
+  }
+
+  .hig-tab-active {
+    @apply border-b-[var(--app-accent)];
+    color: var(--app-accent);
+  }
+
+  /* Checkbox and radio - navy default, orange when checked */
+  .hig-checkbox {
+    @apply w-4 h-4 rounded border-[var(--luma-navy)] focus:ring-[var(--app-accent)] focus:ring-offset-0;
+    accent-color: var(--app-accent);
+  }
+
+  .hig-radio {
+    @apply w-4 h-4 border-[var(--luma-navy)] focus:ring-[var(--app-accent)] focus:ring-offset-0;
+    accent-color: var(--app-accent);
+  }
+
+  /* Toggle switch - navy default, orange when on */
+  .hig-toggle {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] focus:ring-offset-2;
+  }
+
+  .hig-toggle-on {
+    @apply bg-[var(--app-accent)];
+  }
+
+  .hig-toggle-off {
+    @apply bg-[var(--luma-navy)];
+  }
+
+  /* Select dropdown - navy text, orange focus */
+  .hig-select {
+    @apply w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-[15px] text-[var(--luma-navy)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--app-accent-rgb),0.25)] focus:border-[var(--app-accent)] transition-all duration-150 min-h-[44px] cursor-pointer;
+  }
+
+  /* Icon button - navy default, orange on hover */
+  .hig-icon-btn {
+    @apply p-2 rounded-lg transition-all duration-150;
+    color: var(--luma-navy);
+  }
+  .hig-icon-btn:hover {
+    color: var(--app-accent);
+    background-color: rgba(var(--app-accent-rgb), 0.08);
+  }
+  .hig-icon-btn:hover {
+    color: var(--app-accent);
+  }
+
+  .hig-icon-btn-active {
+    @apply text-[var(--app-accent)] bg-[rgba(var(--app-accent-rgb),0.1)];
   }
 
   /* Elevate grouped agent labels in task deal selector */
@@ -132,14 +243,45 @@
     font-weight: 500;
   }
 
-  /* Reduce gray overlay on analytics multiselect filters */
+  /* Selection styles with brand orange */
   .analytics-multi-select option {
-    color: #0f172a;
+    color: var(--luma-navy);
   }
   .analytics-multi-select option:checked {
-    background-color: rgba(var(--app-accent-rgb), 0.16);
-    color: #0f172a;
+    background-color: rgba(var(--app-accent-rgb), 0.15);
+    color: var(--luma-navy);
     font-weight: 600;
+  }
+
+  /* Global selection highlight */
+  ::selection {
+    background-color: rgba(var(--app-accent-rgb), 0.2);
+    color: var(--luma-navy);
+  }
+
+  /* Focus visible for keyboard navigation */
+  :focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbar styling with subtle brand color */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(var(--luma-navy-rgb), 0.15);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(var(--app-accent-rgb), 0.4);
   }
 
   .tasks-cell {
