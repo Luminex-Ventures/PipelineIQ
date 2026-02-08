@@ -3,6 +3,10 @@ import { Sparkles, Send, RotateCcw, RefreshCw, ChevronDown } from 'lucide-react'
 import { queryLuma } from '../lib/openai';
 import { buildRAGContext } from '../lib/rag-context';
 import '../lib/rag-debug'; // Enable debug helper in console
+import { PageShell } from '../ui/PageShell';
+import { Card } from '../ui/Card';
+import { Text } from '../ui/Text';
+import { ui } from '../ui/tokens';
 
 interface SupportingData {
   total_deals?: number;
@@ -23,11 +27,15 @@ interface Message {
 
 type ContextStatus = 'idle' | 'updating' | 'ready' | 'error';
 
-const surfaceClass =
-  'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_8px_20px_rgba(15,23,42,0.08)]';
+const surfaceClass = [ui.radius.card, ui.border.card, ui.shadow.card, 'bg-white/90'].join(' ');
 
-const suggestionPillClass =
-  'inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:border-[var(--app-accent)]/40 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40';
+const suggestionPillClass = [
+  'inline-flex items-center gap-2 bg-white transition focus-visible:outline-none',
+  ui.radius.pill,
+  ui.border.subtle,
+  ui.pad.chip,
+  ui.shadow.card
+].join(' ');
 
 const MAX_TEXTAREA_HEIGHT = 160;
 
@@ -115,49 +123,59 @@ export default function Luma() {
   }, [contextMeta, lastUpdatedAt]);
 
   return (
-    <div className="flex h-full flex-col gap-6">
-      <section className={`${surfaceClass} px-6 py-5 sm:px-8`}>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-gray-400">Luma AI</p>
-            <h1 className="text-2xl font-semibold text-gray-900">Chat with your data-aware copilot</h1>
-            <p className="max-w-2xl text-sm text-gray-600">
-              Ask natural questions about deals, tasks, lead sources, or performance. Luma keeps context from your workspace.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClearChat}
-            className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
-          >
-            <RotateCcw className="h-4 w-4" />
-            New chat
-          </button>
+    <PageShell
+      title={
+        <div className="space-y-2">
+          <Text variant="micro">Luma AI</Text>
+          <Text as="h1" variant="h1">Chat with your data-aware copilot</Text>
         </div>
-      </section>
-
-      <section className={`${surfaceClass} flex flex-1 flex-col overflow-hidden bg-white`}>
-        <div className="border-b border-gray-100 px-4 py-4 sm:px-6">
+      }
+      subtitle={
+        <Text variant="muted">
+          Ask natural questions about deals, tasks, lead sources, or performance. Luma keeps context from your workspace.
+        </Text>
+      }
+      actions={
+        <button
+          type="button"
+          onClick={handleClearChat}
+          className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
+        >
+          <div className="inline-flex items-center gap-2">
+            <RotateCcw className="h-4 w-4" />
+            <Text as="span" variant="micro" className={ui.tone.muted}>
+              New chat
+            </Text>
+          </div>
+        </button>
+      }
+    >
+      <Card className="flex flex-1 flex-col overflow-hidden bg-white" padding="none">
+        <div className={[ui.border.subtle, ui.pad.cardTight].join(' ')}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-gray-400">Conversation</p>
-              <p className="mt-1 text-sm text-gray-600">
+            <div className="space-y-1">
+              <Text variant="micro">Conversation</Text>
+              <Text variant="muted">
                 Bring up deals, follow-ups, or performance goals. Luma replies with grounded insight.
-              </p>
+              </Text>
             </div>
             <button
               type="button"
               onClick={refreshContext}
               disabled={contextStatus === 'updating'}
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
+              className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
             >
-              <RefreshCw className={`h-4 w-4 ${contextStatus === 'updating' ? 'animate-spin' : ''}`} />
-              Refresh context
+              <div className="inline-flex items-center gap-2">
+                <RefreshCw className={`h-4 w-4 ${contextStatus === 'updating' ? 'animate-spin' : ''}`} />
+                <Text as="span" variant="micro" className={ui.tone.muted}>
+                  Refresh context
+                </Text>
+              </div>
             </button>
           </div>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        <div ref={scrollRef} className={['flex-1 overflow-y-auto', ui.pad.card].join(' ')}>
           {!hasMessages && showPrompts && (
             <StarterPrompts
               prompts={suggestedQueries}
@@ -173,15 +191,27 @@ export default function Luma() {
 
             {loading && (
               <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
+                <div
+                  className={[
+                    'flex h-8 w-8 items-center justify-center bg-[var(--app-accent)]/10',
+                    ui.radius.pill,
+                    ui.tone.accent
+                  ].join(' ')}
+                >
                   <Sparkles className="h-4 w-4" />
                 </div>
-                <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                <div className={[ui.radius.card, ui.border.subtle, ui.pad.cardTight, 'bg-white'].join(' ')}>
                   <div className="flex items-center gap-1.5" role="status" aria-live="polite">
                     <span className="sr-only">Luma is typing</span>
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: '0.1s' }} />
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: '0.2s' }} />
+                    <div className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')} />
+                    <div
+                      className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
+                      style={{ animationDelay: '0.1s' }}
+                    />
+                    <div
+                      className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
+                      style={{ animationDelay: '0.2s' }}
+                    />
                   </div>
                 </div>
               </div>
@@ -189,10 +219,18 @@ export default function Luma() {
           </div>
         </div>
 
-        <div className="sticky bottom-0 border-t border-gray-100 bg-white/95 backdrop-blur">
-          <form onSubmit={submitMessage} className="px-4 py-4 sm:px-6">
+        <div className="sticky bottom-0 bg-white/95 backdrop-blur">
+          <div className="h-px bg-gray-200/60" />
+          <form onSubmit={submitMessage} className={ui.pad.cardTight}>
             <div className="flex flex-col gap-3">
-              <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm focus-within:border-[var(--app-accent)]/50 focus-within:ring-2 focus-within:ring-[var(--app-accent)]/20">
+              <div
+                className={[
+                  ui.radius.card,
+                  ui.border.card,
+                  ui.pad.cardTight,
+                  'bg-white focus-within:ring-2 focus-within:ring-[var(--app-accent)]/20'
+                ].join(' ')}
+              >
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -207,33 +245,41 @@ export default function Luma() {
                   placeholder="Ask Luma anything about your pipeline..."
                   aria-label="Message Luma"
                   rows={1}
-                  className="w-full resize-none border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                  className={['w-full resize-none bg-transparent outline-none', ui.tone.primary].join(' ')}
                   style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
                 />
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
-                <span aria-live="polite">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Text as="span" variant="muted" aria-live="polite">
                   {contextStatus === 'error'
                     ? 'Context failed to update.'
                     : contextStatus === 'updating'
                     ? 'Updating context...'
                     : contextLine}
-                </span>
+                </Text>
                 <button
                   type="submit"
                   aria-label="Send message"
                   disabled={!input.trim()}
-                  className="inline-flex items-center gap-2 rounded-full bg-[var(--app-accent)] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
+                  className={[
+                    'inline-flex items-center gap-2 bg-[var(--app-accent)] transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40',
+                    ui.radius.pill,
+                    ui.pad.chip
+                  ].join(' ')}
                 >
-                  {loading ? <span className="text-xs">Sending</span> : <span>Send</span>}
+                  {loading ? (
+                    <Text as="span" variant="micro" className={ui.tone.inverse}>Sending</Text>
+                  ) : (
+                    <Text as="span" variant="micro" className={ui.tone.inverse}>Send</Text>
+                  )}
                   <Send className="h-4 w-4" />
                 </button>
               </div>
             </div>
           </form>
         </div>
-      </section>
-    </div>
+      </Card>
+    </PageShell>
   );
 }
 
@@ -395,24 +441,36 @@ function MessageBubble({ message }: { message: Message }) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-          isUser
-            ? 'bg-[var(--app-accent)] text-white shadow-[0_12px_30px_rgba(var(--app-accent-rgb),0.2)]'
-            : 'border border-gray-200 bg-white text-gray-900 shadow-sm'
-        }`}
+        className={[
+          'max-w-3xl',
+          ui.radius.card,
+          ui.pad.cardTight,
+          isUser ? 'bg-[var(--app-accent)]' : 'bg-white',
+          isUser ? ui.shadow.card : ui.border.subtle
+        ].join(' ')}
       >
         {!isUser && (
-          <div className="mb-3 flex items-center gap-2 text-gray-500">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
+          <div className="flex items-center gap-2">
+            <div
+              className={[
+                'flex h-7 w-7 items-center justify-center bg-[var(--app-accent)]/10',
+                ui.radius.pill,
+                ui.tone.accent
+              ].join(' ')}
+            >
               <Sparkles className="h-4 w-4" strokeWidth={2} />
             </div>
-            <span className="text-xs font-semibold uppercase tracking-wide">Luma</span>
+            <Text as="span" variant="micro">Luma</Text>
           </div>
         )}
 
-        <div className={`whitespace-pre-wrap ${isUser ? 'text-white' : 'text-gray-800'}`}>
+        <Text
+          as="div"
+          variant="body"
+          className={[isUser ? ui.tone.inverse : ui.tone.primary, 'whitespace-pre-wrap'].join(' ')}
+        >
           {renderMessageContent(message.content)}
-        </div>
+        </Text>
 
         {message.supportingData && (
           <SupportingStatsBlock data={message.supportingData} />
@@ -433,35 +491,33 @@ function SupportingStatsBlock({ data }: { data: SupportingData }) {
   if (knownStats.length === 0 && extraStats.length === 0) return null;
 
   return (
-    <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50/60 px-4 py-3">
+    <div className={[ui.radius.card, ui.border.subtle, ui.pad.cardTight, 'bg-gray-50/60 space-y-3'].join(' ')}>
       <div className="grid gap-3 sm:grid-cols-2">
         {knownStats.map((stat) => (
-          <div key={stat.key} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
-            <div className="text-[11px] uppercase tracking-wide text-gray-500">{stat.label}</div>
-            <div className="text-base font-semibold text-gray-900">
-              {stat.format(data[stat.key] as number)}
-            </div>
-          </div>
+          <Card key={stat.key} padding="cardTight">
+            <Text variant="micro">{stat.label}</Text>
+            <Text as="div" variant="h2">{stat.format(data[stat.key] as number)}</Text>
+          </Card>
         ))}
       </div>
 
       {extraStats.length > 0 && (
-        <div className="mt-3">
+        <div className="space-y-2">
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            className="inline-flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
+            className="inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
           >
-            More stats
+            <Text as="span" variant="micro" className={ui.tone.muted}>More stats</Text>
             <ChevronDown className={`h-4 w-4 transition ${expanded ? 'rotate-180' : ''}`} />
           </button>
           {expanded && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               {extraStats.map(([key, value]) => (
-                <div key={key} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
-                  <div className="text-[11px] uppercase tracking-wide text-gray-500">{formatLabel(key)}</div>
-                  <div className="text-base font-semibold text-gray-900">{formatNumber(value as number)}</div>
-                </div>
+                <Card key={key} padding="cardTight">
+                  <Text variant="micro">{formatLabel(key)}</Text>
+                  <Text as="div" variant="h2">{formatNumber(value as number)}</Text>
+                </Card>
               ))}
             </div>
           )}
@@ -481,18 +537,19 @@ function StarterPrompts({
   onDismiss: () => void;
 }) {
   return (
-    <div className="mb-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-4 py-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-gray-400">Starter prompts</p>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-xs font-semibold text-gray-500 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
-        >
-          Hide
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-2">
+    <Card className="bg-gray-50/70" padding="cardTight" style={{ borderStyle: 'dashed' }}>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Text variant="micro">Starter prompts</Text>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
+          >
+            <Text as="span" variant="micro" className={ui.tone.subtle}>Hide</Text>
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
         {prompts.map((prompt) => (
           <button
             key={prompt}
@@ -500,12 +557,13 @@ function StarterPrompts({
             onClick={() => onSelect(prompt)}
             className={suggestionPillClass}
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)]/40" />
-            {prompt}
+            <span className={['h-1.5 w-1.5 bg-[var(--app-accent)]/40', ui.radius.pill].join(' ')} />
+            <Text as="span" variant="micro" className={ui.tone.muted}>{prompt}</Text>
           </button>
         ))}
+        </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -527,7 +585,7 @@ function renderMessageContent(content: string) {
   return parts.map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return (
-        <strong key={`${part}-${index}`} className="font-semibold text-gray-900">
+        <strong key={`${part}-${index}`} className={['font-semibold', ui.tone.primary].join(' ')}>
           {part.slice(2, -2)}
         </strong>
       );

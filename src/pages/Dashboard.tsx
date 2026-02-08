@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { generateDashboardInsights } from '../lib/openai-insights';
 import {
-  TrendingUp, DollarSign, CheckCircle, Calendar, AlertCircle,
+  TrendingUp, CheckCircle, Calendar, AlertCircle,
   Users, Sparkles, Target, Clock, Activity,
   ChevronRight, GripVertical, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
@@ -35,11 +35,14 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import type { Database } from '../lib/database.types';
-import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Text } from '../ui/Text';
 import { WidgetCard, WidgetHeader } from '../ui/Widget';
+import { Card } from '../ui/Card';
+import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
+import { PageShell } from '../ui/PageShell';
+import { ui } from '../ui/tokens';
 import { STATUS_LABELS } from '../constants/statusLabels';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
@@ -311,9 +314,14 @@ function SortableWidget({ id, children }: SortableWidgetProps) {
       <div
         {...attributes}
         {...listeners}
-        className="absolute -top-2 -right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing bg-white rounded-lg shadow-lg p-2"
+        className={[
+          'absolute -top-2 -right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing bg-white',
+          ui.radius.control,
+          ui.shadow.card,
+          ui.pad.cardTight
+        ].join(' ')}
       >
-        <GripVertical className="w-4 h-4 text-gray-400" />
+        <GripVertical className={`w-4 h-4 ${ui.tone.faint}`} />
       </div>
       {children}
     </div>
@@ -335,9 +343,25 @@ function RefreshOverlay({
         {children}
       </div>
       {active && (
-        <div className="absolute inset-0 rounded-2xl bg-white/40 backdrop-blur-[1px] flex items-start justify-end p-3 pointer-events-none">
-          <div className="text-[11px] font-semibold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-1 shadow-sm">
-            {label}
+        <div
+          className={[
+            'absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-start justify-end pointer-events-none',
+            ui.radius.card,
+            ui.pad.cardTight
+          ].join(' ')}
+        >
+          <div
+            className={[
+              ui.radius.pill,
+              ui.border.subtle,
+              ui.shadow.card,
+              ui.pad.cardTight,
+              'bg-white/70'
+            ].join(' ')}
+          >
+            <Text variant="micro" className={ui.tone.muted}>
+              {label}
+            </Text>
           </div>
         </div>
       )}
@@ -445,8 +469,7 @@ export default function Dashboard() {
   const [selectedLeadSources, setSelectedLeadSources] = useState<string[]>([]);
   const [selectedPipelineStages, setSelectedPipelineStages] = useState<string[]>([]);
   const [selectedDealTypes, setSelectedDealTypes] = useState<DealRow['deal_type'][]>([]);
-  const [dateRangePreset, setDateRangePreset] = useState<DateRange>('ytd');
-  const range = useMemo(() => getDateRange(dateRangePreset), [dateRangePreset]);
+  const range = useMemo(() => getDateRange('ytd'), []);
   const stableJoin = (arr: string[]) => [...arr].filter(Boolean).sort().join('|');
   const resolvedAgentIds = useMemo(() => {
     if (!availableAgents.length) return [] as string[];
@@ -455,7 +478,7 @@ export default function Dashboard() {
   const queryState = useMemo(() => ({
     userId: user?.id ?? '',
     agentIds: resolvedAgentIds,
-    dateRangePreset,
+    dateRangePreset: 'ytd' as DateRange,
     startISO: range.start.toISOString(),
     endISO: range.end.toISOString(),
     leadSources: selectedLeadSources,
@@ -464,7 +487,6 @@ export default function Dashboard() {
   }), [
     user?.id,
     resolvedAgentIds,
-    dateRangePreset,
     range.start,
     range.end,
     selectedLeadSources,
@@ -489,12 +511,6 @@ export default function Dashboard() {
       },
     })
   );
-  const timeRangeOptions: { value: DateRange; label: string }[] = [
-    { value: 'this_month', label: 'MTD' },
-    { value: 'last_30_days', label: '30D' },
-    { value: 'this_quarter', label: 'QTD' },
-    { value: 'ytd', label: 'YTD' }
-  ];
 
   useEffect(() => {
     if (!user) return;
@@ -1562,224 +1578,242 @@ export default function Dashboard() {
   };
 
   const renderLumaInsights = () => (
-    <WidgetCard className="bg-gradient-to-br from-blue-50 via-white to-sky-50 border-blue-200/70">
-      <WidgetHeader
-        className="mb-4"
-        icon={<Sparkles className="w-4 h-4 text-[var(--app-accent)]" strokeWidth={2} />}
-        title="Luma Insights"
-        subtitle="AI-generated highlights from your latest activity."
-        rightSlot={
-          showInsightsSpinner ? (
-            <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--app-accent)]"></div>
-          ) : null
-        }
-      />
-      {showInsightsSkeleton ? (
-        <div className="space-y-2">
-          <div className="h-4 w-5/6 rounded-full bg-blue-100/70 animate-pulse"></div>
-          <div className="h-4 w-4/5 rounded-full bg-blue-100/70 animate-pulse"></div>
-          <div className="h-4 w-3/4 rounded-full bg-blue-100/70 animate-pulse"></div>
-        </div>
-      ) : showInsightsError ? (
-        <Text variant="muted" className="text-gray-600">
-          Luma insights are unavailable right now. Please try again in a moment.
-        </Text>
-      ) : showInsightsList ? (
-        <div className="space-y-2">
-          {aiInsightsState.insights.slice(0, 3).map((insight, index) => (
-            <div key={index} className="flex items-start gap-2.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-[var(--app-accent)] mt-2 flex-shrink-0"></div>
-              <Text variant="body" className="text-gray-800 leading-relaxed">
-                {insight}
-              </Text>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Text variant="muted" className="text-gray-600">
-          No Luma insights yet. Try adjusting filters or refreshing.
-        </Text>
-      )}
+    <WidgetCard
+      className={[ui.border.card, 'bg-gradient-to-br from-blue-50 via-white to-sky-50'].join(' ')}
+      style={{ borderColor: 'rgba(191,219,254,0.7)' }}
+    >
+      <div className="space-y-4">
+        <WidgetHeader
+          icon={<Sparkles className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
+          title="Luma Insights"
+          subtitle="AI-generated highlights from your latest activity."
+          rightSlot={
+            showInsightsSpinner ? (
+              <div
+                className={['ml-auto animate-spin h-4 w-4', ui.radius.pill].join(' ')}
+                style={{ borderBottomWidth: 2, borderBottomStyle: 'solid', borderBottomColor: 'var(--app-accent)' }}
+              />
+            ) : null
+          }
+        />
+        {showInsightsSkeleton ? (
+          <div className="space-y-2">
+            <div className={['h-4 w-5/6 bg-blue-100/70 animate-pulse', ui.radius.pill].join(' ')} />
+            <div className={['h-4 w-4/5 bg-blue-100/70 animate-pulse', ui.radius.pill].join(' ')} />
+            <div className={['h-4 w-3/4 bg-blue-100/70 animate-pulse', ui.radius.pill].join(' ')} />
+          </div>
+        ) : showInsightsError ? (
+          <Text variant="muted">
+            Luma insights are unavailable right now. Please try again in a moment.
+          </Text>
+        ) : showInsightsList ? (
+          <div className="space-y-2">
+            {aiInsightsState.insights.slice(0, 3).map((insight, index) => (
+              <div key={index} className="flex items-start gap-2.5">
+                <div className="w-4 flex justify-center">
+                  <span
+                    className={['block w-1.5 h-1.5 bg-[var(--app-accent)]', ui.radius.pill].join(' ')}
+                    style={{ marginTop: '0.45em' }}
+                  />
+                </div>
+                <Text variant="body" className="flex-1">
+                  {insight}
+                </Text>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Text variant="muted">
+            No Luma insights yet. Try adjusting filters or refreshing.
+          </Text>
+        )}
+      </div>
     </WidgetCard>
   );
 
   const renderPipelineHealth = () => (
-    <WidgetCard className="p-4">
-      <WidgetHeader
-        className="mb-3"
-        icon={<Target className="w-4 h-4 text-[var(--app-accent)]" strokeWidth={2} />}
-        title="Pipeline Health"
-        rightSlot={
-          <div className="text-right">
-            <Text as="div" variant="h2">
-              {totalActiveDeals}
-            </Text>
-            <Text as="div" variant="muted">
-              Deals
-            </Text>
-          </div>
-        }
-      />
-
-      {pipelineHealth.length === 0 ? (
-        <Text variant="muted">No active deals in your pipeline yet.</Text>
-      ) : (
-        <>
-          <div className="mb-3 p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center justify-between">
-              <Text as="span" variant="muted" className="text-gray-600">
-                Pipeline Value
+    <WidgetCard className={ui.pad.cardTight}>
+      <div className="space-y-3">
+        <WidgetHeader
+          icon={<Target className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
+          title="Pipeline Health"
+          rightSlot={
+            <div className={ui.align.right}>
+              <Text as="div" variant="h2">
+                {totalActiveDeals}
               </Text>
-              <Text as="span" variant="body" className="font-semibold text-[var(--app-accent)]">
-                {formatCurrency(pipelineValue)}
+              <Text as="div" variant="muted">
+                Deals
               </Text>
             </div>
-          </div>
+          }
+        />
 
-          <div className="space-y-2">
-            {pipelineHealth.map(status => {
-              if (status.count === 0) return null;
-              const percentage = totalActiveDeals > 0 ? (status.count / totalActiveDeals) * 100 : 0;
+        {pipelineHealth.length === 0 ? (
+          <Text variant="muted">No active deals in your pipeline yet.</Text>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {pipelineHealth.map(status => {
+                if (status.count === 0) return null;
+                const percentage = totalActiveDeals > 0 ? (status.count / totalActiveDeals) * 100 : 0;
 
-              return (
-                <div
-                  key={status.id}
-                  className="p-3 rounded-lg border border-gray-200/60 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handlePipelineStatusClick(status)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      handlePipelineStatusClick(status);
-                    }
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: getColorValue(status.color) }}
-                      />
-                      <Text as="span" variant="body" className="font-medium">
-                        {status.name}
+                return (
+                  <div
+                    key={status.id}
+                    className={[
+                      ui.pad.cardTight,
+                      ui.radius.control,
+                      ui.border.subtle,
+                      'transition-all cursor-pointer'
+                    ].join(' ')}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handlePipelineStatusClick(status)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handlePipelineStatusClick(status);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={['w-2 h-2', ui.radius.pill].join(' ')}
+                          style={{ backgroundColor: getColorValue(status.color) }}
+                        />
+                        <Text as="span" variant="body" className="font-medium">
+                          {status.name}
+                        </Text>
+                        {status.stalledCount > 0 && (
+                          <div className={['flex items-center gap-1 bg-orange-50', ui.radius.control, ui.pad.chipTight].join(' ')}>
+                            <Clock className={`w-3 h-3 ${ui.tone.warning}`} strokeWidth={2} />
+                            <Text as="span" variant="muted" className={ui.tone.warningStrong}>
+                              {status.stalledCount}
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                      <Text as="span" variant="body" className="font-semibold">
+                        {status.count}
                       </Text>
-                      {status.stalledCount > 0 && (
-                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-50 rounded">
-                          <Clock className="w-3 h-3 text-orange-600" strokeWidth={2} />
-                          <Text as="span" variant="muted" className="text-orange-700">
-                            {status.stalledCount}
-                          </Text>
-                        </div>
-                      )}
                     </div>
-                    <Text as="span" variant="body" className="font-semibold">
-                      {status.count}
-                    </Text>
+                    <div className="flex items-center justify-between">
+                      <Text as="span" variant="body" className={`font-medium ${ui.tone.accent}`}>
+                        {formatCurrency(status.expectedGCI)}
+                      </Text>
+                      <Text as="span" variant="muted">
+                        {percentage.toFixed(0)}%
+                      </Text>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <Text as="span" variant="body" className="font-medium text-[var(--app-accent)]">
-                      {formatCurrency(status.expectedGCI)}
-                    </Text>
-                    <Text as="span" variant="muted">
-                      {percentage.toFixed(0)}%
-                    </Text>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {totalStalledCount > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-200/60">
-              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />
-                <Text as="span" variant="muted" className="text-orange-700">
-                  {totalStalledCount} deals stalled 30+ days
-                </Text>
-              </div>
+                );
+              })}
             </div>
-          )}
-        </>
-      )}
+
+            {totalStalledCount > 0 && (
+              <div className="space-y-2">
+                <div className="h-px bg-gray-200/60" />
+                <div className={['flex items-center gap-2 bg-orange-50', ui.radius.control, ui.pad.cardTight].join(' ')}>
+                  <AlertCircle className={`w-4 h-4 ${ui.tone.warning}`} strokeWidth={2} />
+                  <Text as="span" variant="muted" className={ui.tone.warningStrong}>
+                    {totalStalledCount} deals stalled 30+ days
+                  </Text>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </WidgetCard>
   );
 
   const renderAlertsActions = () => (
-    <WidgetCard className="p-4">
-      <WidgetHeader
-        className="mb-3"
-        icon={<AlertCircle className="w-4 h-4 text-orange-600" strokeWidth={2} />}
-        title="Alerts & Actions"
-      />
+    <div className="space-y-2">
+      <WidgetCard className={ui.pad.cardTight}>
+        <div className="space-y-3">
+          <WidgetHeader
+            icon={<AlertCircle className={`w-4 h-4 ${ui.tone.warning}`} strokeWidth={2} />}
+            title="Alerts"
+          />
 
-      {stalledDeals.length > 0 ? (
-        <div className="mb-3">
-          <Text variant="muted" className="font-medium mb-2">
-            Stalled Deals
-          </Text>
-          <div className="space-y-2">
-            {stalledDeals.slice(0, 3).map(deal => (
-              <div
-                key={deal.id}
-                className="p-3 bg-orange-50 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <Text as="div" variant="body" className="font-medium truncate">
-                      {deal.client_name}
-                    </Text>
-                    <Text as="div" variant="muted" className="text-gray-600 mt-0.5 truncate">
-                      {deal.property_address}
-                    </Text>
-                  </div>
-                  <div className="px-2 py-1 bg-orange-100 rounded flex-shrink-0">
-                    <Text as="div" variant="body" className="text-orange-700 font-semibold">
-                      {getDaysInStage(deal.stage_entered_at)}d
-                    </Text>
+          {stalledDeals.length > 0 ? (
+            <div className="space-y-2">
+              <Text variant="muted" className="font-medium">
+                Stalled Deals
+              </Text>
+              <div className="space-y-2">
+              {stalledDeals.slice(0, 3).map(deal => (
+                <div
+                  key={deal.id}
+                  className={[
+                    ui.pad.cardTight,
+                    ui.radius.control,
+                    'bg-orange-50 transition-all cursor-pointer'
+                  ].join(' ')}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <Text as="div" variant="body" className="font-medium truncate">
+                        {deal.client_name}
+                      </Text>
+                      <Text as="div" variant="muted" className="truncate">
+                        {deal.property_address}
+                      </Text>
+                    </div>
+                    <div className={[ui.radius.control, ui.pad.cardTight, 'bg-orange-100 flex-shrink-0'].join(' ')}>
+                      <Text as="div" variant="body" className={`${ui.tone.warningStrong} font-semibold`}>
+                        {getDaysInStage(deal.stage_entered_at)}d
+                      </Text>
+                    </div>
                   </div>
                 </div>
+              ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className={[ui.pad.cardTight, ui.radius.control, 'bg-green-50'].join(' ')}>
+              <div className="flex items-center gap-2">
+                <CheckCircle className={`w-4 h-4 ${ui.tone.success}`} strokeWidth={2} />
+                <Text as="span" variant="muted" className={ui.tone.successStrong}>
+                  All deals moving smoothly
+                </Text>
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="mb-3 p-3 bg-green-50 rounded-lg">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
-            <Text as="span" variant="muted" className="text-green-700">
-              All deals moving smoothly
-            </Text>
-          </div>
-        </div>
-      )}
+      </WidgetCard>
 
-      <div className="pt-3 border-t border-gray-200/60">
-        <Text variant="muted" className="font-medium mb-2">
-          Quick Actions
-        </Text>
-        <div className="space-y-2">
-          <button
-            className="w-full py-2.5 px-3 font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
-            onClick={handleAddClient}
-          >
-            <Users className="w-4 h-4" strokeWidth={2} />
-            <Text as="span" variant="body">
-              New Client
-            </Text>
-          </button>
-          <button
-            className="w-full py-2.5 px-3 font-medium text-white bg-[var(--app-accent)] rounded-lg hover:bg-[var(--app-accent)] transition-colors flex items-center justify-center gap-2"
-            onClick={handleOpenLuma}
-          >
-            <Sparkles className="w-4 h-4" strokeWidth={2} />
-            <Text as="span" variant="body" className="text-white">
-              Ask Luma
-            </Text>
-          </button>
+      <WidgetCard className={ui.pad.cardTight}>
+        <div className="space-y-3">
+          <WidgetHeader
+            icon={<Sparkles className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
+            title="Quick Actions"
+          />
+          <div className="space-y-2">
+            <button
+              className={`w-full ${ui.pad.cardTight} hig-btn-secondary flex items-center justify-center gap-2`}
+              onClick={handleAddClient}
+            >
+              <Users className="w-4 h-4" strokeWidth={2} />
+              <Text as="span" variant="body">
+                New Client
+              </Text>
+            </button>
+            <button
+              className={`w-full ${ui.pad.cardTight} hig-btn-primary flex items-center justify-center gap-2`}
+              onClick={handleOpenLuma}
+            >
+              <Sparkles className="w-4 h-4" strokeWidth={2} />
+              <Text as="span" variant="body" className={ui.tone.inverse}>
+                Ask Luma
+              </Text>
+            </button>
+          </div>
         </div>
-      </div>
-    </WidgetCard>
+      </WidgetCard>
+    </div>
   );
 
   const renderMonthlyMomentum = () => {
@@ -1809,17 +1843,21 @@ export default function Dashboard() {
     }));
 
     return (
-      <WidgetCard className="p-4">
+      <WidgetCard className={ui.pad.cardTight}>
+        <div className="space-y-3">
         <WidgetHeader
-          className="mb-3"
-          icon={<TrendingUp className="w-4 h-4 text-emerald-600" strokeWidth={2} />}
+          icon={<TrendingUp className={`w-4 h-4 ${ui.tone.success}`} strokeWidth={2} />}
           title="Monthly Momentum"
           rightSlot={
             change !== null ? (
               <div
-                className={`flex items-center gap-1 px-2 py-1 rounded ${
-                  change >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-                }`}
+                className={[
+                  'flex items-center gap-1',
+                  change >= 0 ? 'bg-emerald-50' : 'bg-rose-50',
+                  ui.radius.control,
+                  ui.pad.cardTight,
+                  change >= 0 ? ui.tone.success : ui.tone.rose
+                ].join(' ')}
               >
                 {change >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
                 <Text as="span" variant="muted" className="font-semibold">
@@ -1865,260 +1903,325 @@ export default function Dashboard() {
                 />
               </LineChart>
             </ResponsiveContainer>
-            <div className="mt-3 pt-3 border-t border-gray-200/60 flex items-center justify-center gap-4">
+            <div className="space-y-2">
+              <div className="h-px bg-gray-200/60" />
+              <div className="flex items-center justify-center gap-4">
               <div className="flex items-center gap-1.5">
-                <span className="h-1 w-4 rounded bg-[#0ea5e9]"></span>
-                <Text as="span" variant="muted" className="text-gray-600">
+                <span className={['h-1 w-4 bg-[#0ea5e9]', ui.radius.pill].join(' ')} />
+                <Text as="span" variant="muted">
                   Monthly GCI
                 </Text>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="h-1 w-4 rounded bg-[#ef4444]"></span>
-                <Text as="span" variant="muted" className="text-gray-600">
+                <span className={['h-1 w-4 bg-[#ef4444]', ui.radius.pill].join(' ')} />
+                <Text as="span" variant="muted">
                   Trend
                 </Text>
               </div>
               {bestMonth && (
-                <Text as="span" variant="muted" className="text-gray-400">
+                <Text as="span" variant="muted" className={ui.tone.faint}>
                   Best: {bestMonth.month}
                 </Text>
               )}
+            </div>
             </div>
           </>
         ) : (
           <Text variant="muted">No closed deals yet in this period.</Text>
         )}
+        </div>
       </WidgetCard>
     );
   };
 
   const renderDealTypeMix = () => (
-    <WidgetCard className="p-4">
-      <WidgetHeader
-        className="mb-3"
-        icon={<Activity className="w-4 h-4 text-purple-600" strokeWidth={2} />}
-        title="Deal Type Mix"
-      />
-      {dealTypeStats.length > 0 ? (
-        <div className="space-y-2">
-          {dealTypeStats.map((stat) => (
-            <div key={stat.dealType} className="p-3 rounded-lg border border-gray-100 bg-gray-50/50">
-              <div className="flex items-center justify-between mb-1">
-                <Text as="span" variant="body" className="font-semibold">
-                  {DEAL_TYPE_LABELS[stat.dealType]}
+    <WidgetCard className={ui.pad.cardTight}>
+      <div className="space-y-3">
+        <WidgetHeader
+          icon={<Activity className={`w-4 h-4 ${ui.tone.purple}`} strokeWidth={2} />}
+          title="Deal Type Mix"
+        />
+        {dealTypeStats.length > 0 ? (
+          <div className="space-y-2">
+            {dealTypeStats.map((stat) => (
+              <div
+                key={stat.dealType}
+                className={[
+                  ui.pad.cardTight,
+                  ui.radius.control,
+                  ui.border.subtle,
+                  'bg-gray-50/50 space-y-1'
+                ].join(' ')}
+              >
+                <div className="flex items-center justify-between">
+                  <Text as="span" variant="body" className="font-semibold">
+                    {DEAL_TYPE_LABELS[stat.dealType]}
+                  </Text>
+                  <Text as="span" variant="body" className="font-semibold">
+                    {formatPercent(stat.percentage)}
+                  </Text>
+                </div>
+                <Text variant="muted">
+                  {stat.count} {stat.count === 1 ? 'deal' : 'deals'} · {formatCurrency(stat.gci)}
                 </Text>
-                <Text as="span" variant="body" className="font-semibold">
-                  {formatPercent(stat.percentage)}
-                </Text>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(stat.statusCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([status, count]) => (
+                      <Text
+                        key={status}
+                        as="span"
+                        variant="muted"
+                        className={[
+                          'inline-flex items-center bg-white',
+                          ui.radius.pill,
+                          ui.pad.chip,
+                          ui.tone.primary
+                        ].join(' ')}
+                      >
+                        {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')} ({count})
+                      </Text>
+                    ))}
+                </div>
               </div>
-              <Text variant="muted" className="text-gray-600 mb-2">
-                {stat.count} {stat.count === 1 ? 'deal' : 'deals'} · {formatCurrency(stat.gci)}
-              </Text>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(stat.statusCounts)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([status, count]) => (
-                    <Text
-                      key={status}
-                      as="span"
-                      variant="muted"
-                      className="inline-flex items-center px-2 py-1 rounded bg-white text-gray-700"
-                    >
-                      {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')} ({count})
-                    </Text>
-                  ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Text variant="muted">No active deals in your pipeline.</Text>
-      )}
+            ))}
+          </div>
+        ) : (
+          <Text variant="muted">No active deals in your pipeline.</Text>
+        )}
+      </div>
     </WidgetCard>
   );
 
   const renderLeadSource = () => (
-    <WidgetCard className="p-4">
-      <WidgetHeader
-        className="mb-3"
-        icon={<Users className="w-4 h-4 text-cyan-600" strokeWidth={2} />}
-        title="Lead Source Performance"
-      />
-      {leadSourceData.length > 0 ? (
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={leadSourceData} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis
-              type="number"
-              tick={{ fontSize: 11 }}
-              stroke="#6b7280"
-              tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-            />
-            <YAxis
-              type="category"
-              dataKey="name"
-              tick={{ fontSize: 11 }}
-              stroke="#6b7280"
-              width={100}
-            />
-            <Tooltip
-              formatter={(value: number) => formatCurrency(Number(value))}
-              contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
-            />
-            <Bar dataKey="gci" fill="#0ea5e9" radius={[0, 4, 4, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      ) : (
-        <Text variant="muted">No closed deals in this period.</Text>
-      )}
+    <WidgetCard className={ui.pad.cardTight}>
+      <div className="space-y-3">
+        <WidgetHeader
+          icon={<Users className={`w-4 h-4 ${ui.tone.info}`} strokeWidth={2} />}
+          title="Lead Source Performance"
+        />
+        {leadSourceData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={leadSourceData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis
+                type="number"
+                tick={{ fontSize: 11 }}
+                stroke="#6b7280"
+                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                tick={{ fontSize: 11 }}
+                stroke="#6b7280"
+                width={100}
+              />
+              <Tooltip
+                formatter={(value: number) => formatCurrency(Number(value))}
+                contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
+              />
+              <Bar dataKey="gci" fill="#0ea5e9" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <Text variant="muted">No closed deals in this period.</Text>
+        )}
+      </div>
     </WidgetCard>
   );
 
   const renderUpcomingDeals = () => (
-    <WidgetCard className="p-4">
-      <WidgetHeader
-        className="mb-3"
-        icon={<Calendar className="w-4 h-4 text-indigo-600" strokeWidth={2} />}
-        title="Forecasted Closings"
-        rightSlot={
-          <div className="text-right">
-            <Text as="div" variant="body" className="font-semibold">
-              {formatCurrency(projectedGCI)}
-            </Text>
-            <Text as="div" variant="muted">
-              30-day
-            </Text>
-          </div>
-        }
-      />
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-        {filteredUpcomingDeals.map(deal => (
-          <div
-            key={deal.id}
-            className="p-3 border border-gray-200/60 rounded-lg hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
-          >
-            <Text as="div" variant="body" className="font-medium truncate">
-              {deal.client_name}
-            </Text>
-            <Text as="div" variant="muted" className="text-gray-600 mt-1 truncate">
-              {deal.property_address}
-            </Text>
-            <div className="flex items-center justify-between mt-2">
-              <Text as="span" variant="body" className="font-semibold text-[var(--app-accent)]">
-                {formatCurrency(calculateExpectedGCI(deal))}
+    <WidgetCard className={ui.pad.cardTight}>
+      <div className="space-y-3">
+        <WidgetHeader
+          icon={<Calendar className={`w-4 h-4 ${ui.tone.infoStrong}`} strokeWidth={2} />}
+          title="Forecasted Closings"
+          rightSlot={
+            <div className={ui.align.right}>
+              <Text as="div" variant="body" className="font-semibold">
+                {formatCurrency(projectedGCI)}
               </Text>
-              <ChevronRight className="w-4 h-4 text-gray-400" strokeWidth={2} />
+              <Text as="div" variant="muted">
+                30-day
+              </Text>
             </div>
-          </div>
-        ))}
+          }
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          {filteredUpcomingDeals.map(deal => (
+            <div
+              key={deal.id}
+              className={[
+                ui.pad.cardTight,
+                ui.radius.control,
+                ui.border.subtle,
+                'transition-all cursor-pointer space-y-2'
+              ].join(' ')}
+            >
+              <Text as="div" variant="body" className="font-medium truncate">
+                {deal.client_name}
+              </Text>
+              <Text as="div" variant="muted" className="truncate">
+                {deal.property_address}
+              </Text>
+              <div className="flex items-center justify-between">
+                <Text as="span" variant="body" className={`font-semibold ${ui.tone.accent}`}>
+                  {formatCurrency(calculateExpectedGCI(deal))}
+                </Text>
+                <ChevronRight className={`w-4 h-4 ${ui.tone.faint}`} strokeWidth={2} />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </WidgetCard>
   );
 
   const isInitialLoading = showInitialLoading;
+  const headerTitle = isInitialLoading ? (
+    <div className="space-y-2">
+      <Skeleton className="h-3 w-28" />
+      <Skeleton className="h-8 w-56" />
+      <Skeleton className="h-4 w-72" />
+    </div>
+  ) : (
+    <div className="space-y-2">
+      <Text variant="micro" className={ui.tone.subtle}>
+        {getTodayFormatted()}
+      </Text>
+      <Text as="h1" variant="h1">
+        {greetingText || getGreeting(user?.user_metadata?.name)}
+      </Text>
+      <Text variant="muted">
+        {stats.closingNext7Days} deal{stats.closingNext7Days === 1 ? '' : 's'} closing soon (next 7 days) ·{' '}
+        {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
+      </Text>
+    </div>
+  );
+  const headerActions = (refreshing || lastRefreshedAt > 0) && (
+    <LastUpdatedStatus
+      refreshing={refreshing}
+      label={lastRefreshedAt > 0 ? `Last updated ${formatLastUpdated(lastRefreshedAt)}` : null}
+    />
+  );
 
   return (
-    <div className="space-y-6">
-      <RefreshOverlay active={showInitialLoading}>
-        <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_10px_40px_rgba(15,23,42,0.08)] p-6 space-y-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-          <div>
-            {isInitialLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-3 w-28" />
-                <Skeleton className="h-8 w-56" />
-                <Skeleton className="h-4 w-72" />
-              </div>
-            ) : (
-              <>
-                <Text variant="micro" className="text-gray-500">
-                  {getTodayFormatted()}
-                </Text>
-                <Text as="h1" variant="h1" className="mt-1">
-                  {greetingText || getGreeting(user?.user_metadata?.name)}
-                </Text>
-                <Text variant="muted" className="text-gray-600 mt-2">
-                  {stats.closingNext7Days} deal{stats.closingNext7Days === 1 ? '' : 's'} closing soon (next 7 days) ·{' '}
-                  {formatCurrency(projectedGCI)} projected GCI over the next 30 days.
-                </Text>
-              </>
-            )}
-          </div>
-          {(refreshing || lastRefreshedAt > 0) && (
-            <div className="flex flex-col items-end gap-1 lg:ml-auto">
-              {refreshing && (
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                  <Text as="span" variant="muted" className="font-semibold text-gray-500">
-                    Updating…
-                  </Text>
+    <PageShell title={headerTitle} actions={headerActions}>
+      {isInitialLoading ? (
+        <div className="space-y-4">
+          <Text variant="micro" className="text-gray-500">PIPELINE (ACTIVE DEALS)</Text>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Card key={`pipeline-kpi-skeleton-${index}`} padding="cardTight" className="bg-white/70">
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-7 w-32" />
+                  <Skeleton className="h-3 w-24" />
                 </div>
-              )}
-              {lastRefreshedAt > 0 && (
-                <Text as="div" variant="muted" className="font-semibold text-gray-500">
-                  Last updated {formatLastUpdated(lastRefreshedAt)}
-                </Text>
-              )}
-            </div>
-          )}
-        </div>
-        {isInitialLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <div key={`kpi-skeleton-${index}`} className="rounded-2xl border border-gray-100/70 bg-white/70 p-4">
-                <Skeleton className="h-3 w-28" />
-                <Skeleton className="mt-3 h-7 w-32" />
-                <Skeleton className="mt-2 h-3 w-24" />
-              </div>
+              </Card>
             ))}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-blue-100/70 bg-blue-50/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Pipeline Value</p>
-              <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(pipelineValue)}</p>
-              <p className="text-xs text-gray-600 mt-1">Active stages only</p>
-            </div>
-            <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Projected GCI</p>
-              <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(projectedGCI)}</p>
-              <p className="text-xs text-gray-600 mt-1">Next 30 days</p>
-            </div>
-            <div className="rounded-2xl border border-purple-100/70 bg-purple-50/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">Active Deals</p>
-              <p className="text-2xl font-semibold text-gray-900 mt-2">{totalActiveDeals}</p>
-              <p className="text-xs text-gray-600 mt-1">Across pipeline</p>
-            </div>
+          <Text variant="micro" className="text-gray-500">PERFORMANCE (YTD RESULTS)</Text>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Card key={`performance-kpi-skeleton-${index}`} padding="cardTight" className="bg-white/70">
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-7 w-32" />
+                </div>
+              </Card>
+            ))}
           </div>
-        )}
         </div>
-      </RefreshOverlay>
-      {canShowFilterPanel && (
-        <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_6px_30px_rgba(15,23,42,0.08)] p-4 space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Scope</p>
-              <p className="text-sm text-gray-700">{scopeDescription}</p>
+      ) : (
+        <RefreshOverlay active={showRefreshingOverlay}>
+          <div className="space-y-4">
+            <Text variant="micro" className="text-gray-500">PIPELINE (ACTIVE DEALS)</Text>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card padding="cardTight" className="bg-purple-50/40">
+                <div className="space-y-2">
+                  <Text variant="micro" className="font-semibold text-gray-700">ACTIVE DEALS</Text>
+                  <Text as="div" variant="h2">{totalActiveDeals}</Text>
+                  <Text variant="muted">Across pipeline</Text>
+                </div>
+              </Card>
+              <Card padding="cardTight" className="bg-blue-50/40">
+                <div className="space-y-2">
+                  <Text variant="micro" className="font-semibold text-gray-700">PIPELINE VALUE</Text>
+                  <Text as="div" variant="h2">{formatCurrency(pipelineValue)}</Text>
+                  <Text variant="muted">Active stages only</Text>
+                </div>
+              </Card>
+              <Card padding="cardTight" className="bg-blue-50/40">
+                <div className="space-y-2">
+                  <Text variant="micro" className="font-semibold text-gray-700">CLOSING IN 7 DAYS</Text>
+                  <Text as="div" variant="h2">{stats.closingNext7Days}</Text>
+                  <Text variant="muted">Active deals closing in 7 days</Text>
+                </div>
+              </Card>
+              <Card padding="cardTight" className="bg-emerald-50/40">
+                <div className="space-y-2">
+                  <Text variant="micro" className="font-semibold text-gray-700">PROJECTED GCI (30D)</Text>
+                  <Text as="div" variant="h2">{formatCurrency(projectedGCI)}</Text>
+                  <Text variant="muted">Next 30 days</Text>
+                </div>
+              </Card>
             </div>
-            <SegmentedControl
-              options={timeRangeOptions}
-              value={dateRangePreset}
-              onChange={(value) => setDateRangePreset(value as DateRange)}
-            />
+
+            <Text variant="micro" className="text-gray-500">PERFORMANCE (YTD RESULTS)</Text>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Card padding="cardTight" title="Gross commission income from closed deals in the selected date range.">
+                <div className="space-y-1.5">
+                  <Text as="div" variant="micro" className="font-semibold text-gray-700">
+                    TOTAL GCI
+                  </Text>
+                  <Text as="div" variant="h2">{formatCurrency(stats.ytdGCI)}</Text>
+                </div>
+              </Card>
+              <Card padding="cardTight" title="Number of deals marked closed within the selected date range.">
+                <div className="space-y-1.5">
+                  <Text as="div" variant="micro" className="font-semibold text-gray-700">
+                    CLOSED DEALS
+                  </Text>
+                  <Text as="div" variant="h2">{stats.ytdDeals}</Text>
+                </div>
+              </Card>
+              <Card padding="cardTight" title="Closed deals divided by all deals created in the selected date range.">
+                <div className="space-y-1.5">
+                  <Text as="div" variant="micro" className="font-semibold text-gray-700">
+                    CONVERSION RATE
+                  </Text>
+                  <Text as="div" variant="h2">{formatPercent(stats.conversionRate)}</Text>
+                </div>
+              </Card>
+            </div>
+            <div className="h-px bg-gray-200/60" />
+          </div>
+        </RefreshOverlay>
+      )}
+      {canShowFilterPanel && (
+        <Card padding="cardTight" className="space-y-4">
+          <div>
+            <Text variant="micro" className="font-semibold text-gray-700">Scope</Text>
+            <Text variant="muted">{scopeDescription}</Text>
           </div>
           {(activeFilterChips.length > 0 || showFocusOnMe) && (
-            <div className="flex flex-wrap items-center gap-2 -mt-1">
+            <div className="flex flex-wrap items-center gap-2">
               {showFocusOnMe && (
                 <button
                   type="button"
                   onClick={selectMyData}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  className={[
+                    ui.radius.pill,
+                    ui.pad.cardTight,
+                    'transition',
                     isFocusOnMeActive
-                      ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(var(--app-accent-rgb),0.25)]'
-                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                  }`}
+                      ? `bg-[var(--app-accent)] ${ui.tone.inverse} ${ui.shadow.card}`
+                      : `bg-gray-100 ${ui.tone.primary} hover:bg-gray-200`
+                  ].join(' ')}
                 >
-                  Focus On Me
+                  <Text as="span" variant="micro">Focus On Me</Text>
                 </button>
               )}
               {activeFilterChips.map((chip) => (
@@ -2126,10 +2229,16 @@ export default function Dashboard() {
                   key={chip.key}
                   type="button"
                   onClick={chip.onRemove}
-                  className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                  className={[
+                    'inline-flex items-center gap-1 bg-white',
+                    ui.radius.pill,
+                    ui.border.subtle,
+                    ui.pad.chipTight,
+                    ui.tone.muted
+                  ].join(' ')}
                 >
-                  {chip.label}
-                  <span className="text-gray-400">x</span>
+                  <Text as="span" variant="micro">{chip.label}</Text>
+                  <Text as="span" variant="micro" className={ui.tone.faint}>x</Text>
                 </button>
               ))}
               {activeFilterChips.length > 0 && (
@@ -2141,16 +2250,16 @@ export default function Dashboard() {
                     setSelectedLeadSources([]);
                     setSelectedDealTypes([]);
                   }}
-                  className="text-xs font-semibold text-[var(--app-accent)]"
+                  className={ui.tone.accent}
                 >
-                  Clear all filters
+                  <Text as="span" variant="micro">Clear all filters</Text>
                 </button>
               )}
             </div>
           )}
           {availableAgents.length > 0 && (
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="min-w-0">
                 <MultiSelectCombobox
                   label="Agents"
                   options={agentOptions}
@@ -2160,7 +2269,7 @@ export default function Dashboard() {
                   disabled={agentOptions.length === 0}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <MultiSelectCombobox
                   label="Pipeline Stage"
                   options={stageOptions}
@@ -2170,7 +2279,7 @@ export default function Dashboard() {
                   disabled={stageOptions.length === 0}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <MultiSelectCombobox
                   label="Deal Type"
                   options={dealTypeOptions}
@@ -2180,7 +2289,7 @@ export default function Dashboard() {
                   disabled={dealTypeOptions.length === 0}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <MultiSelectCombobox
                   label="Lead Source"
                   options={leadSourceOptions}
@@ -2192,64 +2301,19 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-        </div>
+        </Card>
       )}
-
-      {/* KPI cards - not draggable */}
-      <RefreshOverlay active={showRefreshingOverlay}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-          <div className="hig-card p-4" title="Gross commission income from closed deals in the selected date range.">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                <DollarSign className="w-4 h-4 text-[var(--app-accent)]" strokeWidth={2} />
-              </div>
-              <span className="text-sm text-gray-600">Total GCI</span>
-            </div>
-            <div className="text-2xl font-semibold text-gray-900">{formatCurrency(stats.ytdGCI)}</div>
-          </div>
-
-          <div className="hig-card p-4" title="Number of deals marked closed within the selected date range.">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-                <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
-              </div>
-              <span className="text-sm text-gray-600">Closed Deals</span>
-            </div>
-            <div className="text-2xl font-semibold text-gray-900">{stats.ytdDeals}</div>
-          </div>
-
-          <div className="hig-card p-4" title="Active deals scheduled to close in the next 7 days.">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
-                <Calendar className="w-4 h-4 text-orange-600" strokeWidth={2} />
-              </div>
-              <span className="text-sm text-gray-600">Closing Soon (7d)</span>
-            </div>
-            <div className="text-2xl font-semibold text-gray-900">{stats.closingNext7Days}</div>
-          </div>
-
-          <div className="hig-card p-4" title="Closed deals divided by all deals created in the selected date range.">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
-                <Activity className="w-4 h-4 text-gray-600" strokeWidth={2} />
-              </div>
-              <span className="text-sm text-gray-600">Conv. Rate</span>
-            </div>
-            <div className="text-2xl font-semibold text-gray-900">{formatPercent(stats.conversionRate)}</div>
-          </div>
-        </div>
-      </RefreshOverlay>
 
       {/* Draggable Widgets */}
       <RefreshOverlay active={showRefreshingOverlay} label="Refreshing widgets…">
         {isInitialLoading ? (
           <div className="columns-1 lg:columns-2 gap-2 space-y-2">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={`widget-skeleton-${index}`} className="break-inside-avoid mb-2">
-                <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-4 space-y-3">
+              <div key={`widget-skeleton-${index}`} className="break-inside-avoid">
+                <Card padding="cardTight" className="space-y-3">
                   <Skeleton className="h-4 w-32" />
                   <Skeleton className="h-36 w-full" />
-                </div>
+                </Card>
               </div>
             ))}
           </div>
@@ -2266,7 +2330,7 @@ export default function Dashboard() {
                   if (!content) return null;
 
                   return (
-                    <div key={widgetId} className="break-inside-avoid mb-2">
+                    <div key={widgetId} className="break-inside-avoid">
                       <SortableWidget id={widgetId}>
                         {content}
                       </SortableWidget>
@@ -2278,7 +2342,6 @@ export default function Dashboard() {
           </DndContext>
         )}
       </RefreshOverlay>
-
-    </div>
+    </PageShell>
   );
 }

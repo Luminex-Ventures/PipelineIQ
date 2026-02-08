@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { ui } from './tokens';
+import { Card } from './Card';
 
 export type WidgetCardProps = {
   children: ReactNode;
@@ -7,18 +8,11 @@ export type WidgetCardProps = {
 };
 
 export function WidgetCard({ children, className }: WidgetCardProps) {
-  const classes = [
-    ui.radius.card,
-    ui.border.card,
-    ui.shadow.card,
-    ui.padding.card,
-    'bg-white/90',
-    className
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return <div className={classes}>{children}</div>;
+  return (
+    <Card className={className} padding="card">
+      {children}
+    </Card>
+  );
 }
 
 export type WidgetHeaderProps = {
@@ -31,7 +25,12 @@ export type WidgetHeaderProps = {
 
 export function WidgetHeader({ icon, title, subtitle, rightSlot, className }: WidgetHeaderProps) {
   return (
-    <div className={['flex items-center justify-between gap-3', className].filter(Boolean).join(' ')}>
+    <div
+      className={[
+        'flex items-center justify-between gap-3 w-full border-b border-gray-200/60 pb-3 mb-3',
+        className
+      ].filter(Boolean).join(' ')}
+    >
       <div className="flex items-center gap-3">
         {icon && (
           <div className="h-8 w-8 rounded-xl bg-[var(--app-accent)]/10 text-[var(--app-accent)] flex items-center justify-center">

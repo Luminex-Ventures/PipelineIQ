@@ -7,6 +7,11 @@ import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
 import { runAnalyticsDateChecks } from '../lib/analyticsDateRules';
 import { useAnalyticsFilterPersistence } from '../hooks/useAnalyticsFilterPersistence';
+import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
+import { Card } from '../ui/Card';
+import { PageShell } from '../ui/PageShell';
+import { Text } from '../ui/Text';
+import { ui } from '../ui/tokens';
 type DealRow = Database['public']['Tables']['deals']['Row'];
 
 // Date basis rules:
@@ -120,28 +125,28 @@ interface AnalyticsSummaryResponse {
 }
 
 const Skeleton = ({ className = '' }: { className?: string }) => (
-  <div className={`animate-pulse rounded-xl bg-gray-100 ${className}`} />
+  <div className={['analytics-skeleton', className].filter(Boolean).join(' ')} />
 );
 
 const StatCardsSkeleton = () => (
   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
     {Array.from({ length: 4 }).map((_, index) => (
-      <div key={`stat-skeleton-${index}`} className="rounded-2xl border border-gray-200/70 bg-white/90 p-5">
+      <Card key={`stat-skeleton-${index}`}>
         <Skeleton className="h-3 w-20" />
-        <Skeleton className="mt-4 h-7 w-24" />
-        <Skeleton className="mt-3 h-3 w-28" />
-        <Skeleton className="mt-3 h-3 w-36" />
-      </div>
+        <Skeleton className="analytics-mt-4 h-7 w-24" />
+        <Skeleton className="analytics-mt-3 h-3 w-28" />
+        <Skeleton className="analytics-mt-3 h-3 w-36" />
+      </Card>
     ))}
   </div>
 );
 
 const TileSkeleton = () => (
-  <div className="rounded-xl border border-gray-100/80 bg-white px-4 py-3">
+  <Card padding="cardTight">
     <Skeleton className="h-3 w-20" />
-    <Skeleton className="mt-3 h-5 w-24" />
-    <Skeleton className="mt-2 h-3 w-28" />
-  </div>
+    <Skeleton className="analytics-mt-3 h-5 w-24" />
+    <Skeleton className="analytics-mt-2 h-3 w-28" />
+  </Card>
 );
 
 const TableSkeleton = ({ rows, cols }: { rows: number; cols: number }) => (
@@ -851,12 +856,8 @@ export default function Analytics() {
     ? monthlyData.find((month) => month.month === worstMonth.month)
     : null;
 
-  const surfaceClass =
-    'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
-  const pillClass =
-    'inline-flex items-center rounded-full border border-gray-200/70 bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600';
-  const tileClass =
-    'rounded-xl border border-gray-100/80 bg-white px-4 py-3';
+  const pillBase = [ui.radius.pill, ui.border.subtle, ui.pad.chipTight, 'inline-flex items-center bg-white'].join(' ');
+  const tileClass = 'analytics-tile';
 
   // Lead source insights
   const topLeadSource = leadSourceStats[0] || null;
@@ -989,65 +990,62 @@ export default function Analytics() {
   const isInitialLoading = loading;
   const isRefreshing = refreshing;
 
+  const headerTitle = (
+    <div className="space-y-2">
+      <Text variant="micro">Analytics</Text>
+      <Text as="h1" variant="h1">Year in Review</Text>
+      <Text variant="muted">
+        A cohesive digest of production, pace, and lead-source efficiency for your selected year.
+      </Text>
+    </div>
+  );
+  const headerActions = (
+    <div className="flex flex-col gap-3 items-start sm:items-end">
+      <LastUpdatedStatus
+        refreshing={isRefreshing}
+        label={lastRefreshedAt ? `Last updated ${formatLastUpdated(lastRefreshedAt)}` : null}
+        className="min-h-[20px]"
+      />
+      <div className={['space-y-1', ui.align.right].join(' ')}>
+        <Text as="span" variant="micro" className={ui.tone.faint}>
+          Timeframe
+        </Text>
+        <Text variant="muted">{timeframeDescription}</Text>
+      </div>
+      <SegmentedControl
+        options={yearOptions}
+        value={String(selectedYear)}
+        onChange={(value) => setSelectedYear(parseInt(value, 10))}
+        className="self-start sm:self-end w-max"
+      />
+    </div>
+  );
+
   return (
-    <div className="space-y-8">
-      <section className={`${surfaceClass} p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between relative`}>
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
-            Analytics
-          </p>
-          <h1 className="text-3xl font-semibold text-gray-900 mt-1">Year in Review</h1>
-          <p className="text-sm text-gray-600 mt-2">
-            A cohesive digest of production, pace, and lead-source efficiency for your selected year.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 items-start sm:items-end">
-          <div className="min-h-[20px] flex flex-col items-end gap-1 text-xs font-semibold text-gray-500 sm:text-right">
-            {isRefreshing ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                Updating…
-              </span>
-            ) : null}
-            {!isRefreshing && lastRefreshedAt ? (
-              <span>Last updated {formatLastUpdated(lastRefreshedAt)}</span>
-            ) : null}
-          </div>
-          <div className="text-left sm:text-right">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gray-400">
-              Timeframe
-            </p>
-            <p className="text-sm text-gray-500">{timeframeDescription}</p>
-          </div>
-          <SegmentedControl
-            options={yearOptions}
-            value={String(selectedYear)}
-            onChange={(value) => setSelectedYear(parseInt(value, 10))}
-            className="self-start sm:self-end w-max"
-          />
-        </div>
-      </section>
+    <PageShell title={headerTitle} actions={headerActions}>
+      <div className="space-y-8">
       {canShowFilterPanel && (
-        <section className={`${surfaceClass} p-5 space-y-4`}>
-          <div className="flex flex-col gap-2">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">Scope</p>
-              <p className="text-sm text-gray-700">{scopeDescription}</p>
-            </div>
+        <Card className="space-y-4">
+          <div className="space-y-2">
+            <Text as="span" variant="micro">Scope</Text>
+            <Text variant="muted">{scopeDescription}</Text>
           </div>
           {(activeFilterChips.length > 0 || showFocusOnMe) && (
-            <div className="flex flex-wrap items-center gap-2 -mt-1">
+            <div className="flex flex-wrap items-center gap-2">
               {showFocusOnMe && (
                 <button
                   type="button"
                   onClick={selectMyData}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                    isFocusOnMeActive
-                      ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(var(--app-accent-rgb),0.25)]'
-                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                  }`}
+                  className={[
+                    pillBase,
+                    isFocusOnMeActive ? 'bg-[var(--app-accent)]' : 'bg-gray-100 hover:bg-gray-200',
+                    isFocusOnMeActive ? ui.tone.inverse : ui.tone.primary,
+                    'transition'
+                  ].join(' ')}
                 >
-                  Focus On Me
+                  <Text as="span" variant="body" className="font-semibold">
+                    Focus On Me
+                  </Text>
                 </button>
               )}
               {activeFilterChips.map((chip) => (
@@ -1055,10 +1053,14 @@ export default function Analytics() {
                   key={chip.key}
                   type="button"
                   onClick={chip.onRemove}
-                  className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                  className={[pillBase, 'gap-2'].join(' ')}
                 >
-                  {chip.label}
-                  <span className="text-gray-400">x</span>
+                  <Text as="span" variant="body" className={[ui.tone.subtle, 'font-semibold'].join(' ')}>
+                    {chip.label}
+                  </Text>
+                  <Text as="span" variant="body" className={ui.tone.faint}>
+                    x
+                  </Text>
                 </button>
               ))}
               {activeFilterChips.length > 0 && (
@@ -1070,9 +1072,11 @@ export default function Analytics() {
                     setSelectedLeadSources([]);
                     setSelectedDealTypes([]);
                   }}
-                  className="text-xs font-semibold text-[var(--app-accent)]"
+                  className="inline-flex items-center"
                 >
-                  Clear all filters
+                  <Text as="span" variant="muted" className={[ui.tone.accent, 'font-semibold'].join(' ')}>
+                    Clear all filters
+                  </Text>
                 </button>
               )}
             </div>
@@ -1080,7 +1084,6 @@ export default function Analytics() {
           {availableAgents.length > 0 && (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
               <div className="space-y-2">
-                {showFocusOnMe ? null : null}
                 <MultiSelectCombobox
                   label="Agents"
                   options={agentOptions}
@@ -1090,7 +1093,7 @@ export default function Analytics() {
                   disabled={agentOptions.length === 0}
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <MultiSelectCombobox
                   label="Pipeline Stage"
                   options={stageOptions}
@@ -1100,7 +1103,7 @@ export default function Analytics() {
                   disabled={stageOptions.length === 0}
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <MultiSelectCombobox
                   label="Deal Type"
                   options={dealTypeOptions}
@@ -1110,7 +1113,7 @@ export default function Analytics() {
                   disabled={dealTypeOptions.length === 0}
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <MultiSelectCombobox
                   label="Lead Source"
                   options={leadSourceOptions}
@@ -1122,7 +1125,7 @@ export default function Analytics() {
               </div>
             </div>
           )}
-        </section>
+        </Card>
       )}
 
       <section>
@@ -1130,69 +1133,75 @@ export default function Analytics() {
           <StatCardsSkeleton />
         ) : (
           <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-            <div className={`${surfaceClass} p-5`}>
-              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Pipeline</p>
-              <div className="text-2xl font-semibold text-gray-900 mt-2">
+            <Card>
+              <Text as="span" variant="micro" className={ui.tone.blue}>Pipeline</Text>
+              <Text as="div" variant="h2" className="analytics-mt-2">
                 {formatNumber(yearlyStats.closedDeals)}
-              </div>
-              <p className="text-sm text-gray-600 mt-1">Closed deals</p>
-              <p className="text-xs text-gray-500 mt-3">
+              </Text>
+              <Text variant="muted" className="analytics-mt-1">Closed deals</Text>
+              <Text variant="muted" className="analytics-mt-3">
                 {yearlyStats.buyerDeals} buyer • {yearlyStats.sellerDeals} seller
-              </p>
-            </div>
-            <div className={`${surfaceClass} p-5`}>
-              <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Volume</p>
-              <div className="text-2xl font-semibold text-gray-900 mt-2">
+              </Text>
+            </Card>
+            <Card>
+              <Text as="span" variant="micro" className={ui.tone.success}>Volume</Text>
+              <Text as="div" variant="h2" className="analytics-mt-2">
                 {formatCurrency(yearlyStats.totalVolume)}
-              </div>
-              <p className="text-sm text-gray-600 mt-1">Total sales volume</p>
-              <p className="text-xs text-gray-500 mt-3">
+              </Text>
+              <Text variant="muted" className="analytics-mt-1">Total sales volume</Text>
+              <Text variant="muted" className="analytics-mt-3">
                 Avg sale price • {formatCurrency(yearlyStats.avgSalePrice)}
-              </p>
-            </div>
-            <div className={`${surfaceClass} p-5`}>
-              <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Net GCI</p>
-              <div className="text-2xl font-semibold text-gray-900 mt-2">
+              </Text>
+            </Card>
+            <Card>
+              <Text as="span" variant="micro" className={ui.tone.warningStrong}>Net GCI</Text>
+              <Text as="div" variant="h2" className="analytics-mt-2">
                 {formatCurrency(yearlyStats.totalGCI)}
-              </div>
-              <p className="text-sm text-gray-600 mt-1">Total earnings after splits</p>
-              <p className="text-xs text-gray-500 mt-3">
+              </Text>
+              <Text variant="muted" className="analytics-mt-1">Total earnings after splits</Text>
+              <Text variant="muted" className="analytics-mt-3">
                 Avg commission • {formatCurrency(yearlyStats.avgCommission)}
-              </p>
-            </div>
-            <div className={`${surfaceClass} p-5`}>
-              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Pace</p>
-              <div className="text-2xl font-semibold text-gray-900 mt-2">
+              </Text>
+            </Card>
+            <Card>
+              <Text as="span" variant="micro" className={ui.tone.infoStrong}>Pace</Text>
+              <Text as="div" variant="h2" className="analytics-mt-2">
                 {formatNumber(closingThisMonthStats.count)}
-              </div>
-              <p className="text-sm text-gray-600 mt-1">Deals closing this month</p>
-              <p className="text-xs text-gray-500 mt-3">
+              </Text>
+              <Text variant="muted" className="analytics-mt-1">Deals closing this month</Text>
+              <Text variant="muted" className="analytics-mt-3">
                 GCI this month • {formatCurrency(closingThisMonthStats.gci)}
-              </p>
+              </Text>
               {yearlyStats.avgDaysToClose > 0 && (
-                <p className="text-xs text-gray-500 mt-1">
+                <Text variant="muted" className="analytics-mt-1">
                   Avg time to close • {yearlyStats.avgDaysToClose.toFixed(0)} days
-                </p>
+                </Text>
               )}
-            </div>
+            </Card>
           </div>
         )}
       </section>
 
       <section className={`grid grid-cols-1 lg:grid-cols-2 gap-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-        <div className={`${surfaceClass} p-6`}>
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Monthly Performance</h3>
-              <p className="text-xs text-gray-500 mt-1">
+        <Card className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <Text as="h3" variant="h2">Monthly Performance</Text>
+              <Text variant="muted">
                 How each producing month contributes to pace and income.
-              </p>
+              </Text>
             </div>
-            <div className="text-xs text-gray-500">
+            <div>
               {activeMonthsCount > 0 ? (
-                <span className={pillClass}>{activeMonthsCount} active months</span>
+                <span className={pillBase}>
+                  <Text as="span" variant="micro" className={ui.tone.subtle}>
+                    {activeMonthsCount} active months
+                  </Text>
+                </span>
               ) : (
-                <span className="text-gray-400">No closed months yet</span>
+                <Text as="span" variant="muted" className={ui.tone.faint}>
+                  No closed months yet
+                </Text>
               )}
             </div>
           </div>
@@ -1206,91 +1215,97 @@ export default function Analytics() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className={tileClass}>
-                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                  Top Month
-                </p>
+                <Text as="span" variant="micro">Top Month</Text>
                 {bestMonth ? (
                   <>
-                    <p className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                      {bestMonth.month}
-                      <span className={pillClass}>{bestMonthDetails?.deals ?? 0} deals</span>
-                    </p>
-                    <p className="text-sm text-gray-600">{formatCurrency(bestMonth.gci)}</p>
+                    <div className="flex items-center gap-2">
+                      <Text as="span" variant="h2">{bestMonth.month}</Text>
+                      <span className={pillBase}>
+                        <Text as="span" variant="micro" className={ui.tone.subtle}>
+                          {bestMonthDetails?.deals ?? 0} deals
+                        </Text>
+                      </span>
+                    </div>
+                    <Text variant="muted">{formatCurrency(bestMonth.gci)}</Text>
                   </>
                 ) : (
-                  <p className="text-sm text-gray-500">No producing months yet.</p>
+                  <Text variant="muted">No producing months yet.</Text>
                 )}
               </div>
               <div className={tileClass}>
-                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                  Slow Month
-                </p>
+                <Text as="span" variant="micro">Slow Month</Text>
                 {worstMonth && bestMonth && worstMonth.month !== bestMonth.month ? (
                   <>
-                    <p className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                      {worstMonth.month}
-                      <span className={pillClass}>{worstMonthDetails?.deals ?? 0} deals</span>
-                    </p>
-                    <p className="text-sm text-gray-600">{formatCurrency(worstMonth.gci)}</p>
+                    <div className="flex items-center gap-2">
+                      <Text as="span" variant="h2">{worstMonth.month}</Text>
+                      <span className={pillBase}>
+                        <Text as="span" variant="micro" className={ui.tone.subtle}>
+                          {worstMonthDetails?.deals ?? 0} deals
+                        </Text>
+                      </span>
+                    </div>
+                    <Text variant="muted">{formatCurrency(worstMonth.gci)}</Text>
                   </>
                 ) : bestMonth ? (
-                  <p className="text-sm text-gray-500">Only one producing month so far.</p>
+                  <Text variant="muted">Only one producing month so far.</Text>
                 ) : (
-                  <p className="text-sm text-gray-500">No data yet.</p>
+                  <Text variant="muted">No data yet.</Text>
                 )}
               </div>
               <div className={tileClass}>
-                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                  Avg Active Month
-                </p>
-                <p className="text-lg font-semibold text-gray-900">
+                <Text as="span" variant="micro">Avg Active Month</Text>
+                <Text as="div" variant="h2">
                   {formatCurrency(avgMonthlyGci || 0)}
-                </p>
-                <p className="text-sm text-gray-600 flex items-center gap-2">
-                  {activeMonthsCount || 0} active month{activeMonthsCount === 1 ? '' : 's'}
-                  <span className={pillClass}>{avgDealsPerActiveMonth.toFixed(1)} deals/mo</span>
-                </p>
+                </Text>
+                <div className="flex items-center gap-2">
+                  <Text variant="muted">
+                    {activeMonthsCount || 0} active month{activeMonthsCount === 1 ? '' : 's'}
+                  </Text>
+                  <span className={pillBase}>
+                    <Text as="span" variant="micro" className={ui.tone.subtle}>
+                      {avgDealsPerActiveMonth.toFixed(1)} deals/mo
+                    </Text>
+                  </span>
+                </div>
               </div>
               <div className={tileClass}>
-                <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
-                  Momentum
-                </p>
+                <Text as="span" variant="micro">Momentum</Text>
                 {momentumDelta !== null && lastActiveMonth ? (
                   <>
-                    <p
-                      className={`text-lg font-semibold ${
-                        momentumDelta >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
+                    <Text
+                      as="div"
+                      variant="h2"
+                      className={momentumDelta >= 0 ? ui.tone.successStrong : ui.tone.rose}
                     >
                       {momentumDelta >= 0 ? '+' : '-'}
                       {formatCurrency(Math.abs(momentumDelta))}
-                    </p>
-                    <p className="text-sm text-gray-600">
+                    </Text>
+                    <Text variant="muted">
                       Vs. {prevActiveMonth?.month ?? 'previous month'} GCI
-                    </p>
+                    </Text>
                   </>
                 ) : (
-                  <p className="text-sm text-gray-500">
+                  <Text variant="muted">
                     Log at least two producing months to see momentum.
-                  </p>
+                  </Text>
                 )}
               </div>
             </div>
           )}
 
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-semibold text-gray-900">Monthly Ledger</h4>
-              <div className="flex items-center gap-3 text-xs text-gray-500">
-                <span>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Text as="h4" variant="body" className="font-semibold">Monthly Ledger</Text>
+              <div className="flex items-center gap-3">
+                <Text as="span" variant="muted">
                   Peak GCI: {peakMonthlyGci ? formatCurrency(peakMonthlyGci) : '—'} • Peak deals:{' '}
                   {peakMonthlyDeals || '—'}
-                </span>
+                </Text>
                 <button
                   type="button"
                   onClick={handleMonthlyExport}
                   disabled={isInitialLoading || monthlyData.length === 0}
-                  className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="hig-btn-secondary"
                 >
                   Export CSV
                 </button>
@@ -1300,14 +1315,14 @@ export default function Analytics() {
               {isInitialLoading ? (
                 <TableSkeleton rows={6} cols={5} />
               ) : (
-                <table className="min-w-full text-sm">
+                <table className="analytics-table">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                      <th className="pb-2 pr-4">Month</th>
-                      <th className="pb-2 pr-4">Deals</th>
-                      <th className="pb-2 pr-4">GCI</th>
-                      <th className="pb-2 pr-4">Avg / Deal</th>
-                      <th className="pb-2 text-right">Share</th>
+                    <tr className="analytics-table-head-row">
+                      <th className="analytics-table-head-cell">Month</th>
+                      <th className="analytics-table-head-cell">Deals</th>
+                      <th className="analytics-table-head-cell">GCI</th>
+                      <th className="analytics-table-head-cell">Avg / Deal</th>
+                      <th className="analytics-table-head-cell analytics-table-head-cell--right">Share</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1316,14 +1331,14 @@ export default function Analytics() {
                       const share =
                         yearlyStats.totalGCI > 0 ? (month.gci / yearlyStats.totalGCI) * 100 : 0;
                       return (
-                        <tr key={month.month} className="border-b border-gray-50">
-                          <td className="py-2 pr-4 font-medium text-gray-900">{month.month}</td>
-                          <td className="py-2 pr-4 text-gray-700">{month.deals}</td>
-                          <td className="py-2 pr-4 text-gray-700">{formatCurrency(month.gci)}</td>
-                          <td className="py-2 pr-4 text-gray-700">
+                        <tr key={month.month} className="analytics-table-row">
+                          <td className="analytics-table-cell analytics-table-cell--strong">{month.month}</td>
+                          <td className="analytics-table-cell">{month.deals}</td>
+                          <td className="analytics-table-cell">{formatCurrency(month.gci)}</td>
+                          <td className="analytics-table-cell">
                             {month.deals > 0 ? formatCurrency(avgPerDeal) : '—'}
                           </td>
-                          <td className="py-2 text-right text-gray-700">
+                          <td className="analytics-table-cell analytics-table-cell--right">
                             {yearlyStats.totalGCI > 0 ? `${share.toFixed(1)}%` : '—'}
                           </td>
                         </tr>
@@ -1334,173 +1349,167 @@ export default function Analytics() {
               )}
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Commission by Lead Source */}
-        <div className={`${surfaceClass} p-6`}>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Momentum & Pace</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Are you ahead or behind last year’s GCI at this point on the calendar?
-              </p>
-            </div>
+        <Card className="space-y-4">
+          <div className="space-y-2">
+            <Text as="h3" variant="h2">Momentum & Pace</Text>
+            <Text variant="muted">
+              Are you ahead or behind last year’s GCI at this point on the calendar?
+            </Text>
           </div>
           {isInitialLoading ? (
             <div className="grid grid-cols-1 gap-4">
-              <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
+              <Card className="space-y-4">
                 <Skeleton className="h-3 w-32" />
-                <div className="mt-4 flex items-center justify-between gap-4">
+                <div className="analytics-mt-4 flex items-center justify-between gap-4">
                   <div>
                     <Skeleton className="h-6 w-24" />
-                    <Skeleton className="mt-2 h-3 w-20" />
+                    <Skeleton className="analytics-mt-2 h-3 w-20" />
                   </div>
                   <div>
                     <Skeleton className="h-3 w-24" />
-                    <Skeleton className="mt-2 h-5 w-24" />
-                    <Skeleton className="mt-3 h-3 w-28" />
-                    <Skeleton className="mt-2 h-5 w-24" />
+                    <Skeleton className="analytics-mt-2 h-5 w-24" />
+                    <Skeleton className="analytics-mt-3 h-3 w-28" />
+                    <Skeleton className="analytics-mt-2 h-5 w-24" />
                   </div>
                 </div>
-                <Skeleton className="mt-4 h-3 w-full" />
-                <Skeleton className="mt-2 h-3 w-2/3" />
-              </div>
-              <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
+                <Skeleton className="analytics-mt-4 h-3 w-full" />
+                <Skeleton className="analytics-mt-2 h-3 w-2/3" />
+              </Card>
+              <Card className="space-y-4">
                 <Skeleton className="h-3 w-40" />
-                <div className="mt-4 grid grid-cols-2 gap-4">
+                <div className="analytics-mt-4 grid grid-cols-2 gap-4">
                   <Skeleton className="h-10 w-full" />
                   <Skeleton className="h-10 w-full" />
                 </div>
-                <Skeleton className="mt-4 h-3 w-full" />
-              </div>
+                <Skeleton className="analytics-mt-4 h-3 w-full" />
+              </Card>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
-              <div className="rounded-2xl border border-gray-100/80 bg-gradient-to-br from-white to-[var(--app-bg-start)] p-5 shadow-inner">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Year-over-year pace
-                </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-2xl font-semibold text-gray-900">
+              <Card className="analytics-card-gradient space-y-4">
+                <Text as="span" variant="micro">Year-over-year pace</Text>
+                <div className="analytics-mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <Text as="div" variant="h2">
                       {formatCurrency(yearlyStats.totalGCI)}
-                    </p>
-                    <p className="text-sm text-gray-600">Current GCI</p>
+                    </Text>
+                    <Text variant="muted">Current GCI</Text>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-500">Projected at current pace</p>
-                    <p className="text-lg font-semibold text-gray-900">
+                  <div className={ui.align.right}>
+                    <Text variant="muted">Projected at current pace</Text>
+                    <Text as="div" variant="h2">
                       {formatCurrency(projectedGciAtCurrentPace)}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-2">Needed pace to hit goal</p>
-                    <p className="text-lg font-semibold text-gray-900">
+                    </Text>
+                    <Text variant="muted" className="analytics-mt-2">Needed pace to hit goal</Text>
+                    <Text as="div" variant="h2">
                       {gciGoal > 0 && remainingGciToGoal > 0 && remainingMonths > 0 ? (
                         <>
                           {formatCurrency(neededMonthlyGciToHitGoal)}{' '}
-                          <span className="text-sm font-medium text-gray-500">/mo</span>
+                          <Text as="span" variant="muted">/mo</Text>
                         </>
                       ) : (
                         '—'
                       )}
-                    </p>
+                    </Text>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Current</span>
-                    <span>Goal</span>
+                <div className="analytics-mt-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Text as="span" variant="muted">Current</Text>
+                    <Text as="span" variant="muted">Goal</Text>
                   </div>
-                  <div className="mt-1 h-3 rounded-full bg-gray-100">
+                  <div className="analytics-progress">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all"
+                      className="analytics-progress-fill"
                       style={{ width: `${Math.min(100, (yearlyStats.totalGCI / (gciGoal || 1)) * 100)}%` }}
                     />
                   </div>
-                  <div className="mt-1 text-xs font-semibold text-gray-600">
+                  <Text variant="muted">
                     {goalProgress.toFixed(1)}% of goal • year is {(yearProgress * 100).toFixed(1)}% complete
                     {gciGoal > 0 && isCurrentYear
                       ? ` • ${remainingMonths} month${remainingMonths === 1 ? '' : 's'} remaining (incl. this month)`
                       : ''}
-                  </div>
+                  </Text>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rounded-2xl border border-gray-100/80 bg-white/90 p-5">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Active pipeline outlook
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-2xl font-semibold text-gray-900">
+              <Card className="space-y-4">
+                <Text as="span" variant="micro">Active pipeline outlook</Text>
+                <div className="analytics-mt-3 grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Text as="div" variant="h2">
                       {formatNumber(closingThisMonthStats.count)}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">Deals expected to close this month</p>
+                    </Text>
+                    <Text variant="muted">Deals expected to close this month</Text>
                   </div>
-                  <div>
-                    <p className="text-2xl font-semibold text-gray-900">
+                  <div className="space-y-1">
+                    <Text as="div" variant="h2">
                       {formatCurrency(closingThisMonthStats.gci)}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">Projected monthly GCI</p>
+                    </Text>
+                    <Text variant="muted">Projected monthly GCI</Text>
                   </div>
                 </div>
-                <div className="mt-4 rounded-xl bg-[var(--app-surface-muted)] p-4 text-sm text-gray-600">
+                <div className="analytics-callout">
                   {momentumDelta !== null && lastActiveMonth ? (
                     <>
-                      <span className="font-semibold">
+                      <Text as="span" variant="body" className="font-semibold">
                         {momentumDelta >= 0 ? 'Ahead' : 'Trailing'} pace
-                      </span>{' '}
+                      </Text>{' '}
                       by {formatCurrency(Math.abs(momentumDelta))} versus {prevActiveMonth?.month ?? 'previous'}.
                       Keep this cadence to end the year at{' '}
-                      <span className="font-semibold">{formatCurrency(projectedGciAtCurrentPace)}</span>.
+                      <Text as="span" variant="body" className="font-semibold">
+                        {formatCurrency(projectedGciAtCurrentPace)}
+                      </Text>.
                     </>
                   ) : (
                     'Once two months close we’ll highlight whether you are accelerating or slowing down.'
                   )}
                 </div>
-              </div>
+              </Card>
             </div>
           )}
-        </div>
+        </Card>
       </section>
 
-      <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Stage Conversion (Transitions)</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              Based on recorded pipeline stage transitions during {selectedYear}.
-            </p>
-          </div>
+      <Card className={isRefreshing ? 'opacity-80 transition-opacity' : ''}>
+        <div className="space-y-2">
+          <Text as="h3" variant="h2">Stage Conversion (Transitions)</Text>
+          <Text variant="muted">
+            Based on recorded pipeline stage transitions during {selectedYear}.
+          </Text>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto analytics-mt-4">
           {isInitialLoading ? (
             <TableSkeleton rows={3} cols={4} />
           ) : (
-            <table className="min-w-full text-sm">
+            <table className="analytics-table">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-100">
-                  <th className="pb-2 pr-4">From → To</th>
-                  <th className="pb-2 pr-4">Entered</th>
-                  <th className="pb-2 pr-4">Advanced</th>
-                  <th className="pb-2 pr-4">Conversion</th>
+                <tr className="analytics-table-head-row analytics-table-head-row--bordered">
+                  <th className="analytics-table-head-cell">From → To</th>
+                  <th className="analytics-table-head-cell">Entered</th>
+                  <th className="analytics-table-head-cell">Advanced</th>
+                  <th className="analytics-table-head-cell">Conversion</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="analytics-table-body">
                 {funnelTransitions.map((row) => (
                   <tr key={`${row.from}-${row.to}`}>
-                    <td className="py-3 pr-4 font-medium text-gray-900">
+                    <td className="analytics-table-cell analytics-table-cell--strong">
                       {stageLabel[row.from]} → {stageLabel[row.to]}
                     </td>
-                    <td className="py-3 pr-4 text-gray-700">{row.entered}</td>
-                    <td className="py-3 pr-4 text-gray-700">{row.advanced}</td>
-                    <td className="py-3 pr-4 text-gray-900 font-semibold">
+                    <td className="analytics-table-cell">{row.entered}</td>
+                    <td className="analytics-table-cell">{row.advanced}</td>
+                    <td className="analytics-table-cell analytics-table-cell--strong">
                       {row.rate.toFixed(1)}%
                     </td>
                   </tr>
                 ))}
                 {funnelTransitions.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-4 text-sm text-gray-500">
+                    <td colSpan={4} className="analytics-table-empty">
                       No transition data available for this period.
                     </td>
                   </tr>
@@ -1509,101 +1518,99 @@ export default function Analytics() {
             </table>
           )}
         </div>
-        <p className="mt-3 text-xs text-gray-500">
+        <Text variant="muted" className="analytics-mt-3">
           Note: Counts are based on stage-change events. Deals that entered a stage before {selectedYear} are not counted as
           entered in that stage during this period.
-        </p>
-      </section>
+        </Text>
+      </Card>
 
-      <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Closed Lost Reasons</h3>
-            <p className="text-xs text-gray-500 mt-1">
+      <Card className={isRefreshing ? 'opacity-80 transition-opacity' : ''}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <Text as="h3" variant="h2">Closed Lost Reasons</Text>
+            <Text variant="muted">
               Why archived deals fell out — fuel pipeline fixes, coaching, and source tuning.
-            </p>
+            </Text>
           </div>
-          <div className="text-sm text-gray-600">
-            <span className={pillClass}>
-              {archiveStats.total} archived
+          <div>
+            <span className={pillBase}>
+              <Text as="span" variant="micro" className={ui.tone.subtle}>
+                {archiveStats.total} archived
+              </Text>
             </span>
           </div>
         </div>
 
         {isInitialLoading ? (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 analytics-mt-4">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={`archive-skeleton-${index}`} className="rounded-xl border border-gray-100/80 bg-white px-4 py-3 shadow-sm">
+              <Card key={`archive-skeleton-${index}`} padding="cardTight">
                 <Skeleton className="h-4 w-32" />
-                <Skeleton className="mt-2 h-3 w-20" />
-              </div>
+                <Skeleton className="analytics-mt-2 h-3 w-20" />
+              </Card>
             ))}
           </div>
         ) : archiveStats.total === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-600 bg-gray-50/80">
-            No archived deals in this period. When you archive with a reason, we’ll summarize them here.
+          <div className="analytics-empty-card analytics-mt-4">
+            <Text variant="muted">
+              No archived deals in this period. When you archive with a reason, we’ll summarize them here.
+            </Text>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 analytics-mt-4">
             {archiveStats.reasons.map((item) => (
-              <div key={item.reason} className="rounded-xl border border-gray-100/80 bg-white px-4 py-3 shadow-sm">
+              <Card key={item.reason} padding="cardTight">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-900">{item.reason}</p>
-                  <span className="text-xs font-semibold text-gray-500">{item.percentage.toFixed(1)}%</span>
+                  <Text as="p" variant="body" className="font-semibold">
+                    {item.reason}
+                  </Text>
+                  <Text as="span" variant="muted" className="font-semibold">
+                    {item.percentage.toFixed(1)}%
+                  </Text>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">{item.count} deal{item.count === 1 ? '' : 's'}</p>
-              </div>
+                <Text variant="muted" className="analytics-mt-1">
+                  {item.count} deal{item.count === 1 ? '' : 's'}
+                </Text>
+              </Card>
             ))}
           </div>
         )}
-      </section>
+      </Card>
 
-      <section className={`${surfaceClass} overflow-hidden ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-900">Lead Source Performance</h3>
-            <p className="text-xs text-gray-500 mt-1">
+      <Card className={['overflow-hidden', isRefreshing ? 'opacity-80 transition-opacity' : ''].join(' ')}>
+        <div className="analytics-section-header">
+          <div className="space-y-2">
+            <Text as="h3" variant="h2">Lead Source Performance</Text>
+            <Text variant="muted">
               Compare volume, conversion, and commissions by source.
-            </p>
+            </Text>
           </div>
           <button
             type="button"
             onClick={handleLeadSourceExport}
             disabled={isInitialLoading || leadSourceStats.length === 0}
-            className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="hig-btn-secondary"
           >
             Export CSV
           </button>
         </div>
         {isInitialLoading ? (
-          <div className="px-6 py-6">
+          <div className="analytics-section-body">
             <TableSkeleton rows={6} cols={6} />
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Source
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Deals
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Closed
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Conv. Rate
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Commission
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Insight
-                </th>
+          <table className="analytics-table analytics-table-divider">
+            <thead className="analytics-table-head">
+              <tr className="analytics-table-head-row">
+                <th className="analytics-table-head-cell">Source</th>
+                <th className="analytics-table-head-cell">Total Deals</th>
+                <th className="analytics-table-head-cell">Closed</th>
+                <th className="analytics-table-head-cell">Conv. Rate</th>
+                <th className="analytics-table-head-cell">Total Commission</th>
+                <th className="analytics-table-head-cell">Insight</th>
               </tr>
             </thead>
-            <tbody className="bg-white/70 divide-y divide-gray-100">
+            <tbody className="analytics-table-body">
               {leadSourceStats.map((stat) => {
                 let label = 'Solid';
                 if (stat.conversionRate >= 25 && stat.totalCommission > (yearlyStats.totalGCI || 0) / 4) {
@@ -1613,37 +1620,31 @@ export default function Analytics() {
                 }
 
                 return (
-                  <tr key={stat.name} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    <button
-                      type="button"
-                      onClick={() => handleLeadSourceClick(stat)}
-                      disabled={!stat.id}
-                      className="text-left text-[var(--app-accent)] hover:underline disabled:cursor-default disabled:text-gray-500 disabled:no-underline"
-                    >
-                      {stat.name}
-                    </button>
-                  </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {stat.totalDeals}
+                  <tr key={stat.name} className="analytics-table-row">
+                    <td className="analytics-table-cell analytics-table-cell--strong">
+                      <button
+                        type="button"
+                        onClick={() => handleLeadSourceClick(stat)}
+                        disabled={!stat.id}
+                        className="analytics-link"
+                      >
+                        {stat.name}
+                      </button>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {stat.closedDeals}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {stat.conversionRate.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                    <td className="analytics-table-cell">{stat.totalDeals}</td>
+                    <td className="analytics-table-cell">{stat.closedDeals}</td>
+                    <td className="analytics-table-cell">{stat.conversionRate.toFixed(1)}%</td>
+                    <td className="analytics-table-cell analytics-table-cell--accent">
                       {formatCurrency(stat.totalCommission)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                    <td className="analytics-table-cell">
                       <span
                         className={
                           label === 'Power Source'
-                            ? 'inline-flex px-2 py-1 rounded-full bg-green-50 text-green-700'
+                            ? 'analytics-pill analytics-pill--success'
                             : label === 'Underperformer'
-                            ? 'inline-flex px-2 py-1 rounded-full bg-amber-50 text-amber-700'
-                            : 'inline-flex px-2 py-1 rounded-full bg-gray-50 text-gray-600'
+                            ? 'analytics-pill analytics-pill--warning'
+                            : 'analytics-pill analytics-pill--neutral'
                         }
                       >
                         {label}
@@ -1654,7 +1655,7 @@ export default function Analytics() {
               })}
               {leadSourceStats.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={6} className="analytics-table-empty">
                     No data available for {selectedYear}
                   </td>
                 </tr>
@@ -1662,51 +1663,51 @@ export default function Analytics() {
             </tbody>
           </table>
         )}
-      </section>
+      </Card>
 
-      <section className={`${surfaceClass} p-6 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900">Suggested Focus Areas</h3>
-            <p className="text-xs text-gray-500">
+      <Card className={isRefreshing ? 'opacity-80 transition-opacity' : ''}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-2">
+            <Text as="h3" variant="h2">Suggested Focus Areas</Text>
+            <Text variant="muted">
               Focused next steps pulled from your strongest signals this year.
-            </p>
+            </Text>
           </div>
-          <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
-            Actionable
-          </span>
+          <span className="analytics-pill analytics-pill--info">Actionable</span>
         </div>
         {isInitialLoading ? (
-          <ListSkeleton lines={4} />
+          <div className="analytics-mt-4">
+            <ListSkeleton lines={4} />
+          </div>
         ) : (
           <>
             {focusAreas.length > 0 ? (
-              <ol className="space-y-3">
+              <ol className="space-y-3 analytics-mt-4">
                 {focusAreas.map((item, index) => (
-                  <li
-                    key={`${item.title}-${index}`}
-                    className="rounded-2xl border border-gray-100/80 bg-white px-4 py-3"
-                  >
+                  <li key={`${item.title}-${index}`} className="analytics-focus-item">
                     <div className="flex items-start gap-3">
-                      <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-xs font-semibold text-[var(--app-accent)]">
+                      <div className="analytics-focus-index">
                         {index + 1}
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{item.title}</p>
-                        <p className="mt-1 text-sm text-gray-600">{item.detail}</p>
+                      <div className="space-y-1">
+                        <Text as="p" variant="body" className="font-semibold">
+                          {item.title}
+                        </Text>
+                        <Text variant="muted">{item.detail}</Text>
                       </div>
                     </div>
                   </li>
                 ))}
               </ol>
             ) : (
-              <p className="text-sm text-gray-500">
+              <Text variant="muted" className="analytics-mt-4">
                 Add a few deals to surface more specific focus recommendations.
-              </p>
+              </Text>
             )}
           </>
         )}
-      </section>
-    </div>
+      </Card>
+      </div>
+    </PageShell>
   );
 }

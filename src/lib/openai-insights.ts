@@ -59,7 +59,7 @@ export async function generateDashboardInsights(data: InsightsRequest): Promise<
       messages: [
         {
           role: 'system',
-          content: 'You are Luma, an AI assistant for real estate agents. Address the audience based on the provided audience instructions. Avoid phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, opportunities, and areas needing attention. Keep each insight to 1-2 sentences. Be specific with numbers and percentages. Return 3-5 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
+          content: 'You are Luma, an AI assistant for real estate agents. Address the audience based on the provided audience instructions. Avoid phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, risks, opportunities, and next steps. Do NOT restate dashboard metrics or repeat numbers that are already visible elsewhere; avoid raw counts, dollar amounts, or percentages unless absolutely necessary to make a recommendation. Keep each insight to 1-2 sentences. Return 2-4 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
         },
         {
           role: 'user',
@@ -109,7 +109,7 @@ function buildInsightsPrompt(data: InsightsRequest): string {
     filterSummary
   } = data;
 
-  let prompt = `Analyze this real estate dashboard data and provide 3-5 actionable insights.\n`;
+  let prompt = `Analyze this real estate dashboard data and provide 2-4 actionable insights.\n`;
   prompt += `Audience: ${audienceLabel}\n`;
   prompt += `Filter context: ${filterSummary}\n`;
   if (audienceMode === 'self') {
@@ -118,7 +118,9 @@ function buildInsightsPrompt(data: InsightsRequest): string {
     prompt += `Address the audience as a group by name (e.g., "Nora and Charles are...", "The team is..."). Do not use second-person ("you/your"). Avoid third-person generic phrases like "the agent".\n\n`;
   }
 
-  prompt += `Performance Metrics:\n`;
+  prompt += `Important: Do NOT restate exact dashboard metrics, totals, or raw counts. Focus on analysis, implications, risks, opportunities, and next steps derived from the data.\n\n`;
+
+  prompt += `Performance Metrics (for analysis only, do not quote directly):\n`;
   prompt += `- YTD GCI: $${stats.ytdGCI.toLocaleString()}\n`;
   prompt += `- Closed Deals: ${stats.ytdDeals}\n`;
   prompt += `- Average Commission: $${stats.avgCommission.toLocaleString()}\n`;
@@ -127,7 +129,7 @@ function buildInsightsPrompt(data: InsightsRequest): string {
 
   if (monthlyData.length >= 2) {
     const recent = monthlyData.slice(-3);
-    prompt += `Recent Monthly Trend:\n`;
+    prompt += `Recent Monthly Trend (for analysis only, do not quote directly):\n`;
     recent.forEach(m => {
       prompt += `- ${m.month}: ${m.deals} deals, $${m.gci.toLocaleString()} GCI\n`;
     });
@@ -137,7 +139,7 @@ function buildInsightsPrompt(data: InsightsRequest): string {
   if (pipelineHealth.length > 0) {
     const totalActive = pipelineHealth.reduce((sum, s) => sum + s.count, 0);
     const totalStalled = pipelineHealth.reduce((sum, s) => sum + s.stalledCount, 0);
-    prompt += `Pipeline Health:\n`;
+    prompt += `Pipeline Health (for analysis only, do not quote directly):\n`;
     prompt += `- Total Active Deals: ${totalActive}\n`;
     prompt += `- Total Stalled (30+ days): ${totalStalled}\n`;
     pipelineHealth.forEach(status => {
@@ -153,7 +155,7 @@ function buildInsightsPrompt(data: InsightsRequest): string {
   }
 
   if (leadSourceData.length > 0) {
-    prompt += `Top Lead Sources:\n`;
+    prompt += `Top Lead Sources (for analysis only, do not quote directly):\n`;
     leadSourceData.slice(0, 3).forEach((source, idx) => {
       prompt += `${idx + 1}. ${source.name}: ${source.deals} deals, $${source.gci.toLocaleString()} GCI\n`;
     });
@@ -161,14 +163,15 @@ function buildInsightsPrompt(data: InsightsRequest): string {
   }
 
   if (upcomingDealsCount > 0) {
-    prompt += `Upcoming: ${upcomingDealsCount} deals projected to close with $${projectedGCI.toLocaleString()} potential GCI\n\n`;
+    prompt += `Upcoming (for analysis only, do not quote directly): ${upcomingDealsCount} deals projected to close with $${projectedGCI.toLocaleString()} potential GCI\n\n`;
   }
 
-  prompt += `Provide insights as a JSON array of 3-5 strings. Focus on:\n`;
+  prompt += `Provide insights as a JSON array of 2-4 strings. Focus on:\n`;
   prompt += `1. Performance trends (improving/declining)\n`;
-  prompt += `2. Urgent actions needed (stalled deals)\n`;
-  prompt += `3. Opportunities (strong lead sources, upcoming closings)\n`;
-  prompt += `4. Strategic recommendations\n\n`;
+  prompt += `2. Risks or bottlenecks (pipeline friction, stalled risk)\n`;
+  prompt += `3. Opportunities (channel mix, stage movement)\n`;
+  prompt += `4. Clear next steps or strategic recommendations\n\n`;
+  prompt += `Avoid repeating any dashboard numbers. Use "so what" framing.\n\n`;
   prompt += `Format: ["insight 1", "insight 2", "insight 3"]`;
 
   return prompt;

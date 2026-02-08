@@ -12,6 +12,11 @@ import DealModal from '../components/DealModal';
 import TemplateSelectionModal from '../components/TemplateSelectionModal';
 import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
 import { Skeleton } from '../components/ui/Skeleton';
+import { Card } from '../ui/Card';
+import { PageShell } from '../ui/PageShell';
+import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
+import { Text } from '../ui/Text';
+import { ui } from '../ui/tokens';
 import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
 import { getVisibleUserIds } from '../lib/rbac';
 import { calculateActualGCI, calculateExpectedGCI } from '../lib/commission';
@@ -41,10 +46,6 @@ type DealFilters = {
   statusStageId: string | null;
   source: 'dashboard' | 'ui' | 'mixed';
 };
-
-const surfaceClass = 'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
-const pillClass =
-  'inline-flex items-center rounded-full border border-gray-200/70 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 transition';
 const DEAL_LIST_COLUMNS = `
   id,
   user_id,
@@ -97,31 +98,26 @@ const DEALS_SELECT = `
 `;
 const DEAL_TYPE_FILTER_META: Record<
   Deal['deal_type'],
-  { label: string; accentClass: string; matches: Deal['deal_type'][] }
+  { label: string; matches: Deal['deal_type'][] }
 > = {
   buyer: {
     label: 'Buyer',
-    accentClass: 'bg-blue-50 text-blue-700 border-blue-200',
     matches: ['buyer', 'buyer_and_seller']
   },
   seller: {
     label: 'Seller',
-    accentClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     matches: ['seller', 'buyer_and_seller']
   },
   buyer_and_seller: {
     label: 'Buyer & Seller',
-    accentClass: 'bg-purple-50 text-purple-700 border-purple-200',
     matches: ['buyer_and_seller']
   },
   renter: {
     label: 'Renter',
-    accentClass: 'bg-orange-50 text-orange-700 border-orange-200',
     matches: ['renter']
   },
   landlord: {
     label: 'Landlord',
-    accentClass: 'bg-teal-50 text-teal-700 border-teal-200',
     matches: ['landlord']
   }
 };
@@ -1266,85 +1262,108 @@ export default function Pipeline() {
     setSearchParams(nextParams, { replace: true });
   };
 
+  const viewToggleWrap = [
+    ui.radius.pill,
+    ui.border.subtle,
+    ui.pad.chipTight,
+    'inline-flex items-center bg-white/80'
+  ].join(' ');
+  const viewToggleButton = [
+    ui.radius.pill,
+    ui.pad.chip,
+    'inline-flex items-center gap-2 transition'
+  ].join(' ');
+  const filterChipBase = [
+    ui.radius.pill,
+    ui.border.subtle,
+    ui.pad.chip,
+    'inline-flex items-center gap-2 bg-white transition'
+  ].join(' ');
+
   return (
-    <div className="space-y-6 min-h-full">
-      <div className={`${surfaceClass} p-6 space-y-5`}>
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.25em]">
-              Pipeline
-            </p>
-            <h1 className="text-3xl font-semibold text-gray-900 mt-1">Active deals workspace</h1>
-            <p className="text-sm text-gray-600 mt-2">
-              Monitor every opportunity, shift deals between stages, and launch new work without leaving this view.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 items-end text-right md:ml-auto">
-            <div className="flex flex-col items-end gap-1 text-xs font-semibold text-gray-500">
-              {refreshing && (
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                  Updating…
-                </div>
-              )}
-              {lastUpdatedLabel && <span>{lastUpdatedLabel}</span>}
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="inline-flex items-center rounded-full border border-gray-200/80 bg-white/80 p-1 shadow-inner">
-                <button
-                  onClick={() => setViewMode('kanban')}
-                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
-                    viewMode === 'kanban'
-                      ? 'bg-[var(--app-accent)] text-white shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                  <span>Kanban</span>
-                </button>
-                <button
-                  onClick={() => setViewMode('table')}
-                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
-                    viewMode === 'table'
-                      ? 'bg-[var(--app-accent)] text-white shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <List className="w-4 h-4" />
-                  <span>Table</span>
-                </button>
-              </div>
-              <div className="relative">
-                <input
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search client or address…"
-                  className="h-10 w-full rounded-full border border-gray-200/80 bg-white/90 px-4 pr-8 text-sm text-gray-700 shadow-inner sm:w-56"
-                />
-                {searchText && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchText('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+    <PageShell
+      className="min-h-full"
+      title={(
+        <div className="space-y-2">
+          <Text variant="micro">Pipeline</Text>
+          <Text as="h1" variant="h1">Active deals workspace</Text>
+          <Text variant="muted">
+            Monitor every opportunity, shift deals between stages, and launch new work without leaving this view.
+          </Text>
+        </div>
+      )}
+      actions={(
+        <div className={['flex flex-col gap-3 items-end', ui.align.right].join(' ')}>
+          <LastUpdatedStatus refreshing={refreshing} label={lastUpdatedLabel} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className={viewToggleWrap}>
               <button
-                onClick={() => {
-                  setSelectedDeal(null);
-                  setShowModal(true);
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/50 bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_16px_rgba(15,23,42,0.12)] transition hover:bg-[var(--app-accent-dark,#0052cc)]"
+                onClick={() => setViewMode('kanban')}
+                className={[
+                  viewToggleButton,
+                  viewMode === 'kanban' ? 'bg-[var(--app-accent)]' : 'hover:bg-gray-100/70',
+                  viewMode === 'kanban' ? ui.tone.inverse : ui.tone.subtle
+                ].join(' ')}
               >
-                <Plus className="w-4 h-4" />
-                <span>New Deal</span>
+                <LayoutGrid className="w-4 h-4" />
+                <Text
+                  as="span"
+                  variant="body"
+                  className={['font-medium', viewMode === 'kanban' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
+                >
+                  Kanban
+                </Text>
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={[
+                  viewToggleButton,
+                  viewMode === 'table' ? 'bg-[var(--app-accent)]' : 'hover:bg-gray-100/70',
+                  viewMode === 'table' ? ui.tone.inverse : ui.tone.subtle
+                ].join(' ')}
+              >
+                <List className="w-4 h-4" />
+                <Text
+                  as="span"
+                  variant="body"
+                  className={['font-medium', viewMode === 'table' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
+                >
+                  Table
+                </Text>
               </button>
             </div>
+            <div className="relative">
+              <input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search client or address…"
+                className={['hig-input', ui.radius.pill, 'sm:w-56'].join(' ')}
+              />
+              {searchText && (
+                <button
+                  type="button"
+                  onClick={() => setSearchText('')}
+                  className={[ui.tone.faint, 'absolute right-3 top-1/2 -translate-y-1/2 transition hover:opacity-80'].join(' ')}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setSelectedDeal(null);
+                setShowModal(true);
+              }}
+              className={['hig-btn-primary', 'gap-2'].join(' ')}
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Deal</span>
+            </button>
           </div>
         </div>
-
+      )}
+    >
+      <Card className="space-y-5">
         {isInitialLoading ? (
           <div className="flex flex-wrap gap-3">
             {Array.from({ length: 4 }).map((_, index) => (
@@ -1354,52 +1373,55 @@ export default function Pipeline() {
         ) : summaryPills.length > 0 && (
           <div className="flex flex-wrap gap-3">
             {summaryPills.map(pill => (
-              <div key={pill.label} className={`${pillClass} gap-2`}>
-                <span className="text-[11px] uppercase tracking-wide text-gray-400">{pill.label}</span>
-                <span className="font-semibold text-gray-900">{pill.display}</span>
+              <div key={pill.label} className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'inline-flex items-center gap-2 bg-white'].join(' ')}>
+                <Text as="span" variant="micro" className={ui.tone.faint}>
+                  {pill.label}
+                </Text>
+                <Text as="span" variant="body" className="font-semibold">
+                  {pill.display}
+                </Text>
               </div>
             ))}
           </div>
         )}
 
         {showFilterPanel && (
-          <section
-            className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)] p-5 space-y-5"
-            aria-label="Scope filters"
-          >
-            <div className="flex flex-col gap-2">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                  Scope
-                </p>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  {scopeDescription}
-                </p>
+          <Card className="space-y-5" aria-label="Scope filters">
+            <div className="space-y-2">
+              <div className="space-y-2">
+                <Text as="span" variant="micro">Scope</Text>
+                <Text variant="muted">{scopeDescription}</Text>
               </div>
             </div>
             {(activeFilterChips.length > 0 || showFocusOnMe) && (
-              <div className="flex flex-wrap items-center gap-2 -mt-1">
+              <div className="flex flex-wrap items-center gap-2">
                 {showFocusOnMe && (
                   <button
                     type="button"
                     onClick={selectMyData}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                      isFocusOnMeActive
-                        ? 'bg-[var(--app-accent)] text-white shadow-[0_8px_20px_rgba(var(--app-accent-rgb),0.25)]'
-                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                    }`}
+                    className={[
+                      filterChipBase,
+                      isFocusOnMeActive ? 'bg-[var(--app-accent)]' : 'hover:bg-gray-100/70',
+                      isFocusOnMeActive ? ui.tone.inverse : ui.tone.subtle
+                    ].join(' ')}
                   >
-                    Focus On Me
+                    <Text as="span" variant="body" className="font-semibold">
+                      Focus On Me
+                    </Text>
                   </button>
                 )}
                 {isStageLockedFromDashboard && (
                   <button
                     type="button"
                     onClick={clearStageLock}
-                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                    className={filterChipBase}
                   >
-                    Stage locked from Dashboard: {stageLabel}
-                    <span className="text-gray-400">x</span>
+                    <Text as="span" variant="body" className={[ui.tone.subtle, 'font-semibold'].join(' ')}>
+                      Stage locked from Dashboard: {stageLabel}
+                    </Text>
+                    <Text as="span" variant="body" className={ui.tone.faint}>
+                      ×
+                    </Text>
                   </button>
                 )}
                 {activeFilterChips.map((chip) => (
@@ -1407,19 +1429,25 @@ export default function Pipeline() {
                     key={chip.key}
                     type="button"
                     onClick={chip.onRemove}
-                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
+                    className={filterChipBase}
                   >
-                    {chip.label}
-                    <span className="text-gray-400">x</span>
+                    <Text as="span" variant="body" className={[ui.tone.subtle, 'font-semibold'].join(' ')}>
+                      {chip.label}
+                    </Text>
+                    <Text as="span" variant="body" className={ui.tone.faint}>
+                      ×
+                    </Text>
                   </button>
                 ))}
                 {activeFilterChips.length > 0 && (
                   <button
                     type="button"
                     onClick={clearAllFilters}
-                    className="text-xs font-semibold text-[var(--app-accent)]"
+                    className="inline-flex items-center"
                   >
-                    Clear all filters
+                    <Text as="span" variant="muted" className={[ui.tone.accent, 'font-semibold'].join(' ')}>
+                      Clear all filters
+                    </Text>
                   </button>
                 )}
               </div>
@@ -1472,53 +1500,57 @@ export default function Pipeline() {
                 />
               </div>
             </div>
-          </section>
+          </Card>
         )}
 
         {dashboardFiltersActive && (
-          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
-            <div>
-              Dashboard filters applied (override local selections):&nbsp;
-              <span className="font-medium text-gray-900">
-                {[
-                  dashboardAgentFilters.length ? `${dashboardAgentFilters.length} agent${dashboardAgentFilters.length === 1 ? '' : 's'}` : null,
-                  dashboardLeadSourceFilters.length ? `${dashboardLeadSourceFilters.length} lead source${dashboardLeadSourceFilters.length === 1 ? '' : 's'}` : null,
-                  dashboardDealTypeFilters.length ? `${dashboardDealTypeFilters.length} deal type${dashboardDealTypeFilters.length === 1 ? '' : 's'}` : null,
-                  dashboardStageFilters.length ? `${dashboardStageFilters.length} stage filter${dashboardStageFilters.length === 1 ? '' : 's'}` : null
-                ].filter(Boolean).join(' · ')}
-              </span>
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Text as="span" variant="muted">
+              Dashboard filters applied (override local selections):
+            </Text>
+            <Text as="span" variant="body" className="font-semibold">
+              {[
+                dashboardAgentFilters.length ? `${dashboardAgentFilters.length} agent${dashboardAgentFilters.length === 1 ? '' : 's'}` : null,
+                dashboardLeadSourceFilters.length ? `${dashboardLeadSourceFilters.length} lead source${dashboardLeadSourceFilters.length === 1 ? '' : 's'}` : null,
+                dashboardDealTypeFilters.length ? `${dashboardDealTypeFilters.length} deal type${dashboardDealTypeFilters.length === 1 ? '' : 's'}` : null,
+                dashboardStageFilters.length ? `${dashboardStageFilters.length} stage filter${dashboardStageFilters.length === 1 ? '' : 's'}` : null
+              ].filter(Boolean).join(' · ')}
+            </Text>
             <button
               type="button"
               onClick={clearDashboardFilters}
-              className="text-xs font-semibold text-[var(--app-accent)]"
+              className="inline-flex items-center"
             >
-              Clear dashboard filters
+              <Text as="span" variant="muted" className={[ui.tone.accent, 'font-semibold'].join(' ')}>
+                Clear dashboard filters
+              </Text>
             </button>
           </div>
         )}
-      </div>
+      </Card>
 
       {isInitialLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={`pipeline-skeleton-${index}`} className={`${surfaceClass} p-4 space-y-3`}>
+            <Card key={`pipeline-skeleton-${index}`} padding="cardTight" className="space-y-3">
               <Skeleton className="h-4 w-32" />
               {Array.from({ length: 4 }).map((__, cardIndex) => (
                 <Skeleton key={`pipeline-skeleton-${index}-${cardIndex}`} className="h-20 w-full" />
               ))}
-            </div>
+            </Card>
           ))}
         </div>
       ) : combinedStatuses.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-md">
-            <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Configure Your Pipeline</h3>
-            <p className="text-gray-600 mb-6">Choose a template to get started with your pipeline workflow</p>
+          <div className={[ui.align.center, 'max-w-md space-y-4'].join(' ')}>
+            <Settings className={[ui.tone.faint, 'w-16 h-16 mx-auto'].join(' ')} />
+            <div className="space-y-2">
+              <Text as="h2" variant="h2">Configure Your Pipeline</Text>
+              <Text variant="muted">Choose a template to get started with your pipeline workflow</Text>
+            </div>
             <button
               onClick={() => setShowTemplateModal(true)}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+              className="hig-btn-primary"
             >
               Choose Pipeline Template
             </button>
@@ -1531,8 +1563,8 @@ export default function Pipeline() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="pb-2 overflow-x-auto">
-            <div className="flex gap-3 sm:gap-4 pb-4 px-2 sm:px-6 min-w-max">
+          <div className="overflow-x-auto">
+            <div className={[ui.pad.cardTight, 'flex gap-3 sm:gap-4 min-w-max'].join(' ')}>
               {combinedStatuses.map(status => (
                 <PipelineColumn
                   key={status.id}
@@ -1601,6 +1633,6 @@ export default function Pipeline() {
           onCreateCustomWorkflow={createCustomWorkflow}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

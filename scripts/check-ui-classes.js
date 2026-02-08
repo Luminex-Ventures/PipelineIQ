@@ -9,7 +9,20 @@ const PAGE_DIRS = [
 ];
 const UI_DIR = path.join(ROOT, 'src', 'ui');
 
-const FORBIDDEN_PREFIXES = ['text-', 'leading-', 'tracking-', 'p-', 'px-', 'py-', 'm-', 'mt-', 'mb-', 'rounded-'];
+const FORBIDDEN_PREFIXES = [
+  'text-',
+  'leading-',
+  'tracking-',
+  'p-',
+  'px-',
+  'py-',
+  'm-',
+  'mt-',
+  'mb-',
+  'rounded-',
+  'shadow-',
+  'border-'
+];
 
 const FILE_EXTENSIONS = new Set(['.ts', '.tsx']);
 

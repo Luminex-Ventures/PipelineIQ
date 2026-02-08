@@ -18,13 +18,12 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
 import { getVisibleUserIds } from '../lib/rbac';
-
-const surfaceClass =
-  'rounded-2xl border border-gray-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.08)]';
-const filterPillBaseClass =
-  'inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition';
-const urgencyPillBaseClass =
-  'group flex w-full flex-col gap-2 rounded-2xl border px-4 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/20';
+import { Card } from '../ui/Card';
+import { FormField } from '../ui/FormField';
+import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
+import { PageShell } from '../ui/PageShell';
+import { Text } from '../ui/Text';
+import { ui } from '../ui/tokens';
 
 type TaskRow = Pick<
   Database['public']['Tables']['tasks']['Row'],
@@ -620,34 +619,50 @@ export default function Tasks() {
   const getTaskStatusBadge = (task: Task) => {
     const due = normalizeDueDate(task.due_date);
     if (!due) {
-      return <span className="text-xs font-medium text-gray-500">No due date</span>;
+      return (
+        <Text as="span" variant="muted" className="font-medium">
+          No due date
+        </Text>
+      );
     }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     if (due < today) {
-      return <span className="text-xs font-semibold text-red-600">Overdue</span>;
+      return (
+        <Text as="span" variant="muted" className={[ui.tone.rose, 'font-semibold'].join(' ')}>
+          Overdue
+        </Text>
+      );
     }
     if (due.getTime() === today.getTime()) {
-      return <span className="text-xs font-semibold text-orange-600">Due today</span>;
+      return (
+        <Text as="span" variant="muted" className={[ui.tone.warningStrong, 'font-semibold'].join(' ')}>
+          Due today
+        </Text>
+      );
     }
-    return <span className="text-xs font-semibold text-emerald-600">Upcoming</span>;
+    return (
+      <Text as="span" variant="muted" className={[ui.tone.successStrong, 'font-semibold'].join(' ')}>
+        Upcoming
+      </Text>
+    );
   };
 
   const getDueMeta = (task: Task) => {
     const due = normalizeDueDate(task.due_date);
     if (!due) {
-      return { label: 'No due date', className: 'bg-gray-100 text-gray-600' };
+      return { label: 'No due date', tone: ui.tone.subtle, bg: 'bg-gray-100' };
     }
     const dueTs = due.getTime();
     if (dueTs < todayStart) {
-      return { label: 'Overdue', className: 'bg-red-50 text-red-700' };
+      return { label: 'Overdue', tone: ui.tone.rose, bg: 'bg-rose-50' };
     }
     if (dueTs === todayStart) {
-      return { label: 'Due today', className: 'bg-amber-50 text-amber-700' };
+      return { label: 'Due today', tone: ui.tone.warningStrong, bg: 'bg-amber-50' };
     }
-    return { label: 'Upcoming', className: 'bg-emerald-50 text-emerald-700' };
+    return { label: 'Upcoming', tone: ui.tone.successStrong, bg: 'bg-emerald-50' };
   };
 
   const getStatusFilterLabel = (value: StatusFilterValue) => {
@@ -792,24 +807,29 @@ export default function Tasks() {
       aria-label="Mark task complete"
     >
       {completingId === task.id ? (
-        <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+        <Loader2 className={['h-4 w-4 animate-spin', ui.tone.success].join(' ')} />
       ) : (
         <span
-          className={`relative flex h-5 w-5 items-center justify-center rounded-full border transition-all duration-300 ${
-            isVisuallyCompleted
-              ? 'border-emerald-500 bg-emerald-50 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]'
-              : 'border-gray-300 bg-white'
-          }`}
+          className={[
+            'relative flex h-5 w-5 items-center justify-center transition-all duration-300',
+            ui.radius.pill,
+            ui.border.subtle,
+            isVisuallyCompleted ? 'bg-emerald-50' : 'bg-white'
+          ].join(' ')}
         >
           <Circle
-            className={`absolute h-4 w-4 text-gray-300 transition-opacity duration-200 ${
+            className={[
+              'absolute h-4 w-4 transition-opacity duration-200',
+              ui.tone.faint,
               isVisuallyCompleted ? 'opacity-0' : 'opacity-100'
-            }`}
+            ].join(' ')}
           />
           <CheckCircle
-            className={`absolute h-4 w-4 text-emerald-500 origin-center transition-all duration-500 ${
+            className={[
+              'absolute h-4 w-4 origin-center transition-all duration-500',
+              ui.tone.success,
               isVisuallyCompleted ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
-            }`}
+            ].join(' ')}
           />
         </span>
       )}
@@ -828,7 +848,7 @@ export default function Tasks() {
             [task.id]: !expanded
           }));
         }}
-        className="text-[11px] font-semibold text-[var(--app-accent)] inline-flex items-center gap-1"
+        className="inline-flex items-center gap-1"
         aria-label="Toggle task notes"
       >
         {expanded ? (
@@ -836,7 +856,9 @@ export default function Tasks() {
         ) : (
           <ChevronRight className="h-3.5 w-3.5" />
         )}
-        <span>Notes</span>
+        <Text as="span" variant="micro" className={ui.tone.accent}>
+          Notes
+        </Text>
       </button>
     );
   };
@@ -854,15 +876,18 @@ export default function Tasks() {
         }`}
         onClick={() => handleRowClick(task)}
       >
-        <td className="px-5 py-4">
+        <td className="tasks-cell">
           <div className="flex items-start gap-3">
             {renderCompletionButton(task, isVisuallyCompleted)}
             <div>
               <div className="flex items-center gap-2">
-                <p
-                  className={`font-medium transition-all duration-300 ${
-                    isVisuallyCompleted ? 'text-gray-400' : 'text-gray-900'
-                  }`}
+                <Text
+                  as="p"
+                  variant="body"
+                  className={[
+                    'font-medium transition-all duration-300',
+                    isVisuallyCompleted ? ui.tone.faint : ui.tone.primary
+                  ].join(' ')}
                 >
                   <span className="relative inline-block">
                     <span className="relative z-10">{task.title}</span>
@@ -870,60 +895,62 @@ export default function Tasks() {
                       <span className="pointer-events-none absolute inset-x-0 top-1/2 h-[1px] bg-gray-400 task-strike" />
                     )}
                   </span>
-                </p>
+                </Text>
                 {renderNotesToggle(task, notes, expanded)}
               </div>
               {task.deals?.next_task_description && (
-                <p className="text-xs text-gray-500">
+                <Text as="p" variant="muted">
                   Related: {task.deals.next_task_description}
-                </p>
+                </Text>
               )}
               {expanded && notes.length > 0 && (
-                <div className="mt-2 rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
+                <div className={[ui.radius.control, ui.border.subtle, ui.pad.cardTight, 'tasks-mt-2 bg-gray-50/80 space-y-2'].join(' ')}>
                   {notes.slice(0, 3).map((note) => (
-                    <p key={note.id} className="text-sm text-gray-700">
+                    <Text key={note.id} as="p" variant="body" className={ui.tone.muted}>
                       {note.content}
-                    </p>
+                    </Text>
                   ))}
                   {notes.length > 3 && (
-                    <p className="text-xs text-gray-500">
+                    <Text as="p" variant="muted">
                       {notes.length - 3} more note
                       {notes.length - 3 === 1 ? '' : 's'} in Deal notes
-                    </p>
+                    </Text>
                   )}
                 </div>
               )}
             </div>
           </div>
         </td>
-        <td className="px-5 py-4 text-sm text-gray-700">
+        <td className="tasks-cell">
           <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-gray-400" />
-            <span>{formatDate(task.due_date)}</span>
+            <Calendar className={['h-4 w-4', ui.tone.faint].join(' ')} />
+            <Text as="span" variant="body" className={ui.tone.muted}>
+              {formatDate(task.due_date)}
+            </Text>
           </div>
         </td>
-        <td className="px-5 py-4 text-sm text-gray-700">
+        <td className="tasks-cell">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <User className="h-3.5 w-3.5 text-gray-400" />
-              <span className="font-medium text-gray-900">
+              <User className={['h-3.5 w-3.5', ui.tone.faint].join(' ')} />
+              <Text as="span" variant="body" className="font-medium">
                 {task.deals.client_name}
-              </span>
+              </Text>
             </div>
             {task.deals.property_address && (
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+              <div className="flex items-center gap-2">
                 <MapPin className="h-3 w-3" />
-                <span className="truncate">
+                <Text as="span" variant="muted" className="truncate">
                   {task.deals.property_address}
                   {task.deals.city ? `, ${task.deals.city}` : ''}
-                </span>
+                </Text>
               </div>
             )}
           </div>
         </td>
-        <td className="px-5 py-4 text-sm text-gray-700">
+        <td className="tasks-cell">
           <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-gray-400" />
+            <Clock className={['h-4 w-4', ui.tone.faint].join(' ')} />
             {getTaskStatusBadge(task)}
           </div>
         </td>
@@ -938,7 +965,7 @@ export default function Tasks() {
     const dueMeta = getDueMeta(task);
 
     return (
-      <div
+      <Card
         key={task.id}
         role="button"
         tabIndex={0}
@@ -949,19 +976,24 @@ export default function Tasks() {
             handleRowClick(task);
           }
         }}
-        className={`rounded-2xl border border-gray-200/70 bg-white/90 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-white ${
+        padding="cardTight"
+        className={[
+          'transition hover:bg-white',
           isVisuallyCompleted ? 'opacity-70' : 'opacity-100'
-        }`}
+        ].join(' ')}
       >
         <div className="flex items-start gap-3">
           {renderCompletionButton(task, isVisuallyCompleted)}
           <div className="flex-1 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p
-                  className={`text-base font-semibold transition-all duration-300 ${
-                    isVisuallyCompleted ? 'text-gray-400' : 'text-gray-900'
-                  }`}
+                <Text
+                  as="p"
+                  variant="body"
+                  className={[
+                    'font-semibold transition-all duration-300',
+                    isVisuallyCompleted ? ui.tone.faint : ui.tone.primary
+                  ].join(' ')}
                 >
                   <span className="relative inline-block">
                     <span className="relative z-10">{task.title}</span>
@@ -969,74 +1001,81 @@ export default function Tasks() {
                       <span className="pointer-events-none absolute inset-x-0 top-1/2 h-[1px] bg-gray-400 task-strike" />
                     )}
                   </span>
-                </p>
-                <p className="text-sm text-gray-600">
+                </Text>
+                <Text as="p" variant="muted">
                   {task.deals.client_name}
                   {task.deals.property_address ? ` • ${task.deals.property_address}` : ''}
-                </p>
+                </Text>
               </div>
               <span
-                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${dueMeta.className}`}
+                className={[
+                  'inline-flex items-center',
+                  ui.radius.pill,
+                  ui.pad.chip,
+                  dueMeta.bg,
+                  dueMeta.tone,
+                  'font-semibold'
+                ].join(' ')}
               >
                 {dueMeta.label}
               </span>
             </div>
 
             {task.deals?.next_task_description && (
-              <p className="text-xs text-gray-500">
+              <Text as="p" variant="muted">
                 Related: {task.deals.next_task_description}
-              </p>
+              </Text>
             )}
 
             {renderNotesToggle(task, notes, expanded)}
 
             {expanded && notes.length > 0 && (
-              <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 p-3 space-y-2">
+              <div className={[ui.radius.control, ui.border.subtle, ui.pad.cardTight, 'bg-gray-50/80 space-y-2'].join(' ')}>
                 {notes.slice(0, 3).map((note) => (
-                  <p key={note.id} className="text-sm text-gray-700">
+                  <Text key={note.id} as="p" variant="body" className={ui.tone.muted}>
                     {note.content}
-                  </p>
+                  </Text>
                 ))}
                 {notes.length > 3 && (
-                  <p className="text-xs text-gray-500">
+                  <Text as="p" variant="muted">
                     {notes.length - 3} more note
                     {notes.length - 3 === 1 ? '' : 's'} in Deal notes
-                  </p>
+                  </Text>
                 )}
               </div>
             )}
           </div>
         </div>
-      </div>
+      </Card>
     );
   };
 
   const renderCompletedRow = (task: Task) => (
     <tr
       key={task.id}
-      className="hover:bg-gray-100/80 cursor-pointer text-xs sm:text-sm"
+      className="hover:bg-gray-100/80 cursor-pointer"
       onClick={() => handleRowClick(task)}
     >
-      <td className="px-5 py-2">
+      <td className="tasks-cell-sm">
         <div className="flex items-start gap-2">
-          <span className="mt-0.5">
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
+          <span className="tasks-mt-0_5">
+            <CheckCircle className={['h-4 w-4', ui.tone.success].join(' ')} />
           </span>
           <div>
-            <p className="font-medium text-gray-700 line-through decoration-gray-400">
+            <Text as="p" variant="body" className={[ui.tone.muted, 'line-through decoration-gray-400 font-medium'].join(' ')}>
               {task.title}
-            </p>
-            <p className="text-[11px] text-gray-500">
+            </Text>
+            <Text as="p" variant="muted">
               {task.deals.client_name}
               {task.deals.property_address ? ` • ${task.deals.property_address}` : ''}
-            </p>
+            </Text>
           </div>
         </div>
       </td>
-      <td className="px-5 py-2">
-        <span className="flex items-center gap-1 text-gray-500">
-          <Calendar className="h-3.5 w-3.5" />
-          <span>{formatDate(task.due_date)}</span>
+      <td className="tasks-cell-sm">
+        <span className="flex items-center gap-1">
+          <Calendar className={['h-3.5 w-3.5', ui.tone.faint].join(' ')} />
+          <Text as="span" variant="muted">{formatDate(task.due_date)}</Text>
         </span>
       </td>
     </tr>
@@ -1076,8 +1115,9 @@ export default function Tasks() {
       count: number;
       helper: string;
       icon: React.ComponentType<{ className?: string }>;
-      baseClass: string;
-      activeClass: string;
+      tone: string;
+      bg: string;
+      ring: string;
     }> = [
       {
         label: 'Overdue',
@@ -1085,8 +1125,9 @@ export default function Tasks() {
         count: taskStats.overdue,
         helper: 'Clear the backlog',
         icon: AlertTriangle,
-        baseClass: 'border-red-100/60 bg-red-50/70 text-red-700',
-        activeClass: 'border-red-200 bg-red-100/80 text-red-800 ring-1 ring-red-200/70'
+        tone: ui.tone.rose,
+        bg: 'bg-rose-50/80',
+        ring: 'ring-rose-200/70'
       },
       {
         label: 'Due today',
@@ -1094,8 +1135,9 @@ export default function Tasks() {
         count: taskStats.dueToday,
         helper: 'Handle before day end',
         icon: Clock,
-        baseClass: 'border-amber-100/70 bg-amber-50/60 text-amber-700',
-        activeClass: 'border-amber-200 bg-amber-100/80 text-amber-800 ring-1 ring-amber-200/70'
+        tone: ui.tone.warningStrong,
+        bg: 'bg-amber-50/70',
+        ring: 'ring-amber-200/70'
       },
       {
         label: 'Upcoming',
@@ -1103,9 +1145,9 @@ export default function Tasks() {
         count: taskStats.upcoming,
         helper: 'Prep the next moves',
         icon: ArrowUpRight,
-        baseClass: 'border-emerald-100/70 bg-emerald-50/60 text-emerald-700',
-        activeClass:
-          'border-emerald-200 bg-emerald-100/80 text-emerald-800 ring-1 ring-emerald-200/70'
+        tone: ui.tone.successStrong,
+        bg: 'bg-emerald-50/70',
+        ring: 'ring-emerald-200/70'
       },
       {
         label: 'Unscheduled',
@@ -1113,8 +1155,9 @@ export default function Tasks() {
         count: taskStats.unscheduled,
         helper: 'Add due dates to keep momentum',
         icon: AlertTriangle,
-        baseClass: 'border-dashed border-gray-300 bg-gray-50/80 text-gray-700',
-        activeClass: 'border-gray-400 bg-gray-100 text-gray-800 ring-1 ring-gray-200'
+        tone: ui.tone.subtle,
+        bg: 'bg-gray-50/80',
+        ring: 'ring-gray-200'
       }
     ];
 
@@ -1124,6 +1167,14 @@ export default function Tasks() {
         taskListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     };
+
+    const urgencyPillBase = [
+      'group flex w-full flex-col gap-2 transition focus:outline-none',
+      ui.align.left,
+      ui.radius.card,
+      ui.border.subtle,
+      ui.pad.cardTight
+    ].join(' ');
 
     return (
       <div className="flex flex-col gap-2">
@@ -1135,18 +1186,28 @@ export default function Tasks() {
               <button
                 key={filter.value}
                 onClick={() => handleFilterClick(filter.value)}
-                className={`${urgencyPillBaseClass} min-w-[180px] ${
-                  isActive ? filter.activeClass : filter.baseClass
-                }`}
+                className={[
+                  urgencyPillBase,
+                  'min-w-[180px]',
+                  filter.bg,
+                  filter.tone,
+                  isActive ? `ring-1 ${filter.ring}` : ''
+                ].join(' ')}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-2 text-sm font-semibold">
+                  <div className="inline-flex items-center gap-2">
                     <Icon className="h-4 w-4" />
-                    <span>{filter.label}</span>
+                    <Text as="span" variant="body" className="font-semibold">
+                      {filter.label}
+                    </Text>
                   </div>
-                  <span className="text-2xl font-semibold">{filter.count}</span>
+                  <Text as="span" variant="h2">
+                    {filter.count}
+                  </Text>
                 </div>
-                <p className="text-xs font-medium opacity-80">{filter.helper}</p>
+                <Text as="p" variant="muted" className="font-medium opacity-80">
+                  {filter.helper}
+                </Text>
               </button>
             );
           })}
@@ -1155,83 +1216,92 @@ export default function Tasks() {
           <button
             type="button"
             onClick={() => handleFilterClick('all')}
-            className="text-xs font-semibold text-[var(--app-accent)] hover:underline self-start"
+            className="inline-flex items-center self-start"
           >
-            Clear filter
+            <Text as="span" variant="muted" className={[ui.tone.accent, 'font-semibold'].join(' ')}>
+              Clear filter
+            </Text>
           </button>
         )}
       </div>
     );
   };
 
-  return (
-    <div className="space-y-6">
-      <section className={`${surfaceClass} p-5 space-y-4`}>
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
-              Tasks
-            </p>
-            <h1 className="text-3xl font-semibold text-gray-900 mt-1">
-              Focus on the next actions that move deals forward
-            </h1>
-            <p className="text-sm text-gray-600 mt-2">
-              Triage today’s priorities, assign follow-ups, and keep every client on track without leaving this view.
-            </p>
-          </div>
-          {(refreshing || lastRefreshedAt) && (
-            <div className="flex flex-col items-start gap-1 text-xs font-semibold text-gray-500 md:items-end">
-              {refreshing && (
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[var(--app-accent)] animate-pulse" />
-                  Updating…
-                </div>
-              )}
-              {lastRefreshedAt && (
-                <div>
-                  Last updated{' '}
-                  {new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+  const viewToggleWrap = [
+    ui.radius.pill,
+    ui.border.subtle,
+    ui.pad.chipTight,
+    'inline-flex items-center bg-white'
+  ].join(' ');
+  const viewToggleButton = [
+    ui.radius.pill,
+    ui.pad.chip,
+    'transition'
+  ].join(' ');
+  const filterPillBase = [
+    ui.radius.pill,
+    ui.border.subtle,
+    ui.pad.chip,
+    'inline-flex items-center gap-2 transition'
+  ].join(' ');
 
+  return (
+    <PageShell
+      title={(
+        <div className="space-y-2">
+          <Text variant="micro">Tasks</Text>
+          <Text as="h1" variant="h1">
+            Focus on the next actions that move deals forward
+          </Text>
+          <Text variant="muted">
+            Triage today’s priorities, assign follow-ups, and keep every client on track without leaving this view.
+          </Text>
+        </div>
+      )}
+      actions={(refreshing || lastRefreshedAt) ? (
+        <LastUpdatedStatus
+          refreshing={refreshing}
+          label={
+            lastRefreshedAt
+              ? `Last updated ${new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+              : null
+          }
+          className="md:justify-end"
+        />
+      ) : null}
+    >
+      <Card className="space-y-4">
         <UrgencyFilterBar
           taskStats={taskStats}
           statusFilter={statusFilter}
           setStatusFilter={setStatusFilter}
         />
 
-        <div className="rounded-2xl border border-gray-100/80 bg-[var(--app-surface-muted)] p-4">
+        <Card padding="cardTight" className="bg-[var(--app-surface-muted)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Next Action
-              </p>
-            </div>
+            <Text as="span" variant="micro">Next Action</Text>
             <button
               type="button"
               onClick={() => setShowHeroQuickAdd((prev) => !prev)}
-              className="hig-btn-secondary text-sm py-2"
+              className="hig-btn-secondary"
             >
               <span>+ Add task</span>
             </button>
           </div>
           {taskStats.nextTask ? (
             <>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <div>
-                  <p className="text-lg font-semibold text-gray-900">
+              <div className="tasks-mt-3 grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Text as="p" variant="body" className="font-semibold">
                     {taskStats.nextTask.title}
-                  </p>
-                  <p className="text-sm text-gray-600">
+                  </Text>
+                  <Text as="p" variant="muted">
                     {taskStats.nextTask.deals.client_name}
-                  </p>
+                  </Text>
                   {taskStats.nextTask.deals.property_address && (
-                    <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
-                      <MapPin className="h-3.5 w-3.5" />
-                      <span>
+                    <div className="flex items-center gap-2">
+                      <MapPin className={['h-3.5 w-3.5', ui.tone.faint].join(' ')} />
+                      <Text as="span" variant="muted">
                         {taskStats.nextTask.deals.property_address}
                         {taskStats.nextTask.deals.city
                           ? `, ${taskStats.nextTask.deals.city}`
@@ -1239,23 +1309,23 @@ export default function Tasks() {
                         {taskStats.nextTask.deals.state
                           ? `, ${taskStats.nextTask.deals.state}`
                           : ''}
-                      </span>
+                      </Text>
                     </div>
                   )}
                 </div>
-                <div className="flex items-start gap-2 text-sm text-gray-600 md:justify-end">
+                <div className="flex items-start gap-2 md:justify-end">
                   {(() => {
                     const due = normalizeDueDate(taskStats.nextTask!.due_date);
                     const dueTs = due ? due.getTime() : null;
                     const isOverdue = dueTs !== null && dueTs < todayStart;
                     const isToday = dueTs !== null && dueTs === todayStart;
-                    const badgeClass = isOverdue
-                      ? 'text-red-600'
+                    const badgeTone = isOverdue
+                      ? ui.tone.rose
                       : isToday
-                        ? 'text-amber-600'
+                        ? ui.tone.warningStrong
                         : due
-                          ? 'text-emerald-600'
-                          : 'text-gray-500';
+                          ? ui.tone.successStrong
+                          : ui.tone.subtle;
                     const badgeLabel = isOverdue
                       ? 'Overdue'
                       : isToday
@@ -1265,32 +1335,32 @@ export default function Tasks() {
                           : 'No due date';
                     return (
                       <div className="flex items-center gap-2">
-                        <Calendar className={`h-4 w-4 ${badgeClass}`} />
+                        <Calendar className={['h-4 w-4', badgeTone].join(' ')} />
                         <div className="flex flex-col items-end">
-                          <span className={`text-xs font-semibold uppercase tracking-wide ${badgeClass}`}>
+                          <Text as="span" variant="micro" className={badgeTone}>
                             {badgeLabel}
-                          </span>
-                          <span className="text-xs text-gray-500">
+                          </Text>
+                          <Text as="span" variant="muted">
                             {formatDate(taskStats.nextTask!.due_date)}
-                          </span>
+                          </Text>
                         </div>
                       </div>
                     );
                   })()}
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+              <div className="tasks-mt-3 flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => handleRowClick(taskStats.nextTask!)}
-                  className="hig-btn-secondary inline-flex items-center gap-2 px-4"
+                  className="hig-btn-secondary inline-flex items-center gap-2"
                 >
                   Open deal
                 </button>
                 <button
                   type="button"
                   onClick={() => completeTask(taskStats.nextTask!)}
-                  className="hig-btn-primary inline-flex items-center gap-2 px-4"
+                  className="hig-btn-primary inline-flex items-center gap-2"
                   disabled={completingId === taskStats.nextTask.id}
                 >
                   {completingId === taskStats.nextTask.id ? (
@@ -1308,12 +1378,12 @@ export default function Tasks() {
               </div>
             </>
           ) : (
-            <p className="mt-3 text-sm text-gray-600">
+            <Text as="p" variant="muted" className="tasks-mt-3">
               Add a due date to your most important task so it rises to the top.
-            </p>
+            </Text>
           )}
           {showHeroQuickAdd && (
-            <div className="mt-4">
+            <div className="tasks-mt-4">
               <QuickAddTask
                 contextDealId={taskStats.nextTask?.deal_id ?? preferredDeal?.id}
                 contextDealLabel={
@@ -1334,48 +1404,59 @@ export default function Tasks() {
               />
             </div>
           )}
-        </div>
-      </section>
+        </Card>
+      </Card>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by client, task, property..."
-            className="w-full rounded-2xl border border-white/60 bg-white/90 py-2.5 pl-4 pr-4 text-sm text-gray-900 shadow-inner placeholder:text-gray-400 focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15 md:min-w-[280px]"
-          />
-          <div className="inline-flex items-center rounded-full border border-gray-200/70 bg-white p-1 text-xs font-semibold">
+          <FormField label="Search" className="w-full md:min-w-[280px]">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by client, task, property..."
+              className={['hig-input', ui.radius.pill].join(' ')}
+            />
+          </FormField>
+          <div className={viewToggleWrap}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
-              className={`rounded-full px-3 py-1 transition ${
-                viewMode === 'list'
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={[
+                viewToggleButton,
+                viewMode === 'list' ? 'bg-gray-900' : 'hover:bg-gray-100/70',
+                viewMode === 'list' ? ui.tone.inverse : ui.tone.subtle
+              ].join(' ')}
             >
-              List
+              <Text
+                as="span"
+                variant="body"
+                className={['font-medium', viewMode === 'list' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
+              >
+                List
+              </Text>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('compact')}
-              className={`rounded-full px-3 py-1 transition ${
-                viewMode === 'compact'
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={[
+                viewToggleButton,
+                viewMode === 'compact' ? 'bg-gray-900' : 'hover:bg-gray-100/70',
+                viewMode === 'compact' ? ui.tone.inverse : ui.tone.subtle
+              ].join(' ')}
             >
-              Compact
+              <Text
+                as="span"
+                variant="body"
+                className={['font-medium', viewMode === 'compact' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
+              >
+                Compact
+              </Text>
             </button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {isManagerRole && (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-                Agent
-              </span>
+            <FormField label="Agent">
               <select
                 value={agentFilter}
                 onChange={(e) => setAgentFilter(e.target.value)}
@@ -1388,7 +1469,7 @@ export default function Tasks() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
           )}
           <button
             type="button"
@@ -1402,284 +1483,285 @@ export default function Tasks() {
                 return next;
               });
             }}
-            className={`${filterPillBaseClass} gap-2 tracking-[0.05em] ${
-              showCompleted
-                ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent)] shadow-sm'
-                : 'border-gray-200/70 bg-white text-gray-700 hover:text-gray-900'
-            }`}
+            className={[
+              filterPillBase,
+              showCompleted ? 'bg-[var(--app-accent)]/10' : 'bg-white hover:bg-gray-50/80',
+              showCompleted ? ui.tone.accent : ui.tone.subtle
+            ].join(' ')}
           >
-            <CheckCircle className="h-3.5 w-3.5" />
-            {showCompleted ? 'Hide completed' : 'View recently completed'}
+            <CheckCircle className={['h-3.5 w-3.5', showCompleted ? ui.tone.accent : ui.tone.subtle].join(' ')} />
+            <Text as="span" variant="body" className="font-semibold">
+              {showCompleted ? 'Hide completed' : 'View recently completed'}
+            </Text>
           </button>
         </div>
       </div>
 
       {viewMode === 'list' ? (
-        <div
-          ref={taskListRef}
-          className={`${surfaceClass} p-4 space-y-3 ${refreshing ? 'opacity-90' : ''}`}
-        >
-          <div className="flex flex-col gap-1 px-1 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
-                Task list
-              </p>
-              <h2 className="text-2xl font-semibold text-gray-900 mt-1">
-                Work the current queue
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {getStatusFilterLabel(statusFilter)} · {filteredTasks.length} task
-                {filteredTasks.length === 1 ? '' : 's'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowListQuickAdd((prev) => !prev)}
-              className="hig-btn-primary inline-flex items-center gap-2 px-4"
-            >
-              + Add task
-            </button>
-          </div>
-          {showListQuickAdd && (
-            <QuickAddTask
-              contextDealId={preferredDeal?.id}
-              contextDealLabel={preferredDealLabel}
-              defaultDuePreset="today"
-              dealOptions={dealOptions}
-              dealById={dealById}
-              onCreated={(createdTask, deal) => {
-                handleQuickAddCreated(createdTask, deal);
-                setShowListQuickAdd(false);
-              }}
-              onCancel={() => setShowListQuickAdd(false)}
-              autoFocus
-            />
-          )}
-          {loading ? (
-            <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
-              Loading tasks…
-            </div>
-          ) : filteredTasks.length === 0 ? (
-            <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-6 text-center text-sm text-gray-500">
-              {statusFilter === 'all'
-                ? 'Nothing to show here — take a moment to plan your next steps.'
-                : 'Nothing urgent right now. Nice work.'}
-            </div>
-          ) : groupedTasks && groupedTasks.length > 0 ? (
-            groupedTasks.map((group) => (
-              <div key={group.agentId} className="space-y-3">
-                <div className="sticky top-[3.5rem] z-10 rounded-xl border border-gray-200/70 bg-[var(--app-surface-muted)]/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-700 backdrop-blur">
-                  {group.agentName} • {group.tasks.length} task
-                  {group.tasks.length === 1 ? '' : 's'}
-                </div>
-                {group.tasks.map((task) => renderTaskCard(task))}
-              </div>
-            ))
-          ) : (
-            filteredTasks.map((task) => renderTaskCard(task))
-          )}
-
-          {showCompleted && (
-            <div className="rounded-2xl border border-gray-200/70 bg-gray-50/80">
-              <div className="flex items-center justify-between px-5 py-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
-                    Recently completed
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Last 30 completed tasks in your scope.
-                  </p>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {completedLoading
-                    ? 'Loading…'
-                    : `${completedTasks.length} item${
-                        completedTasks.length === 1 ? '' : 's'
-                      }`}
-                </div>
-              </div>
-              {completedLoading ? (
-                <div className="px-5 pb-4 text-xs text-gray-500">Loading…</div>
-              ) : completedTasks.length === 0 ? (
-                <div className="px-5 pb-4 text-xs text-gray-500">
-                  Nothing completed yet.
-                </div>
-              ) : (
-                <>
-                  <div className="max-h-72 overflow-y-auto">
-                    <table className="min-w-full text-left">
-                      <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
-                    </table>
-                  </div>
-                  <div className="flex items-center justify-center px-5 pb-4 pt-3">
-                    {completedHasMore ? (
-                      <button
-                        type="button"
-                        onClick={() => fetchCompletedTasksPage('append')}
-                        disabled={completedLoadingMore}
-                        className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 transition hover:text-gray-900 disabled:opacity-60"
-                      >
-                        {completedLoadingMore ? 'Loading…' : 'Load more'}
-                      </button>
-                    ) : (
-                      <span className="text-xs text-gray-500">You've reached the end.</span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div
-          ref={taskListRef}
-          className={`${surfaceClass} p-0 overflow-hidden ${refreshing ? 'opacity-90' : ''}`}
-        >
-          <div className="px-4 pt-4">
+        <div ref={taskListRef}>
+          <Card
+            padding="cardTight"
+            className={['space-y-3', refreshing ? 'opacity-90' : ''].join(' ')}
+          >
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
-                  Task list
-                </p>
-                <h2 className="text-2xl font-semibold text-gray-900 mt-1">
-                  Work the current queue
-                </h2>
-                <p className="text-sm text-gray-600 mt-1">
+              <div className="space-y-2">
+                <Text variant="micro">Task list</Text>
+                <Text as="h2" variant="h2">Work the current queue</Text>
+                <Text variant="muted">
                   {getStatusFilterLabel(statusFilter)} · {filteredTasks.length} task
                   {filteredTasks.length === 1 ? '' : 's'}
-                </p>
+                </Text>
               </div>
               <button
                 type="button"
                 onClick={() => setShowListQuickAdd((prev) => !prev)}
-                className="hig-btn-primary inline-flex items-center gap-2 px-4"
+                className="hig-btn-primary inline-flex items-center gap-2"
               >
                 + Add task
               </button>
             </div>
             {showListQuickAdd && (
-              <div className="mt-3">
-                <QuickAddTask
-                  contextDealId={preferredDeal?.id}
-                  contextDealLabel={preferredDealLabel}
-                  defaultDuePreset="today"
-                  dealOptions={dealOptions}
-                  dealById={dealById}
-                  onCreated={(createdTask, deal) => {
-                    handleQuickAddCreated(createdTask, deal);
-                    setShowListQuickAdd(false);
-                  }}
-                  onCancel={() => setShowListQuickAdd(false)}
-                  autoFocus
-                />
+              <QuickAddTask
+                contextDealId={preferredDeal?.id}
+                contextDealLabel={preferredDealLabel}
+                defaultDuePreset="today"
+                dealOptions={dealOptions}
+                dealById={dealById}
+                onCreated={(createdTask, deal) => {
+                  handleQuickAddCreated(createdTask, deal);
+                  setShowListQuickAdd(false);
+                }}
+                onCancel={() => setShowListQuickAdd(false)}
+                autoFocus
+              />
+            )}
+            {loading ? (
+              <div className="tasks-empty">
+                <Text variant="muted">Loading tasks…</Text>
+              </div>
+            ) : filteredTasks.length === 0 ? (
+              <div className="tasks-empty">
+                <Text variant="muted">
+                  {statusFilter === 'all'
+                    ? 'Nothing to show here — take a moment to plan your next steps.'
+                    : 'Nothing urgent right now. Nice work.'}
+                </Text>
+              </div>
+            ) : groupedTasks && groupedTasks.length > 0 ? (
+              groupedTasks.map((group) => (
+                <div key={group.agentId} className="space-y-3">
+                  <div className="tasks-sticky">
+                    <Text as="span" variant="micro" className={ui.tone.muted}>
+                      {group.agentName} • {group.tasks.length} task
+                      {group.tasks.length === 1 ? '' : 's'}
+                    </Text>
+                  </div>
+                  {group.tasks.map((task) => renderTaskCard(task))}
+                </div>
+              ))
+            ) : (
+              filteredTasks.map((task) => renderTaskCard(task))
+            )}
+
+            {showCompleted && (
+              <div className="tasks-muted-card">
+                <div className="tasks-muted-header">
+                  <div className="space-y-1">
+                    <Text as="span" variant="micro" className={ui.tone.subtle}>
+                      Recently completed
+                    </Text>
+                    <Text as="p" variant="muted">
+                      Last 30 completed tasks in your scope.
+                    </Text>
+                  </div>
+                  <Text as="span" variant="muted">
+                    {completedLoading
+                      ? 'Loading…'
+                      : `${completedTasks.length} item${
+                          completedTasks.length === 1 ? '' : 's'
+                        }`}
+                  </Text>
+                </div>
+                {completedLoading ? (
+                  <div className="tasks-muted-body">
+                    <Text variant="muted">Loading…</Text>
+                  </div>
+                ) : completedTasks.length === 0 ? (
+                  <div className="tasks-muted-body">
+                    <Text variant="muted">Nothing completed yet.</Text>
+                  </div>
+                ) : (
+                  <>
+                    <div className="max-h-72 overflow-y-auto">
+                      <table className="tasks-table">
+                        <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
+                      </table>
+                    </div>
+                    <div className="tasks-muted-footer">
+                      {completedHasMore ? (
+                        <button
+                          type="button"
+                          onClick={() => fetchCompletedTasksPage('append')}
+                          disabled={completedLoadingMore}
+                          className="hig-btn-secondary"
+                        >
+                          {completedLoadingMore ? 'Loading…' : 'Load more'}
+                        </button>
+                      ) : (
+                        <Text as="span" variant="muted">You've reached the end.</Text>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-                  <th className="px-5 py-3">Task</th>
-                  <th className="px-5 py-3">Due</th>
-                  <th className="px-5 py-3">Deal</th>
-                  <th className="px-5 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 bg-white/90">
-                {loading ? (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      className="px-5 py-8 text-center text-gray-500 text-sm"
-                    >
-                      Loading tasks…
-                    </td>
-                  </tr>
-                ) : filteredTasks.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      className="px-5 py-12 text-center text-gray-500 text-sm"
-                    >
-                      {statusFilter === 'all'
-                        ? 'Nothing to show here — take a moment to plan your next steps.'
-                        : 'Nothing urgent right now. Nice work.'}
-                    </td>
-                  </tr>
-                ) : groupedTasks && groupedTasks.length > 0 ? (
-                  <>
-                    {groupedTasks.map((group) => (
-                      <React.Fragment key={group.agentId}>
-                        <tr className="bg-[var(--app-surface-muted)] sticky top-[3.5rem] z-10">
-                          <td
-                            colSpan={4}
-                            className="px-5 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide"
-                          >
-                            {group.agentName} • {group.tasks.length} task
-                            {group.tasks.length === 1 ? '' : 's'}
-                          </td>
-                        </tr>
-                        {group.tasks.map((task) => renderTaskRow(task))}
-                      </React.Fragment>
-                    ))}
-                  </>
-                ) : (
-                  <>{filteredTasks.map((task) => renderTaskRow(task))}</>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {showCompleted && (
-            <div className="border-t border-gray-100 bg-gray-50/80">
-              <div className="flex items-center justify-between px-5 py-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
-                    Recently completed
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Last 30 completed tasks in your scope.
-                  </p>
+          </Card>
+        </div>
+      ) : (
+        <div ref={taskListRef}>
+          <Card
+            padding="none"
+            className={['overflow-hidden', refreshing ? 'opacity-90' : ''].join(' ')}
+          >
+            <div className="tasks-compact-header">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-2">
+                  <Text variant="micro">Task list</Text>
+                  <Text as="h2" variant="h2">Work the current queue</Text>
+                  <Text variant="muted">
+                    {getStatusFilterLabel(statusFilter)} · {filteredTasks.length} task
+                    {filteredTasks.length === 1 ? '' : 's'}
+                  </Text>
                 </div>
-                <div className="text-xs text-gray-500">
-                  {completedLoading
-                    ? 'Loading…'
-                    : `${completedTasks.length} item${
-                        completedTasks.length === 1 ? '' : 's'
-                      }`}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowListQuickAdd((prev) => !prev)}
+                  className="hig-btn-primary inline-flex items-center gap-2"
+                >
+                  + Add task
+                </button>
               </div>
-              {completedLoading ? (
-                <div className="px-5 pb-4 text-xs text-gray-500">Loading…</div>
-              ) : completedTasks.length === 0 ? (
-                <div className="px-5 pb-4 text-xs text-gray-500">
-                  Nothing completed yet.
+              {showListQuickAdd && (
+                <div className="tasks-mt-3">
+                  <QuickAddTask
+                    contextDealId={preferredDeal?.id}
+                    contextDealLabel={preferredDealLabel}
+                    defaultDuePreset="today"
+                    dealOptions={dealOptions}
+                    dealById={dealById}
+                    onCreated={(createdTask, deal) => {
+                      handleQuickAddCreated(createdTask, deal);
+                      setShowListQuickAdd(false);
+                    }}
+                    onCancel={() => setShowListQuickAdd(false)}
+                    autoFocus
+                  />
                 </div>
-              ) : (
-                <>
-                  <div className="max-h-72 overflow-y-auto">
-                    <table className="min-w-full text-left">
-                      <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
-                    </table>
-                  </div>
-                  <div className="flex items-center justify-center px-5 pb-4 pt-3">
-                    {completedHasMore ? (
-                      <button
-                        type="button"
-                        onClick={() => fetchCompletedTasksPage('append')}
-                        disabled={completedLoadingMore}
-                        className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 transition hover:text-gray-900 disabled:opacity-60"
-                      >
-                        {completedLoadingMore ? 'Loading…' : 'Load more'}
-                      </button>
-                    ) : (
-                      <span className="text-xs text-gray-500">You've reached the end.</span>
-                    )}
-                  </div>
-                </>
               )}
             </div>
-          )}
+            <div className="overflow-x-auto">
+              <table className="tasks-table tasks-table-divider">
+                <thead className="tasks-table-head">
+                  <tr className="tasks-table-head-row">
+                    <th className="tasks-table-head-cell">Task</th>
+                    <th className="tasks-table-head-cell">Due</th>
+                    <th className="tasks-table-head-cell">Deal</th>
+                    <th className="tasks-table-head-cell">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="tasks-table-body">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={4} className="tasks-table-empty">
+                        <Text variant="muted">Loading tasks…</Text>
+                      </td>
+                    </tr>
+                  ) : filteredTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="tasks-table-empty">
+                        <Text variant="muted">
+                          {statusFilter === 'all'
+                            ? 'Nothing to show here — take a moment to plan your next steps.'
+                            : 'Nothing urgent right now. Nice work.'}
+                        </Text>
+                      </td>
+                    </tr>
+                  ) : groupedTasks && groupedTasks.length > 0 ? (
+                    <>
+                      {groupedTasks.map((group) => (
+                        <React.Fragment key={group.agentId}>
+                          <tr className="tasks-table-group">
+                            <td colSpan={4} className="tasks-table-group-cell">
+                              <Text as="span" variant="micro" className={ui.tone.muted}>
+                                {group.agentName} • {group.tasks.length} task
+                                {group.tasks.length === 1 ? '' : 's'}
+                              </Text>
+                            </td>
+                          </tr>
+                          {group.tasks.map((task) => renderTaskRow(task))}
+                        </React.Fragment>
+                      ))}
+                    </>
+                  ) : (
+                    <>{filteredTasks.map((task) => renderTaskRow(task))}</>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {showCompleted && (
+              <div className="tasks-muted-card tasks-muted-card--bordered">
+                <div className="tasks-muted-header">
+                  <div className="space-y-1">
+                    <Text as="span" variant="micro" className={ui.tone.subtle}>
+                      Recently completed
+                    </Text>
+                    <Text as="p" variant="muted">
+                      Last 30 completed tasks in your scope.
+                    </Text>
+                  </div>
+                  <Text as="span" variant="muted">
+                    {completedLoading
+                      ? 'Loading…'
+                      : `${completedTasks.length} item${
+                          completedTasks.length === 1 ? '' : 's'
+                        }`}
+                  </Text>
+                </div>
+                {completedLoading ? (
+                  <div className="tasks-muted-body">
+                    <Text variant="muted">Loading…</Text>
+                  </div>
+                ) : completedTasks.length === 0 ? (
+                  <div className="tasks-muted-body">
+                    <Text variant="muted">Nothing completed yet.</Text>
+                  </div>
+                ) : (
+                  <>
+                    <div className="max-h-72 overflow-y-auto">
+                      <table className="tasks-table">
+                        <tbody>{completedTasks.map((task) => renderCompletedRow(task))}</tbody>
+                      </table>
+                    </div>
+                    <div className="tasks-muted-footer">
+                      {completedHasMore ? (
+                        <button
+                          type="button"
+                          onClick={() => fetchCompletedTasksPage('append')}
+                          disabled={completedLoadingMore}
+                          className="hig-btn-secondary"
+                        >
+                          {completedLoadingMore ? 'Loading…' : 'Load more'}
+                        </button>
+                      ) : (
+                        <Text as="span" variant="muted">You've reached the end.</Text>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </Card>
         </div>
       )}
 
@@ -1690,6 +1772,6 @@ export default function Tasks() {
           onDelete={handleDealModalClose}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

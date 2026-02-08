@@ -53,6 +53,8 @@ Use tokens from `src/ui/tokens.ts` only:
   - `ui.pad.page` — page wrapper
   - `ui.pad.card` — standard card
   - `ui.pad.cardTight` — compact card
+  - `ui.pad.chip` — small chips/badges
+  - `ui.pad.chipTight` — compact chips/badges
 
 - Radius:
   - `ui.radius.card`

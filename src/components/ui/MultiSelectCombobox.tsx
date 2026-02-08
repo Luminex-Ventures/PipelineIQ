@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { FormField } from '../../ui/FormField';
+import { Text } from '../../ui/Text';
+import { ui } from '../../ui/tokens';
 
 export type MultiSelectOption = {
   value: string;
@@ -123,123 +126,150 @@ export function MultiSelectCombobox({
   };
 
   return (
-    <div ref={containerRef} className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
-          {label}
-        </label>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <button
-            type="button"
-            onClick={handleSelectAll}
-            className="hover:text-gray-700"
-            disabled={disabled || options.length === 0}
-          >
-            Select all
-          </button>
-          <button
-            type="button"
-            onClick={handleClear}
-            className="hover:text-gray-700"
-            disabled={disabled || value.length === 0}
-          >
-            Clear
-          </button>
+    <FormField
+      label={
+        <div className="multiselect-header">
+          <div className="multiselect-label">
+            <Text as="span" variant="micro" className="font-medium text-gray-600">
+              {label}
+            </Text>
+          </div>
+          <div className="multiselect-actions">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              className={['transition', ui.tone.faint, 'hover:text-gray-700'].join(' ')}
+              disabled={disabled || options.length === 0}
+            >
+              <Text as="span" variant="micro" className="normal-case">Select all</Text>
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className={['transition', ui.tone.faint, 'hover:text-gray-700'].join(' ')}
+              disabled={disabled || value.length === 0}
+            >
+              <Text as="span" variant="micro" className="normal-case">Clear</Text>
+            </button>
+          </div>
         </div>
-      </div>
-      <div
-        className={`hig-input flex items-center gap-2 rounded-2xl border-gray-200 bg-white/90 px-3 py-2 text-sm ${
-          disabled ? 'opacity-60' : 'cursor-text'
-        }`}
-        onClick={() => {
-          if (disabled) return;
-          setOpen(true);
-          inputRef.current?.focus();
-        }}
-      >
-        <div className="flex-1">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setOpen(true);
-            }}
-            onFocus={() => setOpen(true)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            disabled={disabled}
-            className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
-            role="combobox"
-            aria-expanded={open}
-            aria-controls={listboxId}
-          />
+      }
+    >
+      <div ref={containerRef} className="multiselect-body">
+        <div
+          className={`hig-input flex items-center gap-2 ${ui.radius.card} bg-white/90 ${
+            disabled ? 'opacity-60' : 'cursor-text'
+          }`}
+          onClick={() => {
+            if (disabled) return;
+            setOpen(true);
+            inputRef.current?.focus();
+          }}
+        >
+          <div className="flex-1">
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              disabled={disabled}
+              className="w-full bg-transparent outline-none placeholder:text-gray-400"
+              role="combobox"
+              aria-expanded={open}
+              aria-controls={listboxId}
+            />
+          </div>
+          {value.length > 0 && (
+            <Text as="span" variant="micro" className={ui.tone.subtle}>
+              {value.length}
+            </Text>
+          )}
         </div>
-        {value.length > 0 && (
-          <span className="text-xs font-semibold text-gray-500">{value.length}</span>
+        {open && !disabled && (
+          <div
+            className="max-h-64 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
+            role="listbox"
+            id={listboxId}
+          >
+            {filteredOptions.length === 0 && (
+              <div className={ui.pad.cardTight}>
+                <Text variant="muted">No matches.</Text>
+              </div>
+            )}
+            {filteredOptions.map((option, index) => {
+              const active = index === highlighted;
+              const isSelected = selectedSet.has(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => toggleValue(option.value)}
+                  className={`flex w-full items-center justify-between ${ui.pad.cardTight} ${ui.align.left} ${
+                    active ? 'bg-gray-50' : ''
+                  }`}
+                  role="option"
+                  aria-selected={isSelected}
+                >
+                  <div className="space-y-1">
+                    <Text as="p" variant="body">{option.label}</Text>
+                    {option.subLabel && (
+                      <Text as="p" variant="muted">{option.subLabel}</Text>
+                    )}
+                  </div>
+                  {isSelected && (
+                    <Text as="span" variant="micro" className={ui.tone.accent}>
+                      Selected
+                    </Text>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {selectedOptions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {selectedOptions.slice(0, maxChipsVisible).map((option) => (
+              <span
+                key={option.value}
+                className={[
+                  'inline-flex items-center gap-1 bg-white',
+                  ui.radius.pill,
+                  ui.border.subtle,
+                  ui.pad.chipTight
+                ].join(' ')}
+              >
+                <Text as="span" variant="muted">{option.label}</Text>
+                <button
+                  type="button"
+                  onClick={() => toggleValue(option.value)}
+                  className={['transition', ui.tone.faint, 'hover:text-gray-600'].join(' ')}
+                  aria-label={`Remove ${option.label}`}
+                >
+                  x
+                </button>
+              </span>
+            ))}
+            {selectedOptions.length > maxChipsVisible && (
+              <span
+                className={[
+                  'inline-flex items-center bg-white',
+                  ui.radius.pill,
+                  ui.border.subtle,
+                  ui.pad.chipTight
+                ].join(' ')}
+              >
+                <Text as="span" variant="muted">+{selectedOptions.length - maxChipsVisible} more</Text>
+              </span>
+            )}
+          </div>
         )}
       </div>
-      {open && !disabled && (
-        <div
-          className="max-h-64 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
-          role="listbox"
-          id={listboxId}
-        >
-          {filteredOptions.length === 0 && (
-            <div className="px-4 py-3 text-sm text-gray-500">No matches.</div>
-          )}
-          {filteredOptions.map((option, index) => {
-            const active = index === highlighted;
-            const isSelected = selectedSet.has(option.value);
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => toggleValue(option.value)}
-                className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm ${
-                  active ? 'bg-gray-50' : ''
-                }`}
-                role="option"
-                aria-selected={isSelected}
-              >
-                <div>
-                  <p className="text-gray-900">{option.label}</p>
-                  {option.subLabel && (
-                    <p className="text-xs text-gray-500">{option.subLabel}</p>
-                  )}
-                </div>
-                {isSelected && <span className="text-xs font-semibold text-[var(--app-accent)]">Selected</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {selectedOptions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {selectedOptions.slice(0, maxChipsVisible).map((option) => (
-            <span
-              key={option.value}
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700"
-            >
-              {option.label}
-              <button
-                type="button"
-                onClick={() => toggleValue(option.value)}
-                className="text-gray-400 hover:text-gray-600"
-                aria-label={`Remove ${option.label}`}
-              >
-                x
-              </button>
-            </span>
-          ))}
-          {selectedOptions.length > maxChipsVisible && (
-            <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-500">
-              +{selectedOptions.length - maxChipsVisible} more
-            </span>
-          )}
-        </div>
-      )}
-    </div>
+    </FormField>
   );
 }
