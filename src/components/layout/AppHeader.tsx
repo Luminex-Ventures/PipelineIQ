@@ -298,16 +298,10 @@ export function AppHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/30 bg-white/75 backdrop-blur-2xl shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
-      <div className="mx-auto flex h-16 w-full items-center gap-4 px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 rounded-2xl border border-white/40 bg-white/80 px-3 py-2 text-sm font-semibold text-gray-900 shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
-          >
-            <img src="/PipelineIQ.png" alt="PipelineIQ" className="h-8 w-auto" />
-          </button>
-          <div className="hidden lg:flex w-96" ref={searchRef}>
+    <header className="sticky top-0 z-30 h-16 border-b border-gray-200 bg-white">
+      <div className="flex h-full w-full items-center gap-4 px-4 sm:px-6">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="hidden lg:flex w-80" ref={searchRef}>
             <div className="relative w-full">
               <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
                 <Search className="h-4 w-4 text-gray-400" />
@@ -317,7 +311,7 @@ export function AppHeader() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search deals, people, addresses..."
-                className="w-full rounded-2xl border border-white/60 bg-white/90 py-2 pl-10 pr-10 text-sm text-gray-900 shadow-inner focus:border-[var(--app-accent)]/40 focus:ring-2 focus:ring-[var(--app-accent)]/15"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[var(--app-accent)] focus:bg-white focus:ring-2 focus:ring-[var(--app-accent)]/20 focus:outline-none transition-colors"
               />
               {searchQuery && (
                 <button
@@ -329,7 +323,7 @@ export function AppHeader() {
               )}
 
               {showSearchResults && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-3 rounded-2xl border border-white/70 bg-white/95 shadow-[0_15px_40px_rgba(15,23,42,0.16)]">
+                <div className="absolute top-full left-0 right-0 z-50 mt-2 rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
                   {isSearching ? (
                     <div className="px-4 py-3 text-sm text-gray-500 text-center">Searching…</div>
                   ) : searchResults.length > 0 ? (
@@ -371,10 +365,10 @@ export function AppHeader() {
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={handleGlobalNewDeal}
-            className="hidden sm:inline-flex items-center gap-2 rounded-2xl border border-white/40 bg-white/80 px-3 py-2 text-sm font-medium text-gray-700 shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition hover:border-[var(--app-accent)]/40 hover:text-[var(--app-accent)]"
+            className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-[var(--app-accent)] px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-[var(--app-accent)]/90"
           >
             <Plus className="h-4 w-4" />
             New deal
@@ -391,24 +385,19 @@ export function AppHeader() {
                   setHasUnread(false);
                   setLastViewedAt(new Date());
                 }}
-                className="relative inline-flex items-center gap-2 rounded-2xl border border-white/50 bg-white/80 px-2.5 py-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition hover:border-[var(--app-accent)]/30"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Notifications"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-700">
-                  <Bell className="h-4 w-4" />
-                </div>
-                <div className="hidden text-left sm:block">
-                  <p className="text-xs font-semibold text-gray-900">Notifications</p>
-                  <p className="text-[11px] text-gray-500">Team activity</p>
-                </div>
+                <Bell className="h-5 w-5" />
                 {hasUnread && (
-                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[var(--app-accent)] shadow-[0_0_0_4px_rgba(var(--app-accent-rgb),0.2)]"></span>
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500"></span>
                 )}
                 {!hasUnread && hasRecent && (
-                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-gray-300 shadow-[0_0_0_4px_rgba(148,163,184,0.25)]"></span>
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-gray-400"></span>
                 )}
               </button>
               {showNotifications && (
-                <div className="absolute right-0 mt-3 w-96 max-w-[90vw] rounded-2xl border border-white/70 bg-white/95 p-3 shadow-[0_20px_60px_rgba(15,23,42,0.16)]">
+                <div className="absolute right-0 mt-2 w-96 max-w-[90vw] rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <p className="text-sm font-semibold text-gray-900">Recent activity</p>
@@ -454,45 +443,43 @@ export function AppHeader() {
           <div className="relative">
             <button
               onClick={() => setShowUserMenu((prev) => !prev)}
-              className="flex items-center gap-2 rounded-2xl border border-white/50 bg-white/80 px-2.5 py-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition hover:border-[var(--app-accent)]/30"
+              className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-gray-100"
+              aria-label="User menu"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--app-accent)] text-white">
-                <User className="h-4 w-4" />
-              </div>
-              <div className="hidden text-left sm:block">
-                <p className="text-xs font-semibold text-gray-900">{user?.email}</p>
-                <p className="text-[11px] text-gray-500">{roleLabel}</p>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)] text-white text-sm font-medium">
+                {user?.email?.charAt(0).toUpperCase() || <User className="h-4 w-4" />}
               </div>
             </button>
 
             {showUserMenu && (
-              <div className="absolute right-0 mt-3 w-64 rounded-2xl border border-white/70 bg-white/95 shadow-[0_25px_60px_rgba(15,23,42,0.16)]">
+              <div className="absolute right-0 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
                 <div className="border-b border-gray-100 px-4 py-3 space-y-1">
                   <p className="text-sm font-semibold text-gray-900">{user?.email}</p>
-                  <p className="text-xs font-medium text-gray-500 flex items-center gap-2">
+                  <p className="text-xs text-gray-500 flex items-center gap-2">
                     <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600">
                       {roleLabel}
                     </span>
-                    Signed in
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    setShowUserMenu(false);
-                    navigate('/settings');
-                  }}
-                  className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-50"
-                >
-                  <Settings className="h-4 w-4" />
-                  <span>Personal Settings</span>
-                </button>
-                <button
-                  onClick={handleSignOut}
-                  className="flex w-full items-center gap-3 px-4 py-2 text-sm text-red-600 transition hover:bg-red-50"
-                >
-                  <LogOut className="h-4 w-4" />
-                  <span>Sign out</span>
-                </button>
+                <div className="py-1">
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      navigate('/settings');
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-50"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span>Personal Settings</span>
+                  </button>
+                  <button
+                    onClick={handleSignOut}
+                    className="flex w-full items-center gap-3 px-4 py-2 text-sm text-red-600 transition hover:bg-red-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign out</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { generateDashboardInsights } from '../lib/openai-insights';
 import {
   TrendingUp, CheckCircle, Calendar, AlertCircle,
-  Users, Sparkles, Target, Clock, Activity,
+  Users, Sparkles, Target, Activity,
   ChevronRight, GripVertical, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { DndContext, DragEndEvent, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -454,8 +455,6 @@ export default function Dashboard() {
   const [lastGreetingUpdatedAt, setLastGreetingUpdatedAt] = useState<number>(0);
   const [greetingText, setGreetingText] = useState<string>('');
   const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const dashboardReqRef = useRef(0);
-  const filterCtxReqRef = useRef(0);
   const insightsReqRef = useRef(0);
   const [agentsReady, setAgentsReady] = useState(false);
   const showRefreshingOverlay = useStabilizedFlag(refreshing, { delayMs: 150, minDurationMs: 350 });
@@ -1019,46 +1018,6 @@ export default function Dashboard() {
     return query;
   }, [withUserScope]);
 
-  const loadFilterContext = useCallback(async (_agentIds: string[]) => {
-    const reqId = ++filterCtxReqRef.current;
-
-    const [pipelineResponse, leadResponse] = await Promise.all([
-      supabase
-        .from('pipeline_statuses')
-        .select('id, name, color, sort_order')
-        .order('sort_order', { ascending: true }),
-      supabase
-        .from('lead_sources')
-        .select('id, name')
-        .order('name', { ascending: true })
-    ]);
-
-    if (reqId !== filterCtxReqRef.current) return;
-
-    if (pipelineResponse.error) {
-      console.error('Unable to load pipeline statuses', pipelineResponse.error);
-    }
-    if (leadResponse.error) {
-      console.error('Unable to load lead sources', leadResponse.error);
-    }
-
-    const stages = (pipelineResponse.data || []).map((stage) => ({
-      id: stage.id,
-      label: stage.name,
-      color: stage.color,
-      sortOrder: stage.sort_order
-    }));
-
-    const leadSources = (leadResponse.data || []).map((source) => ({
-      id: source.id,
-      name: source.name || 'Unknown'
-    }));
-
-    setAvailableStages(stages);
-    setAvailableLeadSources(leadSources);
-    setAvailableDealTypes(Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]);
-  }, []);
-
   const deriveStats = useCallback((
     closedDeals: Deal[],
     totalLeads: number,
@@ -1254,104 +1213,6 @@ export default function Dashboard() {
     }, 0);
   }, []);
 
-  const loadDashboardData = useCallback(async (qs: typeof queryState) => {
-    if (!qs.userId) return;
-    const ids = qs.agentIds;
-    if (!ids.length) return;
-
-    const isInitialLoad = loading;
-    if (isInitialLoad) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
-
-    const startDate = qs.startISO;
-    const endDate = qs.endISO;
-    const closeDateFilter = buildCloseTsFilter(startDate, endDate);
-    const requestId = ++dashboardReqRef.current;
-    let isStale = false;
-
-    try {
-      const dealFilters = {
-        leadSources: qs.leadSources,
-        pipelineStages: qs.pipelineStages,
-        dealTypes: qs.dealTypes as DealRow['deal_type'][]
-      };
-      const [openResp, closedResp, leadsCountResp] = await Promise.all([
-        applyDealFilters(
-          supabase
-            .from('deals')
-            .select(OPEN_DEALS_SELECT)
-            .not('status', 'in', `(${NON_ACTIVE_STATUSES.join(',')})`)
-            .order('close_date', { ascending: true })
-            .limit(2000),
-          ids,
-          dealFilters
-        ),
-        applyDealFilters(
-          supabase
-            .from('deals')
-            .select(CLOSED_DEALS_SELECT)
-            .eq('status', 'closed')
-            .or(closeDateFilter),
-          ids,
-          dealFilters
-        ),
-        applyDealFilters(
-          supabase
-            .from('deals')
-            .select('id', { count: 'exact', head: true })
-            .gte('created_at', startDate)
-            .lte('created_at', endDate),
-          ids,
-          dealFilters
-        )
-      ]);
-
-      if (requestId !== dashboardReqRef.current) {
-        isStale = true;
-        return;
-      }
-
-      if (openResp.error) console.error('open deals error', openResp.error);
-      if (closedResp.error) console.error('closed deals error', closedResp.error);
-      if (leadsCountResp.error) console.error('leads count error', leadsCountResp.error);
-
-      const activeDeals = (openResp.data ?? []) as Deal[];
-      const closedDeals = (closedResp.data ?? []) as Deal[];
-      const totalLeads = leadsCountResp.count ?? 0;
-
-      derivePipelineHealth(activeDeals);
-      deriveMonthlyData(closedDeals);
-      deriveLeadSourceData(closedDeals);
-      deriveUpcomingDeals(activeDeals);
-      deriveStalledDeals(activeDeals);
-      const closingNext7Days = getClosingNext7DaysCount(activeDeals);
-      deriveStats(closedDeals, totalLeads, closingNext7Days);
-      setLastRefreshedAt(Date.now());
-    } catch (err) {
-      console.error('Error loading dashboard data', err);
-    } finally {
-      if (!isStale) {
-        if (isInitialLoad) {
-          setLoading(false);
-        }
-        setRefreshing(false);
-      }
-    }
-  }, [
-    applyDealFilters,
-    deriveLeadSourceData,
-    deriveMonthlyData,
-    derivePipelineHealth,
-    deriveStats,
-    deriveStalledDeals,
-    deriveUpcomingDeals,
-    getClosingNext7DaysCount,
-    loading
-  ]);
-
   const loadAIInsights = useCallback(async () => {
     const reqId = ++insightsReqRef.current;
     if (!user) return;
@@ -1419,15 +1280,156 @@ export default function Dashboard() {
     scopeDescription
   ]);
 
+  // React Query for cached filter context (pipeline stages, lead sources)
+  const filterContextQuery = useQuery({
+    queryKey: ['dashboard', 'filterContext', scopeKey],
+    queryFn: async () => {
+      const [pipelineResponse, leadResponse] = await Promise.all([
+        supabase
+          .from('pipeline_statuses')
+          .select('id, name, color, sort_order')
+          .order('sort_order', { ascending: true }),
+        supabase
+          .from('lead_sources')
+          .select('id, name')
+          .order('name', { ascending: true })
+      ]);
+
+      if (pipelineResponse.error) {
+        console.error('Unable to load pipeline statuses', pipelineResponse.error);
+      }
+      if (leadResponse.error) {
+        console.error('Unable to load lead sources', leadResponse.error);
+      }
+
+      const stages = (pipelineResponse.data || []).map((stage) => ({
+        id: stage.id,
+        label: stage.name,
+        color: stage.color,
+        sortOrder: stage.sort_order
+      }));
+
+      const leadSources = (leadResponse.data || []).map((source) => ({
+        id: source.id,
+        name: source.name || 'Unknown'
+      }));
+
+      return { stages, leadSources };
+    },
+    enabled: !!user && agentsReady && resolvedAgentIds.length > 0,
+    staleTime: 5 * 60 * 1000, // Filter context is stable for 5 minutes
+    gcTime: 15 * 60 * 1000,
+  });
+
+  // Sync filter context to state
   useEffect(() => {
-    if (!user || !agentsReady || !resolvedAgentIds.length) return;
-    loadFilterContext(resolvedAgentIds);
-  }, [user, agentsReady, scopeKey, loadFilterContext, resolvedAgentIds]);
+    if (!filterContextQuery.data) return;
+    const { stages, leadSources } = filterContextQuery.data;
+    setAvailableStages(stages);
+    setAvailableLeadSources(leadSources);
+    setAvailableDealTypes(Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][]);
+  }, [filterContextQuery.data]);
+
+  // React Query for cached dashboard data fetching
+  // This provides stale-while-revalidate behavior for instant page loads
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', queryKey],
+    queryFn: async () => {
+      const qs = queryState;
+      if (!qs.userId || !qs.agentIds.length) return null;
+
+      const ids = qs.agentIds;
+      const startDate = qs.startISO;
+      const endDate = qs.endISO;
+      const closeDateFilter = buildCloseTsFilter(startDate, endDate);
+
+      const dealFilters = {
+        leadSources: qs.leadSources,
+        pipelineStages: qs.pipelineStages,
+        dealTypes: qs.dealTypes as DealRow['deal_type'][]
+      };
+
+      const [openResp, closedResp, leadsCountResp] = await Promise.all([
+        applyDealFilters(
+          supabase
+            .from('deals')
+            .select(OPEN_DEALS_SELECT)
+            .not('status', 'in', `(${NON_ACTIVE_STATUSES.join(',')})`)
+            .order('close_date', { ascending: true })
+            .limit(2000),
+          ids,
+          dealFilters
+        ),
+        applyDealFilters(
+          supabase
+            .from('deals')
+            .select(CLOSED_DEALS_SELECT)
+            .eq('status', 'closed')
+            .or(closeDateFilter),
+          ids,
+          dealFilters
+        ),
+        applyDealFilters(
+          supabase
+            .from('deals')
+            .select('id', { count: 'exact', head: true })
+            .gte('created_at', startDate)
+            .lte('created_at', endDate),
+          ids,
+          dealFilters
+        )
+      ]);
+
+      if (openResp.error) console.error('open deals error', openResp.error);
+      if (closedResp.error) console.error('closed deals error', closedResp.error);
+      if (leadsCountResp.error) console.error('leads count error', leadsCountResp.error);
+
+      return {
+        activeDeals: (openResp.data ?? []) as Deal[],
+        closedDeals: (closedResp.data ?? []) as Deal[],
+        totalLeads: leadsCountResp.count ?? 0,
+        timestamp: Date.now()
+      };
+    },
+    enabled: !!user && agentsReady && resolvedAgentIds.length > 0,
+    staleTime: 2 * 60 * 1000, // Data is fresh for 2 minutes
+    gcTime: 10 * 60 * 1000, // Cache for 10 minutes
+    refetchOnWindowFocus: true,
+  });
+
+  // Process cached data when it changes
+  useEffect(() => {
+    if (!dashboardQuery.data) return;
+    
+    const { activeDeals, closedDeals, totalLeads, timestamp } = dashboardQuery.data;
+    
+    derivePipelineHealth(activeDeals);
+    deriveMonthlyData(closedDeals);
+    deriveLeadSourceData(closedDeals);
+    deriveUpcomingDeals(activeDeals);
+    deriveStalledDeals(activeDeals);
+    const closingNext7Days = getClosingNext7DaysCount(activeDeals);
+    deriveStats(closedDeals, totalLeads, closingNext7Days);
+    setLastRefreshedAt(timestamp);
+  }, [
+    dashboardQuery.data,
+    derivePipelineHealth,
+    deriveMonthlyData,
+    deriveLeadSourceData,
+    deriveUpcomingDeals,
+    deriveStalledDeals,
+    getClosingNext7DaysCount,
+    deriveStats
+  ]);
+
+  // Sync React Query loading states with existing state
+  useEffect(() => {
+    setLoading(dashboardQuery.isLoading);
+  }, [dashboardQuery.isLoading]);
 
   useEffect(() => {
-    if (!user || !agentsReady || !resolvedAgentIds.length) return;
-    loadDashboardData(queryState);
-  }, [queryKey, user, agentsReady, resolvedAgentIds.length, loadDashboardData, queryState]);
+    setRefreshing(dashboardQuery.isFetching && !dashboardQuery.isLoading);
+  }, [dashboardQuery.isFetching, dashboardQuery.isLoading]);
 
   useEffect(() => {
     if (loading) return;
@@ -2105,7 +2107,7 @@ export default function Dashboard() {
     <PageShell title={headerTitle} actions={headerActions}>
       {isInitialLoading ? (
         <div className="space-y-4">
-          <Text variant="micro" className="text-gray-500">PIPELINE (ACTIVE DEALS)</Text>
+          <Text variant="micro" className={ui.tone.subtle}>PIPELINE (ACTIVE DEALS)</Text>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {Array.from({ length: 4 }).map((_, index) => (
               <Card key={`pipeline-kpi-skeleton-${index}`} padding="cardTight" className="bg-white/70">
@@ -2117,7 +2119,7 @@ export default function Dashboard() {
               </Card>
             ))}
           </div>
-          <Text variant="micro" className="text-gray-500">PERFORMANCE (YTD RESULTS)</Text>
+          <Text variant="micro" className={ui.tone.subtle}>PERFORMANCE (YTD RESULTS)</Text>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Array.from({ length: 3 }).map((_, index) => (
               <Card key={`performance-kpi-skeleton-${index}`} padding="cardTight" className="bg-white/70">
@@ -2132,7 +2134,7 @@ export default function Dashboard() {
       ) : (
         <RefreshOverlay active={showRefreshingOverlay}>
           <div className="space-y-4">
-            <Text variant="micro" className="text-gray-500">PIPELINE (ACTIVE DEALS)</Text>
+            <Text variant="micro" className={ui.tone.subtle}>PIPELINE (ACTIVE DEALS)</Text>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricTile
                 label="ACTIVE DEALS"
@@ -2160,7 +2162,7 @@ export default function Dashboard() {
               />
             </div>
 
-            <Text variant="micro" className="text-gray-500">PERFORMANCE (YTD RESULTS)</Text>
+            <Text variant="micro" className={ui.tone.subtle}>PERFORMANCE (YTD RESULTS)</Text>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <MetricTile
                 label="TOTAL GCI"

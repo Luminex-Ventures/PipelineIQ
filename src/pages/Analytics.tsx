@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
@@ -560,148 +561,147 @@ export default function Analytics() {
     bootstrapAgents();
   }, [user, roleInfo, roleInfo?.globalRole, roleInfo?.teamId]);
 
-  useEffect(() => {
-    if (!user) return;
-    if (availableAgents.length === 0) return;
-    if (!filtersHydrated) return;
-    if (import.meta.env.DEV) {
-      runAnalyticsDateChecks();
-    }
-    loadAnalytics();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+  // Create a stable query key for React Query caching
+  const analyticsQueryKey = useMemo(() => [
+    'analytics',
+    'summary',
     user?.id,
     selectedYear,
     agentScopeKey,
     leadFilterKey,
     stageFilterKey,
     dealTypeFilterKey,
-    availableAgents,
-    filtersHydrated
-  ]);
+  ], [user?.id, selectedYear, agentScopeKey, leadFilterKey, stageFilterKey, dealTypeFilterKey]);
 
-  const loadAnalytics = async () => {
-    if (!user || availableAgents.length === 0) return;
-    const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
-    if (!ids.length) {
-      startTransition(() => {
-        setYearlyStats({
-          closedDeals: 0,
-          totalVolume: 0,
-          totalGCI: 0,
-          avgSalePrice: 0,
-          avgCommission: 0,
-          buyerDeals: 0,
-          sellerDeals: 0,
-          avgDaysToClose: 0,
-        });
-        setMonthlyData([]);
-        setLeadSourceStats([]);
-        setClosingThisMonthStats({ count: 0, gci: 0 });
+  // React Query for cached analytics data
+  const analyticsQuery = useQuery({
+    queryKey: analyticsQueryKey,
+    queryFn: async () => {
+      const ids = selectedAgentIds.length ? selectedAgentIds : availableAgents.map(a => a.id);
+      if (!ids.length) return null;
+
+      const { data, error } = await supabase.rpc<AnalyticsSummaryResponse>('get_analytics_summary', {
+        p_year: selectedYear,
+        p_user_ids: ids,
+        p_lead_source_ids: selectedLeadSources,
+        p_pipeline_status_ids: selectedPipelineStages,
+        p_deal_types: selectedDealTypes,
+        p_requesting_user_id: user!.id
       });
-      setLoading(false);
-      setRefreshing(false);
+
+      if (error) {
+        console.error('Unable to load analytics summary', error);
+        throw error;
+      }
+
+      return data as AnalyticsSummaryResponse | null;
+    },
+    enabled: !!user && availableAgents.length > 0 && filtersHydrated,
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes cache
+    refetchOnWindowFocus: true,
+  });
+
+  // Process analytics data when it changes
+  useEffect(() => {
+    if (import.meta.env.DEV && analyticsQuery.data) {
+      runAnalyticsDateChecks();
+    }
+  }, [analyticsQuery.data]);
+
+  // Sync query data to component state
+  useEffect(() => {
+    const summary = analyticsQuery.data;
+    if (!summary) {
+      if (analyticsQuery.isSuccess) {
+        // Query succeeded but returned null (no data)
+        startTransition(() => {
+          setYearlyStats({
+            closedDeals: 0,
+            totalVolume: 0,
+            totalGCI: 0,
+            avgSalePrice: 0,
+            avgCommission: 0,
+            buyerDeals: 0,
+            sellerDeals: 0,
+            avgDaysToClose: 0,
+          });
+          setMonthlyData([]);
+          setLeadSourceStats([]);
+          setClosingThisMonthStats({ count: 0, gci: 0 });
+        });
+      }
       return;
     }
 
-    const isInitialLoad = loading;
-    if (isInitialLoad) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
+    // Build lead source lookup from the filter context in the response
+    const filterLeadSources = summary.filter_context?.lead_sources ?? [];
+    const leadSourceLookup = new Map(
+      filterLeadSources.map((source) => [source.name, source.id])
+    );
 
-    const { data, error } = await supabase.rpc<AnalyticsSummaryResponse>('get_analytics_summary', {
-      p_year: selectedYear,
-      p_user_ids: ids,
-      p_lead_source_ids: selectedLeadSources,
-      p_pipeline_status_ids: selectedPipelineStages,
-      p_deal_types: selectedDealTypes,
-      p_requesting_user_id: user.id
+    setYearlyStats({
+      closedDeals: summary.yearly_stats?.closed_deals ?? 0,
+      totalVolume: summary.yearly_stats?.total_volume ?? 0,
+      totalGCI: summary.yearly_stats?.total_gci ?? 0,
+      avgSalePrice: summary.yearly_stats?.avg_sale_price ?? 0,
+      avgCommission: summary.yearly_stats?.avg_commission ?? 0,
+      buyerDeals: summary.yearly_stats?.buyer_deals ?? 0,
+      sellerDeals: summary.yearly_stats?.seller_deals ?? 0,
+      avgDaysToClose: summary.yearly_stats?.avg_days_to_close ?? 0,
     });
+    setMonthlyData(summary.monthly_rollup ?? []);
+    setLeadSourceStats(
+      (summary.lead_source_stats ?? []).map((item) => ({
+        id: item.id ?? leadSourceLookup.get(item.name) ?? null,
+        name: item.name,
+        totalDeals: item.total_deals,
+        closedDeals: item.closed_deals,
+        conversionRate: item.conversion_rate,
+        totalCommission: item.total_commission,
+      }))
+    );
+    setArchiveStats(summary.archive_stats ?? { total: 0, reasons: [] });
+    setClosingThisMonthStats(summary.closing_this_month ?? { count: 0, gci: 0 });
+    setFunnelTransitions(summary.funnel_transitions ?? []);
 
-    if (error) {
-      console.error('Unable to load analytics summary', error);
-      setYearlyStats({
-        closedDeals: 0,
-        totalVolume: 0,
-        totalGCI: 0,
-        avgSalePrice: 0,
-        avgCommission: 0,
-        buyerDeals: 0,
-        sellerDeals: 0,
-        avgDaysToClose: 0,
-      });
-      setMonthlyData([]);
-      setLeadSourceStats([]);
-      setClosingThisMonthStats({ count: 0, gci: 0 });
-      setArchiveStats({ total: 0, reasons: [] });
-      setFunnelTransitions([]);
-      setGciGoal(0);
-    } else {
-      const summary = data as AnalyticsSummaryResponse | null;
-      if (summary) {
-        setYearlyStats({
-          closedDeals: summary.yearly_stats?.closed_deals ?? 0,
-          totalVolume: summary.yearly_stats?.total_volume ?? 0,
-          totalGCI: summary.yearly_stats?.total_gci ?? 0,
-          avgSalePrice: summary.yearly_stats?.avg_sale_price ?? 0,
-          avgCommission: summary.yearly_stats?.avg_commission ?? 0,
-          buyerDeals: summary.yearly_stats?.buyer_deals ?? 0,
-          sellerDeals: summary.yearly_stats?.seller_deals ?? 0,
-          avgDaysToClose: summary.yearly_stats?.avg_days_to_close ?? 0,
-        });
-        setMonthlyData(summary.monthly_rollup ?? []);
-        setLeadSourceStats(
-          (summary.lead_source_stats ?? []).map((item) => ({
-            id:
-              item.id ??
-              availableLeadSources.find((source) => source.name === item.name)?.id ??
-              null,
-            name: item.name,
-            totalDeals: item.total_deals,
-            closedDeals: item.closed_deals,
-            conversionRate: item.conversion_rate,
-            totalCommission: item.total_commission,
-          }))
-        );
-        setArchiveStats(summary.archive_stats ?? { total: 0, reasons: [] });
-        setClosingThisMonthStats(summary.closing_this_month ?? { count: 0, gci: 0 });
-        setFunnelTransitions(summary.funnel_transitions ?? []);
+    const filterStages = summary.filter_context?.pipeline_stages ?? [];
+    const filterDealTypes = summary.filter_context?.deal_types ?? [];
 
-        const filterLeadSources = summary.filter_context?.lead_sources ?? [];
-        const filterStages = summary.filter_context?.pipeline_stages ?? [];
-        const filterDealTypes = summary.filter_context?.deal_types ?? [];
+    setAvailableLeadSources(
+      filterLeadSources.map((source) => ({
+        id: source.id,
+        name: source.name || 'Unknown'
+      }))
+    );
+    setAvailableStages(
+      filterStages.map((stage) => ({
+        id: stage.id,
+        label: stage.name,
+        sortOrder: stage.sort_order ?? null
+      }))
+    );
+    setAvailableDealTypes(
+      filterDealTypes.length
+        ? filterDealTypes
+        : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][])
+    );
 
-        setAvailableLeadSources(
-          filterLeadSources.map((source) => ({
-            id: source.id,
-            name: source.name || 'Unknown'
-          }))
-        );
-        setAvailableStages(
-          filterStages.map((stage) => ({
-            id: stage.id,
-            label: stage.name,
-            sortOrder: stage.sort_order ?? null
-          }))
-        );
-        setAvailableDealTypes(
-          filterDealTypes.length
-            ? filterDealTypes
-            : (Object.keys(DEAL_TYPE_LABELS) as DealRow['deal_type'][])
-        );
+    setGciGoal(summary.annual_gci_goal ?? 0);
+    setLastRefreshedAt(new Date());
+    // Note: We intentionally exclude availableLeadSources from deps to avoid infinite loop
+    // The lead source lookup is built from the query response instead
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyticsQuery.data, analyticsQuery.isSuccess, startTransition]);
 
-        setGciGoal(summary.annual_gci_goal ?? 0);
-        setLastRefreshedAt(new Date());
-      }
-    }
+  // Sync React Query loading states with existing state
+  useEffect(() => {
+    setLoading(analyticsQuery.isLoading);
+  }, [analyticsQuery.isLoading]);
 
-    if (isInitialLoad) {
-      setLoading(false);
-    }
-    setRefreshing(false);
-  };
+  useEffect(() => {
+    setRefreshing(analyticsQuery.isFetching && !analyticsQuery.isLoading);
+  }, [analyticsQuery.isFetching, analyticsQuery.isLoading]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -866,65 +866,6 @@ export default function Analytics() {
           .filter((s) => s.totalDeals >= 3)
           .sort((a, b) => a.conversionRate - b.conversionRate)[0]
       : null;
-  const topArchiveReason = archiveStats.reasons[0] || null;
-  const funnelBottleneck = useMemo(() => {
-    if (!funnelTransitions.length) return null;
-    return [...funnelTransitions].sort((a, b) => a.rate - b.rate)[0];
-  }, [funnelTransitions]);
-  const insights = useMemo(() => {
-    const items: string[] = [];
-
-    if (topLeadSource) {
-      items.push(
-        `Top source: ${topLeadSource.name} — ${topLeadSource.conversionRate.toFixed(1)}% conversion, ${formatCurrency(
-          topLeadSource.totalCommission
-        )} GCI. Recommendation: double down on follow-up + budget here.`
-      );
-    }
-
-    if (underperformingSource) {
-      items.push(
-        `Underperformer: ${underperformingSource.name} — ${underperformingSource.conversionRate.toFixed(1)}% conversion on ${
-          underperformingSource.totalDeals
-        } deals. Recommendation: revise script or pause spend.`
-      );
-    }
-
-    if (yearlyStats.avgDaysToClose >= 45) {
-      items.push(
-        `Avg days to close is ${yearlyStats.avgDaysToClose.toFixed(
-          0
-        )} days. Recommendation: tighten pre-qual and weekly follow-ups to reduce cycle time.`
-      );
-    }
-
-    if (funnelBottleneck && funnelBottleneck.entered > 0) {
-      items.push(
-        `Largest drop-off is ${stageLabel[funnelBottleneck.from]} → ${stageLabel[funnelBottleneck.to]} (${
-          funnelBottleneck.rate.toFixed(1)
-        }%). Recommendation: focus on faster handoffs + tighter next-step commitments.`
-      );
-    }
-
-    if (archiveStats.total >= 3 && topArchiveReason) {
-      items.push(
-        `Most common loss reason: ${topArchiveReason.reason} (${topArchiveReason.percentage.toFixed(
-          1
-        )}%). Recommendation: add a targeted countermeasure in your process.`
-      );
-    }
-
-    return items.slice(0, 4);
-  }, [
-    archiveStats,
-    funnelBottleneck,
-    stageLabel,
-    topArchiveReason,
-    topLeadSource,
-    underperformingSource,
-    yearlyStats.avgDaysToClose
-  ]);
-
   const focusAreas = useMemo(() => {
     const items: Array<{ title: string; detail: string }> = [];
 

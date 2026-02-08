@@ -1,0 +1,184 @@
+---
+description: Core project conventions for Luma-IQ - a student information system with modular RBAC
+alwaysApply: true
+---
+
+
+# Luma-IQ - Project Conventions
+
+
+## Database Schema Management
+
+
+- **All table definitions** must live in `sql/schema.sql` as the single source of truth. When adding, modifying, or removing tables/columns/indexes/triggers, update this file directly -- never create separate migration files.
+- **All RLS (Row-Level Security) policies** must live in `sql/RLS_schema.sql`. This includes every `CREATE POLICY`, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` statement. Never put RLS policies in `schema.sql`.
+- Both files must be kept in sync. If a table is added to `schema.sql`, its RLS policies must be added to `RLS_schema.sql` in the same change.
+- Use clear comments to group related tables/policies by domain (e.g., `-- RBAC Tables`, `-- Student Tables`).
+
+
+## Executing SQL Against the Database
+
+
+- **Always execute SQL changes directly** using the `scripts/setup-db.ts` pattern. Connect to the database via the `pg` library using `DATABASE_URL` from `.env` and run queries with `client.query()`.
+- When you need to run SQL (schema changes, data fixes, seed data), write and execute a TypeScript script in `scripts/` using `npx tsx scripts/<name>.ts`. Do not ask the user to manually paste SQL into the Supabase dashboard.
+- Use `ssl: { rejectUnauthorized: false }` when connecting.
+- Log each step clearly with `[ok]` / `[FAIL]` prefixes so progress is visible.
+- Make all SQL statements idempotent (use `IF NOT EXISTS`, `ON CONFLICT`, `DROP ... IF EXISTS`, `CREATE OR REPLACE`) so scripts are safe to re-run.
+
+
+## RBAC Architecture
+
+
+- **Permission-based checks only**: Never check role names in UI or route guards. Always check specific permission keys (e.g., `students.view`, `grades.edit`). This ensures the system stays modular -- changing a role's permissions automatically updates access everywhere.
+- Permission keys follow the format: `{resource}.{action}` (e.g., `students.view`, `roles.manage`).
+- Users can have multiple roles. Effective permissions = union of all permissions from all assigned roles.
+- System roles (`is_system = true`) cannot be deleted but their permissions can be modified.
+
+
+## RBAC Enforcement Checklist
+
+
+Every new feature must be protected at **three layers**:
+
+
+1. **Database (RLS)**: Every new table must have RLS enabled and policies added to `sql/RLS_schema.sql` using the `has_permission()` helper. No table should ever be accessible without an appropriate permission check. If a table is added to `schema.sql` without corresponding RLS policies, it is a bug.
+2. **Routes**: Every page route in `App.tsx` must be wrapped with `PermissionLayout` (specifying the required permission key) or `ProtectedLayout` (for pages that only require authentication). Never add a route that renders data without a permission gate.
+3. **Sidebar navigation**: Every sidebar item in `Sidebar.tsx` that links to a permission-gated page must include the `permission` field matching the route's required permission. If a user lacks the permission, the link must not be visible.
+
+
+Additional rules:
+- **Service functions do not need application-level permission checks** because all Supabase queries go through the authenticated client, which enforces RLS automatically. The protection happens at the database and route layers.
+- **New permissions must be seeded** in `sql/schema.sql` under the `SEED DATA: Default Permissions` block with `ON CONFLICT (key) DO NOTHING` for idempotency.
+- **Admin role must always receive all permissions**. The seed statement `INSERT INTO role_permissions ... SELECT ... FROM permissions` ensures this, but verify after adding new permissions.
+- **UI elements that trigger mutations** (create, edit, delete buttons) should be conditionally rendered using the `PermissionGate` component or `usePermission` hook so users without write permissions don't see actions they can't perform.
+
+
+## Student-Staff Assignment Scoping
+
+
+Student-related data is scoped by staff assignment. Teachers, aides, and counselors only see students they are explicitly assigned to. This is enforced at the database level via RLS.
+
+
+- **Assignment table**: `student_staff_assignments` maps `staff_id` -> `student_id` with an `assignment_type` (primary_teacher, aide, counselor, other). One assignment per staff-student pair (UNIQUE constraint).
+- **`is_assigned_to_student()`**: A SECURITY DEFINER function that returns true if the current `auth.uid()` is assigned to the given student. Used inside RLS policies.
+- **Two-tier SELECT policies**: All student-related tables (`students`, `enrollments`, `course_progress`, `assignments`, `attendance`) use a two-tier check in their SELECT policy:
+ 1. `has_permission('students.view_all')` — grants unrestricted access (for Admin, Principal roles).
+ 2. `has_permission('<resource>.view') AND is_assigned_to_student(student_id)` — grants access only to assigned students (for Teacher, Aide roles).
+- **Mutation policies are NOT scoped by assignment**: INSERT, UPDATE, DELETE policies remain permission-only (e.g., `has_permission('students.edit')`). Assignment scoping only affects reads.
+- **Super admins bypass all checks** as before (via `has_permission()` short-circuit).
+- **When adding new student-related tables**, always include the two-tier SELECT policy pattern. If the table has a direct `student_id` column, use `is_assigned_to_student(student_id)`. If it references students indirectly (e.g., through `enrollment_id`), join through the intermediate table to resolve the student_id.
+- **The `students.assign` permission** gates the admin UI for managing assignments. Staff members can always see their own assignments (via `staff_id = auth.uid()` in the assignment table's SELECT policy).
+
+
+## Auth & Race Condition Prevention
+
+
+- Auth state uses three states: `'loading' | 'authenticated' | 'unauthenticated'` -- never a boolean.
+- A single `isReady` flag gates all route guards and permission checks. It requires: (1) Supabase auth resolved, AND (2) RBAC data (profile + roles + permissions) fully loaded.
+- Route guards (`ProtectedRoute`, `PermissionGate`) must render a loading spinner when `isReady` is false. **Never redirect during loading state.**
+- Deduplicate `onAuthStateChange` events using a ref guard keyed on user ID. Ignore `TOKEN_REFRESHED` events that don't change the user.
+- Include an 8-second safety timeout on RBAC data fetch to prevent infinite spinners.
+
+
+## TypeScript Strictness
+
+
+- **Never use `any`**. Do not use `any` as a type annotation, cast, or generic parameter to suppress errors. If a type is unknown, use `unknown` and narrow it properly. If a library has poor typings, create a local type declaration or use a type assertion to a specific interface -- never to `any`.
+- **No `@ts-ignore` or `@ts-expect-error`** without a comment explaining why it is unavoidable and a linked issue/TODO to fix it.
+- **Explicit return types** on service functions and context values. Component return types can be inferred.
+- **Strict null checks**: Handle `null` and `undefined` explicitly. Do not use the non-null assertion operator (`!`) to bypass errors -- narrow the type with a guard instead.
+
+
+## Error Handling & Logging
+
+
+- **Every `catch` block must handle the error**. Never write an empty `catch {}`. At minimum, log the error with `console.error` and context about what failed.
+- **User-facing operations** (service calls from pages/components) must show a toast on failure via `react-hot-toast` with a clear, human-readable message.
+- **Service functions** should let errors propagate (throw) so the caller decides how to present them. Do not silently swallow errors in services.
+- **Structured error logging**: Always include context in error logs, e.g., `console.error('[RolesPage] Failed to save role permissions:', err)`. Prefix with the component or module name in brackets.
+- **Use `Error` instances**: When throwing custom errors, always use `new Error('message')` or a custom Error subclass -- never throw strings or plain objects.
+
+
+## Frontend Patterns
+
+
+- **Tech stack**: React + TypeScript + Vite + Tailwind CSS + Supabase + Lucide React icons.
+- **Styling**: Follow Luma-IQ's design language -- Luma-IQ-green color palette, class-based dark mode (`darkMode: 'class'`), card-based layouts with `rounded-xl`, consistent spacing.
+- **Components**: Functional components only. Extract reusable logic into custom hooks. Colocate styles.
+- **Services layer**: All Supabase queries go through service files in `src/services/` -- never call Supabase directly from components or contexts.
+- **Types**: All TypeScript interfaces/types for database entities live in `src/types/`.
+
+
+## Supabase Row-Limit Safety
+
+
+Supabase returns **at most 1,000 rows** per request by default. Any query that can return more than 1,000 rows will be silently truncated — no error is thrown.
+
+
+- **Use `fetchAllRows`** (exported from `src/lib/supabase.ts`) whenever a query can exceed 1,000 rows. This utility pages through results in batches of 1,000 using `.range(from, to)` until all rows are fetched.
+- **How to use it**: Pass a callback that builds your query and applies `.range(from, to)`:
+ ```ts
+ import { fetchAllRows } from '@/lib/supabase';
+
+
+ const students = await fetchAllRows<Student>((from, to) =>
+   supabase.from('students').select('*').order('last_name').range(from, to)
+ );
+ ```
+- **When to use it**: Any service function that fetches an unbounded result set (e.g., "fetch all students", "fetch all enrollments", "fetch all courses"). This includes helper queries like fetching all enrollment `course_id` values for aggregation.
+- **When NOT to use it**: Queries already limited by `.single()`, `.limit()`, paginated queries with explicit `.range()` and `{ count: 'exact' }`, or queries scoped to a single entity (e.g., one student's enrollments) that cannot realistically exceed 1,000 rows.
+- **Count-only queries** should use `{ count: 'exact', head: true }` — these return only the count, not rows, so they are unaffected by the row limit.
+- **Default to safety**: When in doubt about whether a table can exceed 1,000 rows, use `fetchAllRows`. The overhead for small result sets is negligible (one extra check on the batch size).
+
+
+## Data Display, Pagination & Loading
+
+
+- **Every data-fetching page must track a loading state** and render a skeleton or spinner while data is in flight. Never render an empty container and then pop content in -- the user should always see a clear loading indicator.
+- **Paginate all list/table views** that can grow beyond a small fixed set. Use server-side pagination via Supabase's `.range(from, to)` with a sensible default page size (e.g., 25 rows). Always return the total count alongside the page data so the UI can render page controls.
+- **Service functions that return lists** must accept `page` and `pageSize` parameters and return a `{ data, totalCount }` shape. This keeps pagination logic in the service layer, not scattered across components.
+- **Page controls**: Show current page, total pages, and previous/next navigation at minimum. Disable controls appropriately (e.g., "Previous" on page 1). For large datasets, include a page-size selector (e.g., 10 / 25 / 50).
+- **Preserve page state in the URL** (query params like `?page=2&pageSize=25`) so users can bookmark or share filtered/paginated views and the browser back button works as expected.
+- **Search and filters** must debounce input (300ms minimum) and reset pagination to page 1 when the query changes. Show an inline loading indicator while the debounced search is in flight.
+- **Empty states**: When a query returns zero results, show a friendly empty-state message (e.g., "No students found") rather than a blank table. Distinguish between "no data exists yet" and "no results match your filters."
+- **Error states**: If a page of data fails to load, show an inline error message with a "Retry" button -- do not leave the user on a blank or spinning page. Follow the Error Handling & Logging conventions for logging.
+- **Optimistic updates are optional** but when used, always reconcile with the server response and roll back on failure with a toast notification.
+
+
+## Smooth Transition Loading (Low-Latency Fetches)
+
+
+When a section loads data that is expected to resolve quickly (sub-second, e.g., tab content within a detail page, secondary data on a page that is already rendered), **do not show a spinner**. Instead, use a CSS opacity transition so the content fades in smoothly once the data arrives.
+
+
+- **Pattern**: Wrap the content in a `<div>` with `transition-opacity duration-300` and toggle between `opacity-0` (loading) and `opacity-100` (loaded):
+ ```tsx
+ <div className={`transition-opacity duration-300 ${loading ? 'opacity-0' : 'opacity-100'}`}>
+   {/* content rendered regardless — invisible while loading, fades in when ready */}
+ </div>
+ ```
+- **When to use it**: Tab panels, inline card sections, secondary data blocks, and any UI region where the parent page is already visible and the fetch is expected to complete in under ~1 second. The user should perceive the content as "appearing" rather than waiting behind a spinner.
+- **When NOT to use it**: Initial full-page loads (use the `animate-fade-in` page pattern or a centered spinner), long-running operations (file imports, report generation), or table re-fetches where the loading-bar + opacity-dim pattern is already in use.
+- **Render content during loading**: The wrapped content must be rendered in both loading and loaded states so it occupies layout space and avoids layout shift. Use safe defaults (empty arrays, nulls guarded with `&&` or `??`) so the content renders without errors before data arrives.
+- **Do not early-return with a spinner** for these fast-loading sections. Early-return spinners are reserved for full-page or full-component loads where no surrounding context is visible.
+
+
+## File Organization
+
+
+```
+sql/
+ schema.sql          # All table definitions (single source of truth)
+ RLS_schema.sql      # All RLS policies (single source of truth)
+src/
+ components/         # Reusable UI components, grouped by domain
+ contexts/           # React contexts (Auth, Theme)
+ hooks/              # Custom hooks
+ lib/                # Library configs (Supabase client)
+ pages/              # Route-level page components
+ services/           # Data access layer (Supabase queries)
+ types/              # TypeScript type definitions
+```
+
+
+
