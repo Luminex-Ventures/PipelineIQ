@@ -1513,6 +1513,7 @@ export default function Pipeline() {
             onClearAllFilters={clearAllFilters}
             showStageFilter={showStageFilter}
             extraFilterChips={scopeExtraChips}
+            showAgentFilter={roleInfo?.globalRole !== 'agent'}
           />
         )}
 

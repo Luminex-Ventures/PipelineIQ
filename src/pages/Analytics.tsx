@@ -457,8 +457,7 @@ export default function Analytics() {
     setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
   }, [availableDealTypes]);
 
-  const canShowFilterPanel =
-    (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
+  const canShowFilterPanel = true;
 
   useEffect(() => {
     if (!user) return;
@@ -1047,6 +1046,7 @@ export default function Analytics() {
           isFocusOnMeActive={isFocusOnMeActive}
           onSelectMyData={selectMyData}
           onClearAllFilters={clearAllFilters}
+          showAgentFilter={roleInfo?.globalRole !== 'agent'}
         />
       )}
 

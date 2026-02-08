@@ -33,6 +33,7 @@ type ScopePanelProps = {
   onSelectMyData: () => void;
   onClearAllFilters: () => void;
   showStageFilter?: boolean;
+  showAgentFilter?: boolean;
   extraFilterChips?: FilterChip[];
 };
 
@@ -60,9 +61,20 @@ export function ScopePanel({
   onSelectMyData,
   onClearAllFilters,
   showStageFilter = true,
+  showAgentFilter = true,
   extraFilterChips = []
 }: ScopePanelProps) {
-  const chips = [...extraFilterChips, ...activeFilterChips];
+  const chips = [...extraFilterChips, ...activeFilterChips].filter(
+    (chip) => showAgentFilter || chip.key !== 'agents'
+  );
+  const canShowFilters = showAgentFilter ? availableAgents.length > 0 : true;
+  const columnCount = (showStageFilter ? 3 : 2) + (showAgentFilter ? 1 : 0);
+  const gridColsClass =
+    columnCount === 4
+      ? 'lg:grid-cols-4'
+      : columnCount === 3
+        ? 'lg:grid-cols-3'
+        : 'lg:grid-cols-2';
 
   return (
     <Card padding="cardTight" className="space-y-4">
@@ -116,18 +128,20 @@ export function ScopePanel({
           )}
         </div>
       )}
-      {availableAgents.length > 0 && (
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${showStageFilter ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
-          <div className="min-w-0">
-            <MultiSelectCombobox
-              label="Agents"
-              options={agentOptions}
-              value={selectedAgentIds}
-              onChange={onChangeAgents}
-              placeholder="Search agents..."
-              disabled={agentOptions.length === 0}
-            />
-          </div>
+      {canShowFilters && (
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${gridColsClass}`}>
+          {showAgentFilter && (
+            <div className="min-w-0">
+              <MultiSelectCombobox
+                label="Agents"
+                options={agentOptions}
+                value={selectedAgentIds}
+                onChange={onChangeAgents}
+                placeholder="Search agents..."
+                disabled={agentOptions.length === 0}
+              />
+            </div>
+          )}
           {showStageFilter && (
             <div className="min-w-0">
               <MultiSelectCombobox

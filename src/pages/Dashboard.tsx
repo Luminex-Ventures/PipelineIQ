@@ -885,7 +885,7 @@ export default function Dashboard() {
     selectedLeadSources,
     selectedPipelineStages,
   ]);
-  const canShowFilterPanel = (roleInfo && roleInfo.globalRole !== 'agent') || availableAgents.length > 1;
+  const canShowFilterPanel = true;
 
   const totalActiveDeals = useMemo(
     () => pipelineHealth.reduce((sum, s) => sum + s.count, 0),
@@ -2206,6 +2206,7 @@ export default function Dashboard() {
           isFocusOnMeActive={isFocusOnMeActive}
           onSelectMyData={selectMyData}
           onClearAllFilters={clearAllFilters}
+          showAgentFilter={roleInfo?.globalRole !== 'agent'}
         />
       )}
 
