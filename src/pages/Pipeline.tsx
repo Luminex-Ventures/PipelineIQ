@@ -10,7 +10,7 @@ import PipelineTable from '../components/PipelineTable';
 import DealCard from '../components/DealCard';
 import DealModal from '../components/DealModal';
 import TemplateSelectionModal from '../components/TemplateSelectionModal';
-import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
+import { ScopePanel } from '../components/ui/ScopePanel';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Card } from '../ui/Card';
 import { PageShell } from '../ui/PageShell';
@@ -1262,6 +1262,17 @@ export default function Pipeline() {
     setSearchParams(nextParams, { replace: true });
   };
 
+  const scopeExtraChips = useMemo(() => {
+    if (!isStageLockedFromDashboard) return [];
+    return [
+      {
+        key: 'stage-lock',
+        label: `Stage locked from Dashboard: ${stageLabel}`,
+        onRemove: clearStageLock
+      }
+    ];
+  }, [isStageLockedFromDashboard, stageLabel, clearStageLock]);
+
   const viewToggleWrap = [
     ui.radius.pill,
     ui.border.subtle,
@@ -1272,12 +1283,6 @@ export default function Pipeline() {
     ui.radius.pill,
     ui.pad.chip,
     'inline-flex items-center gap-2 transition'
-  ].join(' ');
-  const filterChipBase = [
-    ui.radius.pill,
-    ui.border.subtle,
-    ui.pad.chip,
-    'inline-flex items-center gap-2 bg-white transition'
   ].join(' ');
 
   return (
@@ -1386,121 +1391,32 @@ export default function Pipeline() {
         )}
 
         {showFilterPanel && (
-          <Card className="space-y-5" aria-label="Scope filters">
-            <div className="space-y-2">
-              <div className="space-y-2">
-                <Text as="span" variant="micro">Scope</Text>
-                <Text variant="muted">{scopeDescription}</Text>
-              </div>
-            </div>
-            {(activeFilterChips.length > 0 || showFocusOnMe) && (
-              <div className="flex flex-wrap items-center gap-2">
-                {showFocusOnMe && (
-                  <button
-                    type="button"
-                    onClick={selectMyData}
-                    className={[
-                      filterChipBase,
-                      isFocusOnMeActive ? 'bg-[var(--app-accent)]' : 'hover:bg-gray-100/70',
-                      isFocusOnMeActive ? ui.tone.inverse : ui.tone.subtle
-                    ].join(' ')}
-                  >
-                    <Text as="span" variant="body" className="font-semibold">
-                      Focus On Me
-                    </Text>
-                  </button>
-                )}
-                {isStageLockedFromDashboard && (
-                  <button
-                    type="button"
-                    onClick={clearStageLock}
-                    className={filterChipBase}
-                  >
-                    <Text as="span" variant="body" className={[ui.tone.subtle, 'font-semibold'].join(' ')}>
-                      Stage locked from Dashboard: {stageLabel}
-                    </Text>
-                    <Text as="span" variant="body" className={ui.tone.faint}>
-                      ×
-                    </Text>
-                  </button>
-                )}
-                {activeFilterChips.map((chip) => (
-                  <button
-                    key={chip.key}
-                    type="button"
-                    onClick={chip.onRemove}
-                    className={filterChipBase}
-                  >
-                    <Text as="span" variant="body" className={[ui.tone.subtle, 'font-semibold'].join(' ')}>
-                      {chip.label}
-                    </Text>
-                    <Text as="span" variant="body" className={ui.tone.faint}>
-                      ×
-                    </Text>
-                  </button>
-                ))}
-                {activeFilterChips.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="inline-flex items-center"
-                  >
-                    <Text as="span" variant="muted" className={[ui.tone.accent, 'font-semibold'].join(' ')}>
-                      Clear all filters
-                    </Text>
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className={`grid grid-cols-1 gap-4 ${showStageFilter ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Agents"
-                  options={agentOptions}
-                  value={selectedAgentIds}
-                  onChange={setSelectedAgentIds}
-                  placeholder="Search agents..."
-                  disabled={agentOptions.length === 0}
-                />
-              </div>
-
-              {showStageFilter && (
-                <div className="space-y-2">
-                  <MultiSelectCombobox
-                    label="Pipeline Stage"
-                    options={stageOptions}
-                    value={selectedStageIds}
-                    onChange={setSelectedStageIds}
-                    placeholder="Search stages..."
-                    disabled={stageOptions.length === 0}
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Deal Type"
-                  options={dealTypeOptions}
-                  value={selectedDealTypeIds}
-                  onChange={(next) => setSelectedDealTypeIds(next as Deal['deal_type'][])}
-                  placeholder="Search deal types..."
-                  disabled={dealTypeOptions.length === 0}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Lead Source"
-                  options={leadSourceOptions}
-                  value={selectedLeadSourceIds}
-                  onChange={setSelectedLeadSourceIds}
-                  placeholder="Search lead sources..."
-                  disabled={leadSourceOptions.length === 0}
-                />
-              </div>
-            </div>
-          </Card>
+          <ScopePanel
+            scopeDescription={scopeDescription}
+            availableAgents={availableAgents}
+            availableStages={availableStageFilters.map((stage) => ({ id: stage.id, label: stage.name }))}
+            availableDealTypes={availableDealTypeFilters}
+            availableLeadSources={availableLeadSources}
+            agentOptions={agentOptions}
+            stageOptions={stageOptions}
+            dealTypeOptions={dealTypeOptions}
+            leadSourceOptions={leadSourceOptions}
+            selectedAgentIds={selectedAgentIds}
+            selectedPipelineStages={selectedStageIds}
+            selectedDealTypes={selectedDealTypeIds as string[]}
+            selectedLeadSources={selectedLeadSourceIds}
+            onChangeAgents={setSelectedAgentIds}
+            onChangePipelineStages={setSelectedStageIds}
+            onChangeDealTypes={(next) => setSelectedDealTypeIds(next as Deal['deal_type'][])}
+            onChangeLeadSources={setSelectedLeadSourceIds}
+            activeFilterChips={activeFilterChips}
+            showFocusOnMe={showFocusOnMe}
+            isFocusOnMeActive={isFocusOnMeActive}
+            onSelectMyData={selectMyData}
+            onClearAllFilters={clearAllFilters}
+            showStageFilter={showStageFilter}
+            extraFilterChips={scopeExtraChips}
+          />
         )}
 
         {dashboardFiltersActive && (

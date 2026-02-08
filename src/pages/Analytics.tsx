@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
-import { MultiSelectCombobox } from '../components/ui/MultiSelectCombobox';
+import { ScopePanel } from '../components/ui/ScopePanel';
 import { getVisibleUserIds } from '../lib/rbac';
 import type { Database } from '../lib/database.types';
 import { runAnalyticsDateChecks } from '../lib/analyticsDateRules';
@@ -304,8 +304,7 @@ export default function Analytics() {
     () =>
       availableAgents.map((agent) => ({
         value: agent.id,
-        label: agent.label,
-        subLabel: agent.email || undefined
+        label: agent.label
       })),
     [availableAgents]
   );
@@ -445,6 +444,13 @@ export default function Analytics() {
     setSelectedAgentIds([]);
   };
 
+  const clearAllFilters = () => {
+    resetAgents();
+    setSelectedPipelineStages([]);
+    setSelectedLeadSources([]);
+    setSelectedDealTypes([]);
+  };
+
   useEffect(() => {
     if (!availableDealTypes.length) return;
     setSelectedDealTypes((current) => current.filter((type) => availableDealTypes.includes(type)));
@@ -480,7 +486,7 @@ export default function Analytics() {
 
       if (!roleInfo || roleInfo.globalRole === 'agent') {
         setAvailableAgents([fallback]);
-        setSelectedAgentIds([user.id]);
+        setSelectedAgentIds([]);
         return;
       }
 
@@ -547,15 +553,7 @@ export default function Analytics() {
       }
 
       setAvailableAgents(agentOptions);
-      const initialIds = agentOptions.map(a => a.id);
-      const defaultId = user?.id;
-      if (defaultId && initialIds.includes(defaultId)) {
-        setSelectedAgentIds([defaultId]);
-      } else if (initialIds.length === 1) {
-        setSelectedAgentIds([initialIds[0]]);
-      } else {
-        setSelectedAgentIds([]);
-      }
+      setSelectedAgentIds([]);
     };
 
     bootstrapAgents();
@@ -856,8 +854,8 @@ export default function Analytics() {
     ? monthlyData.find((month) => month.month === worstMonth.month)
     : null;
 
-  const pillBase = [ui.radius.pill, ui.border.subtle, ui.pad.chipTight, 'inline-flex items-center bg-white'].join(' ');
   const tileClass = 'analytics-tile';
+  const pillBase = [ui.radius.pill, ui.border.subtle, ui.pad.chipTight, 'inline-flex items-center bg-white'].join(' ');
 
   // Lead source insights
   const topLeadSource = leadSourceStats[0] || null;
@@ -1025,107 +1023,30 @@ export default function Analytics() {
     <PageShell title={headerTitle} actions={headerActions}>
       <div className="space-y-8">
       {canShowFilterPanel && (
-        <Card className="space-y-4">
-          <div className="space-y-2">
-            <Text as="span" variant="micro">Scope</Text>
-            <Text variant="muted">{scopeDescription}</Text>
-          </div>
-          {(activeFilterChips.length > 0 || showFocusOnMe) && (
-            <div className="flex flex-wrap items-center gap-2">
-              {showFocusOnMe && (
-                <button
-                  type="button"
-                  onClick={selectMyData}
-                  className={[
-                    pillBase,
-                    isFocusOnMeActive ? 'bg-[var(--app-accent)]' : 'bg-gray-100 hover:bg-gray-200',
-                    isFocusOnMeActive ? ui.tone.inverse : ui.tone.primary,
-                    'transition'
-                  ].join(' ')}
-                >
-                  <Text as="span" variant="body" className="font-semibold">
-                    Focus On Me
-                  </Text>
-                </button>
-              )}
-              {activeFilterChips.map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  onClick={chip.onRemove}
-                  className={[pillBase, 'gap-2'].join(' ')}
-                >
-                  <Text as="span" variant="body" className={[ui.tone.subtle, 'font-semibold'].join(' ')}>
-                    {chip.label}
-                  </Text>
-                  <Text as="span" variant="body" className={ui.tone.faint}>
-                    x
-                  </Text>
-                </button>
-              ))}
-              {activeFilterChips.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetAgents();
-                    setSelectedPipelineStages([]);
-                    setSelectedLeadSources([]);
-                    setSelectedDealTypes([]);
-                  }}
-                  className="inline-flex items-center"
-                >
-                  <Text as="span" variant="muted" className={[ui.tone.accent, 'font-semibold'].join(' ')}>
-                    Clear all filters
-                  </Text>
-                </button>
-              )}
-            </div>
-          )}
-          {availableAgents.length > 0 && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Agents"
-                  options={agentOptions}
-                  value={selectedAgentIds}
-                  onChange={setSelectedAgentIds}
-                  placeholder="Search agents..."
-                  disabled={agentOptions.length === 0}
-                />
-              </div>
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Pipeline Stage"
-                  options={stageOptions}
-                  value={selectedPipelineStages}
-                  onChange={setSelectedPipelineStages}
-                  placeholder="Search stages..."
-                  disabled={stageOptions.length === 0}
-                />
-              </div>
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Deal Type"
-                  options={dealTypeOptions}
-                  value={selectedDealTypes}
-                  onChange={(next) => setSelectedDealTypes(next as DealRow['deal_type'][])}
-                  placeholder="Search deal types..."
-                  disabled={dealTypeOptions.length === 0}
-                />
-              </div>
-              <div className="space-y-2">
-                <MultiSelectCombobox
-                  label="Lead Source"
-                  options={leadSourceOptions}
-                  value={selectedLeadSources}
-                  onChange={setSelectedLeadSources}
-                  placeholder="Search lead sources..."
-                  disabled={leadSourceOptions.length === 0}
-                />
-              </div>
-            </div>
-          )}
-        </Card>
+        <ScopePanel
+          scopeDescription={scopeDescription}
+          availableAgents={availableAgents}
+          availableStages={availableStages}
+          availableDealTypes={availableDealTypes}
+          availableLeadSources={availableLeadSources}
+          agentOptions={agentOptions}
+          stageOptions={stageOptions}
+          dealTypeOptions={dealTypeOptions}
+          leadSourceOptions={leadSourceOptions}
+          selectedAgentIds={selectedAgentIds}
+          selectedPipelineStages={selectedPipelineStages}
+          selectedDealTypes={selectedDealTypes}
+          selectedLeadSources={selectedLeadSources}
+          onChangeAgents={setSelectedAgentIds}
+          onChangePipelineStages={setSelectedPipelineStages}
+          onChangeDealTypes={(next) => setSelectedDealTypes(next as DealRow['deal_type'][])}
+          onChangeLeadSources={setSelectedLeadSources}
+          activeFilterChips={activeFilterChips}
+          showFocusOnMe={showFocusOnMe}
+          isFocusOnMeActive={isFocusOnMeActive}
+          onSelectMyData={selectMyData}
+          onClearAllFilters={clearAllFilters}
+        />
       )}
 
       <section>
