@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Calendar,
   CheckCircle,
@@ -98,7 +99,6 @@ export default function Tasks() {
     if (typeof window === 'undefined') return null;
     return window.localStorage.getItem('tasks_last_opened_deal');
   });
-  const [showHeroQuickAdd, setShowHeroQuickAdd] = useState(false);
   const [showListQuickAdd, setShowListQuickAdd] = useState(false);
   const taskListRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'compact'>(() => {
@@ -259,12 +259,12 @@ export default function Tasks() {
     [dealsForSelector, shouldGroupDeals, dealOwners, user]
   );
 
-  const loadAgents = useCallback(async () => {
-    if (!user || !roleInfo) return;
+  const loadAgents = useCallback(async (): Promise<{ id: string; label: string }[]> => {
+    if (!user || !roleInfo) return [];
     if (!isManagerRole) {
       setAgentOptions([]);
       setAgentFilter('all');
-      return;
+      return [];
     }
     try {
       const visibleIds = await getVisibleUserIds(roleInfo);
@@ -302,6 +302,7 @@ export default function Tasks() {
       if (agentFilter !== 'all' && !opts.find((opt) => opt.id === agentFilter)) {
         setAgentFilter('all');
       }
+      return opts;
     } catch (err) {
       console.error('Error loading agents', err);
       const visibleIds = roleInfo ? await getVisibleUserIds(roleInfo) : [];
@@ -316,6 +317,7 @@ export default function Tasks() {
       if (agentFilter !== 'all' && !fallback.find((opt) => opt.id === agentFilter)) {
         setAgentFilter('all');
       }
+      return fallback;
     }
   }, [agentFilter, isManagerRole, roleInfo, user]);
 
@@ -349,14 +351,9 @@ export default function Tasks() {
     setNotesByTask(map);
   }, []);
 
-  const fetchTasks = useCallback(async () => {
-    if (!user) return;
+  const fetchTasks = useCallback(async (): Promise<Task[]> => {
+    if (!user) return [];
     const requestId = ++tasksRequestIdRef.current;
-    if (!hasLoadedOnceRef.current) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
 
     let visibleIds: string[] = [user.id];
     if (roleInfo) {
@@ -378,7 +375,7 @@ export default function Tasks() {
 
     const { data, error } = await query;
 
-    if (requestId !== tasksRequestIdRef.current) return;
+    if (requestId !== tasksRequestIdRef.current) return [];
     if (!error && data) {
       const optimisticMap = optimisticallyCompletedIdsRef.current;
       const taskList = (data ?? [])
@@ -386,19 +383,21 @@ export default function Tasks() {
         .filter((task) => !optimisticMap[task.id]) as Task[];
       setTasks(taskList);
       await fetchTaskNotes(taskList);
-      if (requestId !== tasksRequestIdRef.current) return;
+      if (requestId !== tasksRequestIdRef.current) return [];
       setLastRefreshedAt(Date.now());
       hasLoadedOnceRef.current = true;
-    }
-
-    if (requestId === tasksRequestIdRef.current) {
       setLoading(false);
       setRefreshing(false);
+      return taskList;
     }
+
+    setLoading(false);
+    setRefreshing(false);
+    return [];
   }, [fetchTaskNotes, roleInfo, user]);
 
-  const fetchDeals = useCallback(async () => {
-    if (!user) return;
+  const fetchDeals = useCallback(async (): Promise<DealSummary[]> => {
+    if (!user) return [];
     const requestId = ++dealsRequestIdRef.current;
 
     try {
@@ -428,50 +427,80 @@ export default function Tasks() {
 
       const { data, error } = await query;
 
-      if (requestId !== dealsRequestIdRef.current) return;
+      if (requestId !== dealsRequestIdRef.current) return [];
       if (error) {
         console.error('Error loading deals', error);
         setDeals([]);
-      } else {
-        setDeals(data || []);
-        const ownerMap: Record<string, string> = {};
-        const { data: agents, error: agentError } =
-          await supabase.rpc<AccessibleAgentRow[]>('get_accessible_agents');
-        if (!agentError && Array.isArray(agents)) {
-          agents.forEach((agent) => {
-            if (visibleUserIds.includes(agent.user_id)) {
-              ownerMap[agent.user_id] =
-                agent.display_name || agent.email || 'Agent';
-            }
-          });
-        }
-        setDealOwners(ownerMap);
+        return [];
       }
+      
+      const dealsList = (data || []) as DealSummary[];
+      setDeals(dealsList);
+      const ownerMap: Record<string, string> = {};
+      const { data: agents, error: agentError } =
+        await supabase.rpc<AccessibleAgentRow[]>('get_accessible_agents');
+      if (!agentError && Array.isArray(agents)) {
+        agents.forEach((agent) => {
+          if (visibleUserIds.includes(agent.user_id)) {
+            ownerMap[agent.user_id] =
+              agent.display_name || agent.email || 'Agent';
+          }
+        });
+      }
+      setDealOwners(ownerMap);
+      return dealsList;
     } catch (err) {
-      if (requestId !== dealsRequestIdRef.current) return;
+      if (requestId !== dealsRequestIdRef.current) return [];
       console.error('Error resolving visible deals', err);
       setDeals([]);
       setDealOwners({});
+      return [];
     }
   }, [roleInfo, user]);
 
-  useEffect(() => {
-    if (!user) return;
-    fetchTasks();
-  }, [fetchTasks, user]);
+  // React Query for cached tasks - provides instant loading on revisit
+  const tasksQuery = useQuery({
+    queryKey: ['tasks', 'active', user?.id, roleInfo?.globalRole, roleInfo?.teamId],
+    queryFn: async () => {
+      const result = await fetchTasks();
+      return result ?? []; // Ensure we never return undefined
+    },
+    enabled: !!user,
+    staleTime: 1 * 60 * 1000, // 1 minute
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
 
-  useEffect(() => {
-    loadAgents();
-  }, [loadAgents]);
+  // React Query for cached deals
+  useQuery({
+    queryKey: ['tasks', 'deals', user?.id, roleInfo?.globalRole, roleInfo?.teamId],
+    queryFn: async () => {
+      const result = await fetchDeals();
+      return result ?? []; // Ensure we never return undefined
+    },
+    enabled: !!user,
+    staleTime: 1 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
 
+  // React Query for cached agents
+  useQuery({
+    queryKey: ['tasks', 'agents', user?.id, roleInfo?.globalRole],
+    queryFn: async () => {
+      const result = await loadAgents();
+      return result ?? []; // Ensure we never return undefined
+    },
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  });
+
+  // Sync loading states
   useEffect(() => {
-    if (!user) {
-      setDeals([]);
-      setDealsLoading(false);
-      return;
-    }
-    fetchDeals();
-  }, [fetchDeals, user]);
+    setLoading(tasksQuery.isLoading);
+    setRefreshing(tasksQuery.isFetching && !tasksQuery.isLoading);
+  }, [tasksQuery.isLoading, tasksQuery.isFetching]);
 
   const filteredTasks = useMemo(() => {
     const normalizedSearch = debouncedSearchQuery.toLowerCase();

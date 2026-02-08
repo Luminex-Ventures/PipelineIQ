@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -380,25 +381,6 @@ export default function Pipeline() {
     }
   }, [statusesLoading, combinedStatuses]);
 
-  const loadLeadSources = useCallback(async () => {
-    if (!user) return;
-    let query = supabase
-      .from('lead_sources')
-      .select('id,name')
-      .order('name', { ascending: true });
-
-    if (roleInfo?.teamId) {
-      query = query.eq('team_id', roleInfo.teamId);
-    } else {
-      // TODO: apply org/workspace scoping if lead_sources is scoped beyond team_id.
-    }
-
-    const { data, error } = await query;
-    if (!error) {
-      setAvailableLeadSources((data || []) as { id: string; name: string }[]);
-    }
-  }, [roleInfo?.teamId, user]);
-
   const dashboardFilters = useMemo(
     () => ({
       agentIds: dashboardAgentFilters,
@@ -490,16 +472,10 @@ export default function Pipeline() {
     }
   }, [roleInfo, user]);
 
-  const loadKanbanDeals = useCallback(async () => {
-    if (!user || !roleInfo) return;
+  const loadKanbanDeals = useCallback(async (): Promise<DealRow[]> => {
+    if (!user || !roleInfo) return [];
 
     const requestId = ++kanbanLoadRequestIdRef.current;
-    const isInitialLoad = !hasLoadedKanbanRef.current;
-    if (isInitialLoad) {
-      setKanbanLoading(true);
-    } else {
-      setRefreshing(true);
-    }
 
     try {
       const visibleUserIds = await resolveVisibleUserIds();
@@ -551,40 +527,29 @@ export default function Pipeline() {
       }
 
       const { data, error } = await query;
-      if (requestId !== kanbanLoadRequestIdRef.current) return;
+      if (requestId !== kanbanLoadRequestIdRef.current) return [];
 
       if (error) {
         console.error('Error loading kanban deals', error);
-        setKanbanDeals([]);
-      } else {
-        setKanbanDeals(data || []);
-        setLastRefreshedAt(Date.now());
+        return [];
       }
+      
+      const deals = (data || []) as DealRow[];
+      setKanbanDeals(deals);
+      setLastRefreshedAt(Date.now());
+      hasLoadedKanbanRef.current = true;
+      return deals;
     } catch (err) {
-      if (requestId !== kanbanLoadRequestIdRef.current) return;
+      if (requestId !== kanbanLoadRequestIdRef.current) return [];
       console.error('Error loading kanban deals', err);
-      setKanbanDeals([]);
-    } finally {
-      if (requestId === kanbanLoadRequestIdRef.current) {
-        if (isInitialLoad) {
-          setKanbanLoading(false);
-          hasLoadedKanbanRef.current = true;
-        }
-        setRefreshing(false);
-      }
+      return [];
     }
   }, [effectiveFilters, resolveVisibleUserIds, roleInfo, user]);
 
-  const loadTableDeals = useCallback(async () => {
-    if (!user || !roleInfo) return;
+  const loadTableDeals = useCallback(async (): Promise<{ rows: DealRow[]; total: number }> => {
+    if (!user || !roleInfo) return { rows: [], total: 0 };
 
     const requestId = ++tableLoadRequestIdRef.current;
-    const isInitialLoad = !hasLoadedTableRef.current;
-    if (isInitialLoad) {
-      setTableLoading(true);
-    } else {
-      setRefreshing(true);
-    }
 
     try {
       const visibleUserIds = await resolveVisibleUserIds();
@@ -744,30 +709,24 @@ export default function Pipeline() {
       query = query.order('created_at', { ascending: false });
 
       const { data, error, count } = await query;
-      if (requestId !== tableLoadRequestIdRef.current) return;
+      if (requestId !== tableLoadRequestIdRef.current) return { rows: [], total: 0 };
 
       if (error) {
         console.error('Error loading table deals', error);
-        setTableRows([]);
-        setTableTotal(0);
-      } else {
-        setTableRows(data || []);
-        setTableTotal(count ?? 0);
-        setLastRefreshedAt(Date.now());
+        return { rows: [], total: 0 };
       }
+      
+      const rows = (data || []) as DealRow[];
+      const total = count ?? 0;
+      setTableRows(rows);
+      setTableTotal(total);
+      setLastRefreshedAt(Date.now());
+      hasLoadedTableRef.current = true;
+      return { rows, total };
     } catch (err) {
-      if (requestId !== tableLoadRequestIdRef.current) return;
+      if (requestId !== tableLoadRequestIdRef.current) return { rows: [], total: 0 };
       console.error('Error loading table deals', err);
-      setTableRows([]);
-      setTableTotal(0);
-    } finally {
-      if (requestId === tableLoadRequestIdRef.current) {
-        if (isInitialLoad) {
-          setTableLoading(false);
-          hasLoadedTableRef.current = true;
-        }
-        setRefreshing(false);
-      }
+      return { rows: [], total: 0 };
     }
   }, [
     effectiveFilters,
@@ -780,17 +739,69 @@ export default function Pipeline() {
     user
   ]);
 
+  // Create a stable key for the kanban query
+  const kanbanQueryKey = useMemo(() => {
+    const filterKey = JSON.stringify({
+      agents: effectiveFilters.agentIds.sort(),
+      leadSources: effectiveFilters.leadSourceIds.sort(),
+      stages: effectiveFilters.stageIds.sort(),
+      dealTypes: effectiveFilters.dealTypes.sort(),
+    });
+    return ['pipeline', 'kanban', user?.id, roleInfo?.globalRole, filterKey];
+  }, [user?.id, roleInfo?.globalRole, effectiveFilters]);
+
+  // Create a stable key for the table query
+  const tableQueryKey = useMemo(() => {
+    const filterKey = JSON.stringify({
+      agents: effectiveFilters.agentIds.sort(),
+      leadSources: effectiveFilters.leadSourceIds.sort(),
+      stages: effectiveFilters.stageIds.sort(),
+      dealTypes: effectiveFilters.dealTypes.sort(),
+      statusStageId: effectiveFilters.statusStageId,
+      page: tablePage,
+      pageSize: tablePageSize,
+      search: tableSearch,
+      sort: tableSortConfig,
+    });
+    return ['pipeline', 'table', user?.id, roleInfo?.globalRole, filterKey];
+  }, [user?.id, roleInfo?.globalRole, effectiveFilters, tablePage, tablePageSize, tableSearch, tableSortConfig]);
+
+  // React Query for cached kanban deals
+  const kanbanQuery = useQuery({
+    queryKey: kanbanQueryKey,
+    queryFn: async () => {
+      const result = await loadKanbanDeals();
+      return result ?? []; // Ensure we never return undefined
+    },
+    enabled: viewMode === 'kanban' && !!user && !!roleInfo,
+    staleTime: 1 * 60 * 1000, // 1 minute stale time for deals
+    gcTime: 5 * 60 * 1000, // 5 minutes cache time
+    refetchOnWindowFocus: true,
+  });
+
+  // React Query for cached table deals
+  const tableQuery = useQuery({
+    queryKey: tableQueryKey,
+    queryFn: async () => {
+      const result = await loadTableDeals();
+      return result ?? { rows: [], total: 0 }; // Ensure we never return undefined
+    },
+    enabled: viewMode === 'table' && !!user && !!roleInfo,
+    staleTime: 1 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
+
+  // Sync React Query states with component states for loading indicators
   useEffect(() => {
     if (viewMode === 'kanban') {
-      loadKanbanDeals();
+      setKanbanLoading(kanbanQuery.isLoading);
+      setRefreshing(kanbanQuery.isFetching && !kanbanQuery.isLoading);
+    } else {
+      setTableLoading(tableQuery.isLoading);
+      setRefreshing(tableQuery.isFetching && !tableQuery.isLoading);
     }
-  }, [loadKanbanDeals, viewMode]);
-
-  useEffect(() => {
-    if (viewMode === 'table') {
-      loadTableDeals();
-    }
-  }, [loadTableDeals, viewMode]);
+  }, [viewMode, kanbanQuery.isLoading, kanbanQuery.isFetching, tableQuery.isLoading, tableQuery.isFetching]);
 
   useEffect(() => {
     if (viewMode === 'table' && tablePage !== 1) {
@@ -868,13 +879,45 @@ export default function Pipeline() {
     }
   }, [effectiveFilters, resolveVisibleUserIds, roleInfo, user]);
 
-  useEffect(() => {
-    loadLeadSources();
-  }, [loadLeadSources]);
+  // React Query for cached lead sources
+  const leadSourcesQuery = useQuery({
+    queryKey: ['pipeline', 'leadSources', roleInfo?.teamId],
+    queryFn: async () => {
+      let query = supabase
+        .from('lead_sources')
+        .select('id,name')
+        .order('name', { ascending: true });
 
+      if (roleInfo?.teamId) {
+        query = query.eq('team_id', roleInfo.teamId);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error loading lead sources', error);
+        return [];
+      }
+      return (data || []) as { id: string; name: string }[];
+    },
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000, // Lead sources are stable
+    gcTime: 15 * 60 * 1000,
+  });
+
+  // Sync lead sources to state
   useEffect(() => {
-    loadSummaryDeals();
-  }, [loadSummaryDeals]);
+    if (leadSourcesQuery.data) {
+      setAvailableLeadSources(leadSourcesQuery.data);
+    }
+  }, [leadSourcesQuery.data]);
+
+  // React Query for cached summary deals
+  // Load summary deals when filters change
+  useEffect(() => {
+    if (user && roleInfo) {
+      loadSummaryDeals();
+    }
+  }, [user, roleInfo, loadSummaryDeals]);
 
   useEffect(() => {
     setAvailableDealTypeFilters(DEAL_TYPE_OPTIONS);
