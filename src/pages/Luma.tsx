@@ -4,7 +4,6 @@ import { queryLuma } from '../lib/openai';
 import { buildRAGContext } from '../lib/rag-context';
 import '../lib/rag-debug'; // Enable debug helper in console
 import { PageShell } from '../ui/PageShell';
-import { Card } from '../ui/Card';
 import { MetricTile } from '../ui/MetricTile';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
@@ -28,16 +27,6 @@ interface Message {
 
 type ContextStatus = 'idle' | 'updating' | 'ready' | 'error';
 
-const surfaceClass = [ui.radius.card, ui.border.card, ui.shadow.card, 'bg-white/90'].join(' ');
-
-const suggestionPillClass = [
-  'inline-flex items-center gap-2 bg-white transition focus-visible:outline-none',
-  ui.radius.pill,
-  ui.border.subtle,
-  ui.pad.chip,
-  ui.shadow.card
-].join(' ');
-
 const MAX_TEXTAREA_HEIGHT = 160;
 
 const KNOWN_STATS: Array<{
@@ -60,6 +49,13 @@ const suggestedQueries = [
   'How is my projected GCI pacing for Q3?',
 ];
 
+type Conversation = {
+  id: string;
+  title: string;
+  messages: Message[];
+  updatedAt: number;
+};
+
 export default function Luma() {
   const {
     messages,
@@ -71,10 +67,15 @@ export default function Luma() {
     submitMessage,
     setInput,
     clearChat,
+    loadConversation,
     refreshContext
   } = useLumaChat();
 
-  const [showPrompts, setShowPrompts] = useState(true);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    const now = Date.now();
+    return [{ id: createMessageId(), title: 'New chat', messages: [], updatedAt: now }];
+  });
+  const [activeConversationId, setActiveConversationId] = useState(conversations[0].id);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -88,14 +89,44 @@ export default function Luma() {
     });
   }, [setInput]);
 
-  const handleClearChat = useCallback(() => {
+  const buildTitle = useCallback((nextMessages: Message[]) => {
+    const firstUser = nextMessages.find((message) => message.role === 'user');
+    if (!firstUser) return 'New chat';
+    return firstUser.content.length > 40
+      ? `${firstUser.content.slice(0, 40).trim()}…`
+      : firstUser.content;
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    const now = Date.now();
+    const newConversation: Conversation = {
+      id: createMessageId(),
+      title: 'New chat',
+      messages: [],
+      updatedAt: now
+    };
+    setConversations((prev) => [newConversation, ...prev]);
+    setActiveConversationId(newConversation.id);
     clearChat();
-    setShowPrompts(true);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       resizeTextarea(textareaRef.current);
     });
   }, [clearChat]);
+
+  useEffect(() => {
+    setConversations((prev) =>
+      prev.map((conversation) => {
+        if (conversation.id !== activeConversationId) return conversation;
+        return {
+          ...conversation,
+          messages,
+          title: buildTitle(messages),
+          updatedAt: Date.now()
+        };
+      })
+    );
+  }, [activeConversationId, buildTitle, messages]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -123,6 +154,16 @@ export default function Luma() {
     return `Context updated • ${updatedLabel}`;
   }, [contextMeta, lastUpdatedAt]);
 
+  const activeConversation = useMemo(
+    () => conversations.find((conversation) => conversation.id === activeConversationId) ?? conversations[0],
+    [activeConversationId, conversations]
+  );
+
+  useEffect(() => {
+    if (!activeConversation) return;
+    loadConversation(activeConversation.messages);
+  }, [activeConversationId, loadConversation]);
+
   return (
     <PageShell
       title={
@@ -139,7 +180,7 @@ export default function Luma() {
       actions={
         <button
           type="button"
-          onClick={handleClearChat}
+          onClick={handleNewChat}
           className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
         >
           <div className="inline-flex items-center gap-2">
@@ -151,135 +192,200 @@ export default function Luma() {
         </button>
       }
     >
-      <Card className="flex flex-1 flex-col overflow-hidden bg-white" padding="none">
-        <div className={[ui.border.subtle, ui.pad.cardTight].join(' ')}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <Text variant="micro">Conversation</Text>
-              <Text variant="muted">
-                Bring up deals, follow-ups, or performance goals. Luma replies with grounded insight.
-              </Text>
-            </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className={[ui.radius.card, ui.border.card, ui.shadow.card, ui.pad.cardTight, 'bg-white/90 space-y-4'].join(' ')}>
+          <div className="flex items-center justify-between">
+            <Text variant="micro" className={ui.tone.subtle}>Chats</Text>
             <button
               type="button"
-              onClick={refreshContext}
-              disabled={contextStatus === 'updating'}
-              className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
+              onClick={handleNewChat}
+              className={[ui.radius.pill, ui.border.subtle, ui.pad.chipTight, 'bg-white transition'].join(' ')}
             >
-              <div className="inline-flex items-center gap-2">
-                <RefreshCw className={`h-4 w-4 ${contextStatus === 'updating' ? 'animate-spin' : ''}`} />
-                <Text as="span" variant="micro" className={ui.tone.muted}>
-                  Refresh context
-                </Text>
-              </div>
+              <Text as="span" variant="micro" className={ui.tone.muted}>+ New Chat</Text>
             </button>
           </div>
-        </div>
-
-        <div ref={scrollRef} className={['flex-1 overflow-y-auto', ui.pad.card].join(' ')}>
-          {!hasMessages && showPrompts && (
-            <StarterPrompts
-              prompts={suggestedQueries}
-              onSelect={handleSelectPrompt}
-              onDismiss={() => setShowPrompts(false)}
-            />
-          )}
-
-          <div className="space-y-6">
-            {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
-            ))}
-
-            {loading && (
-              <div className="flex items-start gap-3">
-                <div
+          <div className="space-y-2">
+            {conversations.map((conversation) => {
+              const isActive = conversation.id === activeConversationId;
+              const updatedLabel = new Date(conversation.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+              return (
+                <button
+                  key={conversation.id}
+                  type="button"
+                  onClick={() => setActiveConversationId(conversation.id)}
                   className={[
-                    'flex h-8 w-8 items-center justify-center bg-[var(--app-accent)]/10',
-                    ui.radius.pill,
-                    ui.tone.accent
+                    'w-full text-left transition',
+                    ui.radius.control,
+                    ui.pad.cardTight,
+                    isActive ? 'bg-[var(--app-accent)]/10' : 'hover:bg-gray-50/80'
                   ].join(' ')}
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Text as="div" variant="body" className="font-medium">
+                    {conversation.title}
+                  </Text>
+                  <Text as="div" variant="muted">
+                    Today • {updatedLabel}
+                  </Text>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <section className={[ui.radius.card, ui.border.card, ui.shadow.card, 'bg-white/90 flex flex-col min-h-[520px] overflow-hidden'].join(' ')}>
+          <div className={[ui.border.subtle, ui.pad.cardTight].join(' ')}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1">
+                <Text variant="micro">Conversation</Text>
+                <Text variant="muted">
+                  Bring up deals, follow-ups, or performance goals. Luma replies with grounded insight.
+                </Text>
+              </div>
+              <button
+                type="button"
+                onClick={refreshContext}
+                disabled={contextStatus === 'updating'}
+                className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
+              >
+                <div className="inline-flex items-center gap-2">
+                  <RefreshCw className={`h-4 w-4 ${contextStatus === 'updating' ? 'animate-spin' : ''}`} />
+                  <Text as="span" variant="micro" className={ui.tone.muted}>
+                    Refresh context
+                  </Text>
                 </div>
-                <div className={[ui.radius.card, ui.border.subtle, ui.pad.cardTight, 'bg-white'].join(' ')}>
-                  <div className="flex items-center gap-1.5" role="status" aria-live="polite">
-                    <span className="sr-only">Luma is typing</span>
-                    <div className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')} />
+              </button>
+            </div>
+          </div>
+
+          <div ref={scrollRef} className={['flex-1 overflow-y-auto', ui.pad.card].join(' ')}>
+            {!hasMessages ? (
+              <div className="flex h-full flex-col items-center justify-center text-center space-y-4">
+                <div className="space-y-2">
+                  <Text as="h2" variant="h2">Start a conversation with Luma</Text>
+                  <Text variant="muted">
+                    Ask questions about deals, tasks, performance, or your pipeline.
+                  </Text>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {suggestedQueries.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => handleSelectPrompt(prompt)}
+                      className={[
+                        'text-left bg-white transition hover:bg-gray-50/80',
+                        ui.radius.card,
+                        ui.border.subtle,
+                        ui.pad.cardTight
+                      ].join(' ')}
+                    >
+                      <Text as="span" variant="body">{prompt}</Text>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {messages.map((message) => (
+                  <MessageBubble key={message.id} message={message} />
+                ))}
+
+                {loading && (
+                  <div className="flex items-start gap-3">
                     <div
-                      className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
-                      style={{ animationDelay: '0.1s' }}
-                    />
-                    <div
-                      className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
-                      style={{ animationDelay: '0.2s' }}
-                    />
+                      className={[
+                        'flex h-8 w-8 items-center justify-center bg-[var(--app-accent)]/10',
+                        ui.radius.pill,
+                        ui.tone.accent
+                      ].join(' ')}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                    </div>
+                    <div className={[ui.radius.card, ui.border.subtle, ui.pad.cardTight, 'bg-white'].join(' ')}>
+                      <div className="flex items-center gap-1.5" role="status" aria-live="polite">
+                        <span className="sr-only">Luma is typing</span>
+                        <div className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')} />
+                        <div
+                          className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
+                          style={{ animationDelay: '0.1s' }}
+                        />
+                        <div
+                          className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
+                          style={{ animationDelay: '0.2s' }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
           </div>
-        </div>
 
-        <div className="sticky bottom-0 bg-white/95 backdrop-blur">
-          <div className="h-px bg-gray-200/60" />
-          <form onSubmit={submitMessage} className={ui.pad.cardTight}>
-            <div className="flex flex-col gap-3">
-              <div
-                className={[
-                  ui.radius.card,
-                  ui.border.card,
-                  ui.pad.cardTight,
-                  'bg-white focus-within:ring-2 focus-within:ring-[var(--app-accent)]/20'
-                ].join(' ')}
-              >
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onInput={(e) => resizeTextarea(e.currentTarget)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      submitMessage(e);
-                    }
-                  }}
-                  placeholder="Ask Luma anything about your pipeline..."
-                  aria-label="Message Luma"
-                  rows={1}
-                  className={['w-full resize-none bg-transparent outline-none', ui.tone.primary].join(' ')}
-                  style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
-                />
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <Text as="span" variant="muted" aria-live="polite">
-                  {contextStatus === 'error'
-                    ? 'Context failed to update.'
-                    : contextStatus === 'updating'
-                    ? 'Updating context...'
-                    : contextLine}
-                </Text>
-                <button
-                  type="submit"
-                  aria-label="Send message"
-                  disabled={!input.trim()}
+          <div className="mt-auto bg-white/95 backdrop-blur">
+            <div className="h-px bg-gray-200/60" />
+            <form onSubmit={submitMessage} className={ui.pad.cardTight}>
+              <div className="flex flex-col gap-3">
+                <div
                   className={[
-                    'inline-flex items-center gap-2 bg-[var(--app-accent)] transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40',
-                    ui.radius.pill,
-                    ui.pad.chip
+                    ui.radius.card,
+                    ui.border.card,
+                    ui.pad.cardTight,
+                    'bg-white focus-within:ring-2 focus-within:ring-[var(--app-accent)]/20'
                   ].join(' ')}
                 >
-                  {loading ? (
-                    <Text as="span" variant="micro" className={ui.tone.inverse}>Sending</Text>
-                  ) : (
-                    <Text as="span" variant="micro" className={ui.tone.inverse}>Send</Text>
-                  )}
-                  <Send className="h-4 w-4" />
-                </button>
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onInput={(e) => resizeTextarea(e.currentTarget)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        submitMessage(e);
+                      }
+                    }}
+                    placeholder="Ask Luma anything about your pipeline..."
+                    aria-label="Message Luma"
+                    rows={1}
+                    className={['w-full resize-none bg-transparent outline-none', ui.tone.primary].join(' ')}
+                    style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Text as="span" variant="muted" aria-live="polite">
+                    {contextStatus === 'error'
+                      ? 'Context failed to update.'
+                      : contextStatus === 'updating'
+                      ? 'Updating context...'
+                      : contextLine}
+                  </Text>
+                  <button
+                    type="submit"
+                    aria-label="Send message"
+                    disabled={!input.trim()}
+                    className={[
+                      'relative inline-flex items-center justify-center bg-[var(--app-accent)] transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40 min-w-[92px]',
+                      ui.radius.pill,
+                      ui.pad.chip
+                    ].join(' ')}
+                  >
+                    {loading ? (
+                      <Text as="span" variant="micro" className={[ui.tone.inverse, 'flex-1 text-center'].join(' ')}>
+                        Sending
+                      </Text>
+                    ) : (
+                      <Text as="span" variant="micro" className={[ui.tone.inverse, 'flex-1 text-center'].join(' ')}>
+                        Send
+                      </Text>
+                    )}
+                    <Send className="h-4 w-4 absolute right-3" />
+                  </button>
+                </div>
               </div>
-            </div>
-          </form>
-        </div>
-      </Card>
+            </form>
+          </div>
+        </section>
+      </div>
     </PageShell>
   );
 }
@@ -411,6 +517,12 @@ function useLumaChat() {
     setLoading(false);
   }, [updateMessages]);
 
+  const loadConversation = useCallback((nextMessages: Message[]) => {
+    updateMessages(nextMessages);
+    setInput('');
+    setLoading(false);
+  }, [updateMessages]);
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -429,6 +541,7 @@ function useLumaChat() {
     submitMessage,
     setInput,
     clearChat,
+    loadConversation,
     refreshContext,
     contextRef,
     requestIdRef,
@@ -440,18 +553,18 @@ function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className="flex justify-start">
       <div
         className={[
           'max-w-3xl',
           ui.radius.card,
           ui.pad.cardTight,
-          isUser ? 'bg-[var(--app-accent)]' : 'bg-white',
-          isUser ? ui.shadow.card : ui.border.subtle
+          isUser ? 'bg-gray-50' : 'bg-white',
+          isUser ? ui.border.subtle : ui.border.subtle
         ].join(' ')}
       >
-        {!isUser && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {!isUser && (
             <div
               className={[
                 'flex h-7 w-7 items-center justify-center bg-[var(--app-accent)]/10',
@@ -461,14 +574,14 @@ function MessageBubble({ message }: { message: Message }) {
             >
               <Sparkles className="h-4 w-4" strokeWidth={2} />
             </div>
-            <Text as="span" variant="micro">Luma</Text>
-          </div>
-        )}
+          )}
+          <Text as="span" variant="micro">{isUser ? 'You' : 'Luma'}</Text>
+        </div>
 
         <Text
           as="div"
           variant="body"
-          className={[isUser ? ui.tone.inverse : ui.tone.primary, 'whitespace-pre-wrap'].join(' ')}
+          className={[ui.tone.primary, 'whitespace-pre-wrap'].join(' ')}
         >
           {renderMessageContent(message.content)}
         </Text>

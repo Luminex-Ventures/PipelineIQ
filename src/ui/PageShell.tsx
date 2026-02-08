@@ -8,13 +8,14 @@ export type PageShellProps = {
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  headerClassName?: string;
 };
 
-export function PageShell({ title, subtitle, actions, children, className }: PageShellProps) {
+export function PageShell({ title, subtitle, actions, children, className, headerClassName }: PageShellProps) {
   return (
     <div className={[ui.pad.page, 'space-y-6', className].filter(Boolean).join(' ')}>
       {(title || subtitle || actions) && (
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className={['flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between', headerClassName].filter(Boolean).join(' ')}>
           <div className="space-y-2">
             {title && (
               typeof title === 'string' ? (

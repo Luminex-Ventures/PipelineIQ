@@ -30,6 +30,8 @@
     color: var(--app-text-primary);
     min-height: 100vh;
     overflow-x: hidden;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
   }
 }
 

@@ -11,6 +11,7 @@ import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { Card } from '../ui/Card';
 import { MetricTile } from '../ui/MetricTile';
 import { PageShell } from '../ui/PageShell';
+import { PageHeader } from '../ui/PageHeader';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
 type DealRow = Database['public']['Tables']['deals']['Row'];
@@ -989,13 +990,11 @@ export default function Analytics() {
   const isRefreshing = refreshing;
 
   const headerTitle = (
-    <div className="space-y-2">
-      <Text variant="micro">Analytics</Text>
-      <Text as="h1" variant="h1">Year in Review</Text>
-      <Text variant="muted">
-        A cohesive digest of production, pace, and lead-source efficiency for your selected year.
-      </Text>
-    </div>
+    <PageHeader
+      label="Analytics"
+      title="Year in Review"
+      subtitle="A cohesive digest of production, pace, and lead-source efficiency for your selected year."
+    />
   );
   const headerActions = (
     <div className="flex flex-col gap-3 items-start sm:items-end">
@@ -1003,6 +1002,7 @@ export default function Analytics() {
         refreshing={isRefreshing}
         label={lastRefreshedAt ? `Last updated ${formatLastUpdated(lastRefreshedAt)}` : null}
         className="min-h-[20px]"
+        reserveSpace
       />
       <div className={['space-y-1', ui.align.right].join(' ')}>
         <Text as="span" variant="micro" className={ui.tone.faint}>
@@ -1020,7 +1020,7 @@ export default function Analytics() {
   );
 
   return (
-    <PageShell title={headerTitle} actions={headerActions}>
+    <PageShell title={headerTitle} actions={headerActions} headerClassName="lg:items-start">
       <div className="space-y-8">
       {canShowFilterPanel && (
         <ScopePanel

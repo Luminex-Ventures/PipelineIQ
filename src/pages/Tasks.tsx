@@ -22,6 +22,7 @@ import { Card } from '../ui/Card';
 import { FormField } from '../ui/FormField';
 import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { PageShell } from '../ui/PageShell';
+import { PageHeader } from '../ui/PageHeader';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
 
@@ -1255,15 +1256,11 @@ export default function Tasks() {
   return (
     <PageShell
       title={(
-        <div className="space-y-2">
-          <Text variant="micro">Tasks</Text>
-          <Text as="h1" variant="h1">
-            Focus on the next actions that move deals forward
-          </Text>
-          <Text variant="muted">
-            Triage today’s priorities, assign follow-ups, and keep every client on track without leaving this view.
-          </Text>
-        </div>
+        <PageHeader
+          label="Tasks"
+          title="Focus on the next actions that move deals forward"
+          subtitle="Triage today’s priorities, assign follow-ups, and keep every client on track without leaving this view."
+        />
       )}
       actions={(refreshing || lastRefreshedAt) ? (
         <LastUpdatedStatus

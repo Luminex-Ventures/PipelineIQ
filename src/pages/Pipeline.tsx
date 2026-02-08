@@ -15,6 +15,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { Card } from '../ui/Card';
 import { MetricTile } from '../ui/MetricTile';
 import { PageShell } from '../ui/PageShell';
+import { PageHeader } from '../ui/PageHeader';
 import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
@@ -1377,13 +1378,11 @@ export default function Pipeline() {
     <PageShell
       className="min-h-full"
       title={(
-        <div className="space-y-2">
-          <Text variant="micro">Pipeline</Text>
-          <Text as="h1" variant="h1">Active deals workspace</Text>
-          <Text variant="muted">
-            Monitor every opportunity, shift deals between stages, and launch new work without leaving this view.
-          </Text>
-        </div>
+        <PageHeader
+          label="Pipeline"
+          title="Active deals workspace"
+          subtitle="Monitor every opportunity, shift deals between stages, and launch new work without leaving this view."
+        />
       )}
       actions={(
         <div className={['flex flex-col gap-3 items-end', ui.align.right].join(' ')}>
@@ -1460,6 +1459,7 @@ export default function Pipeline() {
       )}
     >
       <div className="space-y-5">
+        <Text variant="micro" className="text-gray-500">PIPELINE (DEAL TYPE BREAKDOWN)</Text>
         {isInitialLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {Array.from({ length: 5 }).map((_, index) => (
@@ -1479,7 +1479,7 @@ export default function Pipeline() {
                 <MetricTile
                   key={pill.label}
                   label={pill.label}
-                  value={isNet ? pill.display : `${pill.display} deals`}
+                  value={pill.display}
                   valueClassName={isNet ? 'text-emerald-700' : undefined}
                 />
               );
