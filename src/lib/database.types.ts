@@ -11,6 +11,34 @@ export type DealStatus = 'new' | 'in_progress' | 'closed' | 'dead' | 'new_lead' 
 export type GlobalRole = 'agent' | 'team_lead' | 'sales_manager' | 'admin';
 export type TeamRole = 'agent' | 'team_lead';
 
+// Tiered split configuration for lead sources (e.g., Zillow varying by deal amount)
+export interface TieredSplit {
+  id: string;
+  min_amount: number;       // Minimum deal amount for this tier (inclusive)
+  max_amount: number | null; // Maximum deal amount (null = no upper limit)
+  split_rate: number;       // Split rate as decimal (e.g., 0.35 for 35%)
+}
+
+// Custom deductions for lead sources (e.g., admin fees, E&O insurance)
+export interface CustomDeduction {
+  id: string;
+  name: string;             // e.g., "Admin Fee", "E&O Insurance", "Desk Fee"
+  type: 'percentage' | 'flat'; // Percentage of commission or flat dollar amount
+  value: number;            // The percentage (as decimal) or dollar amount
+  apply_order: number;      // Order in which deductions are applied (lower = first)
+}
+
+// Deal-level deduction override (allows agents to waive, reduce, or add fees)
+export interface DealDeduction {
+  id: string;
+  deduction_id: string;     // References the workspace default deduction ID (or 'custom' for deal-specific)
+  name: string;             // Display name
+  type: 'percentage' | 'flat';
+  value: number;            // The actual value for this deal (can be modified from default)
+  apply_order: number;
+  is_waived: boolean;       // If true, this deduction is skipped for this deal
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -23,11 +51,16 @@ export interface Database {
           category: string | null;
           sort_order: number;
           brokerage_split_rate: number;
-          payout_structure: 'standard' | 'partnership';
+          payout_structure: 'standard' | 'partnership' | 'tiered';
           partnership_split_rate: number | null;
           partnership_notes: string | null;
+          // Tiered splits: array of { min_amount, max_amount, split_rate }
+          tiered_splits: TieredSplit[] | null;
+          // Custom deductions: array of { name, type: 'percentage' | 'flat', value, apply_order }
+          custom_deductions: CustomDeduction[] | null;
           created_at: string;
           updated_at: string;
+          workspace_id: string | null;
         };
         Insert: {
           id?: string;
@@ -37,11 +70,14 @@ export interface Database {
           category?: string | null;
           sort_order?: number;
           brokerage_split_rate?: number;
-          payout_structure?: 'standard' | 'partnership';
+          payout_structure?: 'standard' | 'partnership' | 'tiered';
           partnership_split_rate?: number | null;
           partnership_notes?: string | null;
+          tiered_splits?: TieredSplit[] | null;
+          custom_deductions?: CustomDeduction[] | null;
           created_at?: string;
           updated_at?: string;
+          workspace_id?: string | null;
         };
         Update: {
           id?: string;
@@ -51,11 +87,14 @@ export interface Database {
           category?: string | null;
           sort_order?: number;
           brokerage_split_rate?: number;
-          payout_structure?: 'standard' | 'partnership';
+          payout_structure?: 'standard' | 'partnership' | 'tiered';
           partnership_split_rate?: number | null;
           partnership_notes?: string | null;
+          tiered_splits?: TieredSplit[] | null;
+          custom_deductions?: CustomDeduction[] | null;
           created_at?: string;
           updated_at?: string;
+          workspace_id?: string | null;
         };
       };
       deals: {
@@ -88,6 +127,8 @@ export interface Database {
           archived_reason: string | null;
           created_at: string;
           updated_at: string;
+          // Deal-level deduction overrides (agents can waive/modify defaults)
+          deal_deductions: DealDeduction[] | null;
         };
         Insert: {
           id?: string;
@@ -118,6 +159,7 @@ export interface Database {
           archived_reason?: string | null;
           created_at?: string;
           updated_at?: string;
+          deal_deductions?: DealDeduction[] | null;
         };
         Update: {
           id?: string;
@@ -146,6 +188,43 @@ export interface Database {
           next_task_description?: string | null;
           next_task_due_date?: string | null;
           archived_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deal_deductions?: DealDeduction[] | null;
+        };
+      };
+      // Workspace-level default deductions (set by admins, applied to all deals)
+      workspace_deductions: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          name: string;
+          type: 'percentage' | 'flat';
+          value: number;
+          apply_order: number;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          name: string;
+          type: 'percentage' | 'flat';
+          value: number;
+          apply_order?: number;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          name?: string;
+          type?: 'percentage' | 'flat';
+          value?: number;
+          apply_order?: number;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -251,6 +330,7 @@ export interface Database {
           id: string;
           user_id: string;
           annual_gci_goal: number;
+          annual_gross_sales_goal: number;
           default_tax_rate: number;
           default_brokerage_split_rate: number;
           global_role: GlobalRole;
@@ -263,6 +343,7 @@ export interface Database {
           id?: string;
           user_id: string;
           annual_gci_goal?: number;
+          annual_gross_sales_goal?: number;
           default_tax_rate?: number;
           default_brokerage_split_rate?: number;
           global_role?: GlobalRole;
@@ -275,6 +356,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           annual_gci_goal?: number;
+          annual_gross_sales_goal?: number;
           default_tax_rate?: number;
           default_brokerage_split_rate?: number;
           global_role?: GlobalRole;

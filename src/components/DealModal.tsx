@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { calculateCommissionBreakdown } from '../lib/commission';
@@ -8,17 +8,25 @@ import {
   Plus,
   Check,
   Trash2,
-  Calendar,
   FileText,
-  CheckSquare,
   Edit2,
-  Loader2
+  Loader2,
+  ToggleLeft,
+  ToggleRight,
+  Home,
+  MoreHorizontal,
+  TrendingUp,
+  ChevronDown
 } from 'lucide-react';
 import QuickAddTask from './QuickAddTask';
-import type { Database } from '../lib/database.types';
+import type { Database, DealDeduction } from '../lib/database.types';
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getVisibleUserIds } from '../lib/rbac';
 import DealNotes from './DealNotes';
+import { Card } from '../ui/Card';
+import { Text } from '../ui/Text';
+import { ui } from '../ui/tokens';
+import { getColorByName } from '../lib/colors';
 
 type Deal = Database['public']['Tables']['deals']['Row'];
 type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
@@ -28,6 +36,7 @@ type DealInsert = Database['public']['Tables']['deals']['Insert'];
 type DealUpdate = Database['public']['Tables']['deals']['Update'];
 type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
 type TaskUpdate = Database['public']['Tables']['tasks']['Update'];
+type WorkspaceDeduction = Database['public']['Tables']['workspace_deductions']['Row'];
 
 type FormState = {
   client_name: string;
@@ -48,6 +57,7 @@ type FormState = {
   referral_in_rate: number | string | null;
   transaction_fee: number | string;
   close_date: string | null;
+  deal_deductions: DealDeduction[];
 };
 
 interface DealModalProps {
@@ -76,8 +86,75 @@ const buildFormState = (deal: Deal | null): FormState => ({
   referral_out_rate: deal?.referral_out_rate || '',
   referral_in_rate: deal?.referral_in_rate || '',
   transaction_fee: deal?.transaction_fee || '',
-  close_date: deal?.close_date || ''
+  close_date: deal?.close_date || '',
+  deal_deductions: deal?.deal_deductions || []
 });
+
+const generateId = () => Math.random().toString(36).substring(2, 11);
+
+const DEAL_TYPE_LABELS: Record<string, string> = {
+  buyer: 'Buyer',
+  seller: 'Seller',
+  buyer_and_seller: 'Buyer & Seller',
+  renter: 'Renter',
+  landlord: 'Landlord'
+};
+
+// Parse date string without timezone conversion (avoids off-by-one day issue)
+function parseLocalDate(dateString: string | null | undefined): Date | null {
+  if (!dateString) return null;
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+// Format date for display without timezone issues
+function formatDate(dateString: string | null | undefined, options?: Intl.DateTimeFormatOptions): string {
+  const date = parseLocalDate(dateString);
+  if (!date) return 'Not set';
+  return date.toLocaleDateString('en-US', options || { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Section header component - matches app-wide pattern
+function SectionHeader({ 
+  title, 
+  count,
+  action 
+}: { 
+  title: string; 
+  count?: number;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+      <Text variant="micro" className="font-semibold">
+        {title}{count !== undefined && ` (${count})`}
+      </Text>
+      {action}
+    </div>
+  );
+}
+
+// Detail field component - matches Settings/Analytics pattern
+function DetailField({ 
+  label, 
+  children,
+  isEditing,
+  editComponent
+}: { 
+  label: string; 
+  children: React.ReactNode;
+  isEditing?: boolean;
+  editComponent?: React.ReactNode;
+}) {
+  return (
+    <div className="py-2">
+      <Text variant="micro" className="mb-1">{label}</Text>
+      {isEditing && editComponent ? editComponent : (
+        <Text variant="body">{children}</Text>
+      )}
+    </div>
+  );
+}
 
 export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted }: DealModalProps) {
   const { user, roleInfo } = useAuth();
@@ -89,6 +166,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
   const [pipelineStatuses, setPipelineStatuses] = useState<PipelineStatus[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [workspaceDeductions, setWorkspaceDeductions] = useState<WorkspaceDeduction[]>([]);
   const [showQuickAddTask, setShowQuickAddTask] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
@@ -98,6 +176,8 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   const [isEditing, setIsEditing] = useState(!deal);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   const [formData, setFormData] = useState<FormState>(buildFormState(deal));
   const initialFormDataRef = useRef<FormState>(buildFormState(deal));
@@ -122,40 +202,41 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     const initialize = async () => {
       setInitializing(!!deal);
 
-      await Promise.all([
+      const [wsDeductions] = await Promise.all([
+        loadWorkspaceDeductions(),
         loadLeadSources(),
         loadPipelineStatuses(),
         deal ? loadTasks() : Promise.resolve(),
         deal ? loadArchivedReason() : Promise.resolve()
       ]);
 
+      if (!deal && wsDeductions && wsDeductions.length > 0) {
+        initializeDealDeductions(wsDeductions);
+      }
+
       setInitializing(false);
     };
 
     initialize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal, teamId, user?.id]);
+  }, [deal, teamId, user?.id, roleInfo?.workspaceId]);
 
-  // Clear pipeline status when archived
   useEffect(() => {
     if (archived) {
       setFormData(prev => ({ ...prev, pipeline_status_id: '' }));
     }
   }, [archived]);
 
-  // Focus first field when editing
   useEffect(() => {
     if (isEditing && firstFieldRef.current) {
       firstFieldRef.current.focus();
     }
   }, [isEditing]);
 
-  // Trigger slide-in animation on mount
   useEffect(() => {
     setIsVisible(true);
   }, []);
 
-  // Prevent background scroll while the drawer is open
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const originalOverflow = document.body.style.overflow;
@@ -164,6 +245,42 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
       document.body.style.overflow = originalOverflow;
     };
   }, []);
+
+  const loadWorkspaceDeductions = useCallback(async () => {
+    if (!roleInfo?.workspaceId) return [];
+
+    const { data, error } = await supabase
+      .from('workspace_deductions')
+      .select('*')
+      .eq('workspace_id', roleInfo.workspaceId)
+      .eq('is_active', true)
+      .order('apply_order', { ascending: true });
+
+    if (error) {
+      console.error('Error loading workspace deductions:', error);
+      return [];
+    }
+
+    setWorkspaceDeductions(data || []);
+    return data || [];
+  }, [roleInfo?.workspaceId]);
+
+  const initializeDealDeductions = useCallback((wsDeductions: WorkspaceDeduction[]) => {
+    if (deal) return;
+    
+    const initialDeductions: DealDeduction[] = wsDeductions.map((wd, index) => ({
+      id: generateId(),
+      deduction_id: wd.id,
+      name: wd.name,
+      type: wd.type,
+      value: wd.type === 'percentage' ? wd.value * 100 : wd.value,
+      apply_order: index + 1,
+      is_waived: false
+    }));
+
+    setFormData(prev => ({ ...prev, deal_deductions: initialDeductions }));
+    initialFormDataRef.current = { ...initialFormDataRef.current, deal_deductions: initialDeductions };
+  }, [deal]);
 
   const loadArchivedReason = async () => {
     if (!deal) return;
@@ -302,6 +419,57 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     }
   };
 
+  const toggleDeductionWaived = (deductionId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.map(d =>
+        d.id === deductionId ? { ...d, is_waived: !d.is_waived } : d
+      )
+    }));
+  };
+
+  const updateDeductionValue = (deductionId: string, value: number) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.map(d =>
+        d.id === deductionId ? { ...d, value } : d
+      )
+    }));
+  };
+
+  const addCustomDeduction = () => {
+    const maxOrder = formData.deal_deductions.reduce((max, d) => Math.max(max, d.apply_order), 0);
+    const newDeduction: DealDeduction = {
+      id: generateId(),
+      deduction_id: 'custom',
+      name: '',
+      type: 'flat',
+      value: 0,
+      apply_order: maxOrder + 1,
+      is_waived: false
+    };
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: [...prev.deal_deductions, newDeduction]
+    }));
+  };
+
+  const updateCustomDeductionName = (deductionId: string, name: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.map(d =>
+        d.id === deductionId ? { ...d, name } : d
+      )
+    }));
+  };
+
+  const removeDeduction = (deductionId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.filter(d => d.id !== deductionId)
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -326,6 +494,13 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
       return;
     }
 
+    const deductionsForDb: DealDeduction[] = formData.deal_deductions
+      .filter(d => !d.is_waived)
+      .map(d => ({
+        ...d,
+        value: d.type === 'percentage' ? d.value / 100 : d.value
+      }));
+
     const dealData: DealInsert & DealUpdate = {
       ...formData,
       user_id: user.id,
@@ -342,7 +517,8 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
         lifecycleStage === 'closed' || archived
           ? (deal?.closed_at || new Date().toISOString())
           : null,
-      archived_reason: archived ? archivedReason : null
+      archived_reason: archived ? archivedReason : null,
+      deal_deductions: deductionsForDb.length > 0 ? deductionsForDb : null
     };
 
     let dealId = deal?.id || null;
@@ -410,11 +586,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
 
   const toggleTaskComplete = async (taskId: string, completed: boolean) => {
     const payload: TaskUpdate = { completed: !completed };
-    await supabase
-      .from('tasks')
-      .update(payload)
-      .eq('id', taskId);
-
+    await supabase.from('tasks').update(payload).eq('id', taskId);
     loadTasks();
   };
 
@@ -426,16 +598,8 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
 
   const handleUpdateTask = async () => {
     if (!editingTaskTitle.trim() || !editingTaskId) return;
-
-    const payload: TaskUpdate = {
-        title: editingTaskTitle,
-        due_date: editingTaskDueDate || null
-      };
-    await supabase
-      .from('tasks')
-      .update(payload)
-      .eq('id', editingTaskId);
-
+    const payload: TaskUpdate = { title: editingTaskTitle, due_date: editingTaskDueDate || null };
+    await supabase.from('tasks').update(payload).eq('id', editingTaskId);
     setEditingTaskId(null);
     setEditingTaskTitle('');
     setEditingTaskDueDate('');
@@ -443,11 +607,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    await supabase
-      .from('tasks')
-      .delete()
-      .eq('id', taskId);
-
+    await supabase.from('tasks').delete().eq('id', taskId);
     loadTasks();
   };
 
@@ -459,14 +619,8 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
 
   const handleDelete = async () => {
     if (!deal) return;
-
     setLoading(true);
-
-    await supabase
-      .from('deals')
-      .delete()
-      .eq('id', deal.id);
-
+    await supabase.from('deals').delete().eq('id', deal.id);
     setLoading(false);
     if (onDeleted) onDeleted(deal.id);
     if (onDelete) onDelete();
@@ -481,9 +635,33 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     setSubmitError(null);
   };
 
+  const handleUpdateStatus = async (statusId: string) => {
+    if (!deal) return;
+    setShowStatusMenu(false);
+    
+    const selectedStatus = pipelineStatuses.find(s => s.id === statusId);
+    const lifecycleStage = selectedStatus?.lifecycle_stage || 'new';
+    
+    const { error } = await supabase
+      .from('deals')
+      .update({ 
+        pipeline_status_id: statusId,
+        status: lifecycleStage,
+        stage_entered_at: new Date().toISOString()
+      })
+      .eq('id', deal.id);
+    
+    if (error) {
+      console.error('Failed to update status:', error);
+      return;
+    }
+    
+    setFormData(prev => ({ ...prev, pipeline_status_id: statusId }));
+    onSave?.();
+  };
+
   const handleGenerateOffer = () => {
     if (!deal) return;
-
     const dealData = {
       client_name: formData.client_name,
       client_email: formData.client_email,
@@ -496,7 +674,6 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
       expected_sale_price: formData.expected_sale_price,
       actual_sale_price: formData.actual_sale_price
     };
-
     const params = new URLSearchParams({
       source: 'pipelineiq',
       ...Object.entries(dealData).reduce((acc, [key, value]) => {
@@ -506,11 +683,20 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
         return acc;
       }, {} as Record<string, string>)
     });
-
     window.open(`/contractscribe?${params.toString()}`, '_blank', 'noopener,noreferrer');
   };
 
   // Derived values
+  const activeDeductions = formData.deal_deductions
+    .filter(d => !d.is_waived)
+    .map(d => ({
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      value: d.type === 'percentage' ? d.value / 100 : d.value,
+      apply_order: d.apply_order
+    }));
+
   const commissionInput = {
     actual_sale_price: Number(formData.actual_sale_price),
     expected_sale_price: Number(formData.expected_sale_price),
@@ -518,45 +704,32 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     brokerage_split_rate: Number(formData.brokerage_split_rate),
     referral_out_rate: Number(formData.referral_out_rate),
     referral_in_rate: Number(formData.referral_in_rate),
-    transaction_fee: Number(formData.transaction_fee)
+    transaction_fee: Number(formData.transaction_fee),
+    custom_deductions: activeDeductions
   };
   const commissionBreakdown = calculateCommissionBreakdown(commissionInput, { includeReferralIn: true });
-  const grossCommission = commissionBreakdown.gross;
-  const afterBrokerageSplit = commissionBreakdown.afterBrokerage;
-  const transactionFee = commissionBreakdown.transactionFee;
   const netBeforeTax = commissionBreakdown.net;
 
-  const leadSourceLabel =
-    leadSources.find(source => source.id === formData.lead_source_id)?.name || 'Not set';
+  const currentStatus = pipelineStatuses.find(s => s.id === formData.pipeline_status_id);
+  const leadSourceLabel = leadSources.find(source => source.id === formData.lead_source_id)?.name || 'Not set';
+  const locationLine = [formData.city, formData.state].filter(Boolean).join(', ');
 
-  const pipelineStatusLabel = archived
-    ? 'Archived (Closed Lost)'
-    : (pipelineStatuses.find(status => status.id === formData.pipeline_status_id)?.name ||
-        'Not set');
+  // Hero card content
+  const heroTitle = formData.property_address || DEAL_TYPE_LABELS[formData.deal_type] || 'New Deal';
+  const heroSubtitle = formData.property_address ? locationLine : formData.client_name;
 
-  const dealTypeLabel =
-    {
-      buyer: 'Buyer',
-      seller: 'Seller',
-      buyer_and_seller: 'Buyer & Seller',
-      renter: 'Renter',
-      landlord: 'Landlord'
-    }[formData.deal_type] || 'Not set';
-
-  // SSR guard for portal
-  if (typeof document === 'undefined') {
-    return null;
-  }
+  if (typeof document === 'undefined') return null;
 
   return createPortal(
     <>
+      {/* Delete confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="hig-card max-w-md w-full p-6">
-            <h3 className="hig-text-heading mb-2">Delete Deal</h3>
-            <p className="hig-text-body text-gray-600 mb-6">
+          <Card className="max-w-md w-full">
+            <Text variant="h2" className="mb-2">Delete Deal</Text>
+            <Text variant="muted" className="mb-6">
               Are you sure you want to delete this deal? This action cannot be undone.
-            </p>
+            </Text>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
@@ -567,899 +740,551 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               <button
                 onClick={handleDelete}
                 disabled={loading}
-                className="bg-[rgb(255,59,48)] hover:bg-red-600 active:bg-red-700 text-white font-medium px-5 py-2 rounded-lg transition-colors duration-150 disabled:opacity-40 text-[15px] min-h-[44px] inline-flex items-center justify-center gap-2"
+                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition disabled:opacity-50"
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>
             </div>
-          </div>
+          </Card>
         </div>
       )}
 
-      {/* Full-screen layer (backdrop + drawer) */}
+      {/* Main modal */}
       <div className="fixed inset-0 z-50 flex">
-        {/* Backdrop */}
-        <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
 
-        {/* Right-side drawer */}
         <div
-          className={`relative ml-auto h-full max-w-3xl w-full md:w-[900px] bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-200 ease-out flex flex-col overflow-hidden ${
+          className={`relative ml-auto h-full w-full max-w-4xl bg-[#f8f9fa] shadow-2xl transform transition-transform duration-200 ease-out flex flex-col ${
             isVisible ? 'translate-x-0' : 'translate-x-full'
           }`}
           onClick={e => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="sticky top-0 z-10 bg-white border-b border-gray-200/60 px-6 py-5 flex flex-wrap gap-3 justify-between items-center backdrop-blur-md bg-white/95">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {deal ? 'Deal' : 'New Deal'}
-              </p>
-              <h2 className="hig-text-display">
-                {formData.client_name || 'Deal Details'}
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
-              {!isEditing && deal && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="hig-btn-primary"
-                >
-                  Edit
-                </button>
-              )}
-              {isEditing && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleCancelFormEdit}
-                    className="hig-btn-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    form="deal-edit-form"
-                    disabled={loading}
-                    className="hig-btn-primary"
-                  >
-                    {loading ? 'Saving…' : 'Save'}
-                  </button>
-                </>
-              )}
-              <button
-                onClick={onClose}
-                type="button"
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-150"
-              >
-                <X className="w-5 h-5 text-gray-600" strokeWidth={2} />
-              </button>
-            </div>
-          </div>
-
-          {submitError && (
-            <div className="px-6 pt-4">
-              <div className="rounded-xl border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-700">
-                {submitError}
-              </div>
-            </div>
-          )}
-
-          {/* Scrollable content area */}
-          <form
-            id="deal-edit-form"
-            onSubmit={handleSubmit}
-            className="p-6 space-y-8 flex-1 overflow-y-auto"
-          >
-            {initializing && deal && (
-              <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-4 py-3 text-sm text-gray-700 flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-[var(--app-accent)]" />
-                <span>Loading deal details…</span>
-              </div>
-            )}
-
-            <div className="space-y-6">
-              {/* Client Information */}
-              <div>
-                <h3 className="hig-text-heading mb-4">Client Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="hig-label">Client Name *</label>
-                    {isEditing ? (
-                      <input
-                        ref={firstFieldRef}
-                        type="text"
-                        value={formData.client_name}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            client_name: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                        required
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.client_name || '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Phone</label>
-                    {isEditing ? (
-                      <input
-                        type="tel"
-                        value={formData.client_phone}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            client_phone: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.client_phone || '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Email</label>
-                    {isEditing ? (
-                      <input
-                        type="email"
-                        value={formData.client_email}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            client_email: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.client_email || '—'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Property Details */}
-              <div>
-                <h3 className="hig-text-heading mb-4">Property Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="hig-label">Property Address</label>
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={formData.property_address}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            property_address: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                        placeholder="e.g., 123 Main St"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.property_address || '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">City</label>
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={formData.city}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            city: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.city || '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="hig-label">State</label>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={formData.state}
-                          onChange={e =>
-                            setFormData(prev => ({
-                              ...prev,
-                              state: e.target.value
-                            }))
-                          }
-                          className="hig-input"
-                          maxLength={2}
-                          placeholder="CA"
-                        />
-                      ) : (
-                        <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                          {formData.state || '—'}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="hig-label">ZIP</label>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={formData.zip}
-                          onChange={e =>
-                            setFormData(prev => ({
-                              ...prev,
-                              zip: e.target.value
-                            }))
-                          }
-                          className="hig-input"
-                          maxLength={10}
-                        />
-                      ) : (
-                        <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                          {formData.zip || '—'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Deal Configuration */}
-              <div>
-                <h3 className="hig-text-heading mb-4">Deal Configuration</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="hig-label">Deal Type *</label>
-                    {isEditing ? (
-                      <select
-                        value={formData.deal_type}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            deal_type: e.target.value as Deal['deal_type']
-                          }))
-                        }
-                        className="hig-input"
-                      >
-                        <option value="buyer">Buyer</option>
-                        <option value="seller">Seller</option>
-                        <option value="buyer_and_seller">Buyer &amp; Seller</option>
-                        <option value="renter">Renter</option>
-                        <option value="landlord">Landlord</option>
-                      </select>
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {dealTypeLabel}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Lead Source *</label>
-                    {isEditing ? (
-                      <select
-                        value={formData.lead_source_id}
-                        onChange={e => handleLeadSourceChange(e.target.value)}
-                        className="hig-input"
-                        required
-                      >
-                        <option value="">Select a source</option>
-                        {leadSources.map(source => (
-                          <option key={source.id} value={source.id}>
-                            {source.name} ({(source.brokerage_split_rate * 100).toFixed(0)}% split)
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {leadSourceLabel}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Pipeline Status</label>
-                    {isEditing ? (
-                      <select
-                        value={formData.pipeline_status_id}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            pipeline_status_id: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                      >
-                        <option value="">Select a status</option>
-                        {pipelineStatuses.map(status => (
-                          <option key={status.id} value={status.id}>
-                            {status.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {pipelineStatusLabel}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Close Date</label>
-                    {isEditing ? (
-                      <input
-                        type="date"
-                        value={formData.close_date || ''}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            close_date: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.close_date
-                          ? new Date(formData.close_date).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric'
-                            })
-                          : '—'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Financial Details */}
-              <div>
-                <h3 className="hig-text-heading mb-4">Financial Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="hig-label">Expected Sale Price *</label>
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        value={formData.expected_sale_price}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            expected_sale_price: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                        placeholder="500,000"
-                        required
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.expected_sale_price
-                          ? `$${Number(formData.expected_sale_price).toLocaleString()}`
-                          : '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Actual Sale Price</label>
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        value={formData.actual_sale_price || ''}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            actual_sale_price: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                        placeholder="505,000"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.actual_sale_price
-                          ? `$${Number(formData.actual_sale_price).toLocaleString()}`
-                          : '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Commission Rate (%)</label>
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.gross_commission_rate * 100}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            gross_commission_rate: parseFloat(e.target.value) / 100 || 0
-                          }))
-                        }
-                        className="hig-input"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {(formData.gross_commission_rate * 100 || 0).toFixed(2)}%
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Brokerage Split (% to broker)</label>
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.brokerage_split_rate * 100}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            brokerage_split_rate: parseFloat(e.target.value) / 100 || 0
-                          }))
-                        }
-                        className="hig-input"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {(formData.brokerage_split_rate * 100 || 0).toFixed(2)}%
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="hig-label">Transaction Fee</label>
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        value={formData.transaction_fee}
-                        onChange={e =>
-                          setFormData(prev => ({
-                            ...prev,
-                            transaction_fee: e.target.value
-                          }))
-                        }
-                        className="hig-input"
-                        placeholder="500"
-                      />
-                    ) : (
-                      <div className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-2.5 text-[15px] text-gray-900">
-                        {formData.transaction_fee
-                          ? `$${Number(formData.transaction_fee).toLocaleString()}`
-                          : '$0'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Commission Breakdown */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-200/60">
-              <h3 className="hig-text-heading mb-4">Commission Breakdown</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="hig-text-body text-gray-600">Gross Commission</span>
-                  <span className="hig-text-body font-medium">
-                    $
-                    {grossCommission.toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="hig-text-body text-gray-600">After Brokerage Split</span>
-                  <span className="hig-text-body font-medium">
-                    $
-                    {afterBrokerageSplit.toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="hig-text-body text-gray-600">Transaction Fee</span>
-                  <span className="hig-text-body font-medium text-gray-500">
-                    -
-                    {transactionFee.toLocaleString('en-US', {
-                      style: 'currency',
-                      currency: 'USD',
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </span>
-                </div>
-                <div className="hig-divider my-3" />
-                <div className="flex justify-between items-center">
-                  <span className="hig-text-heading">Net to Agent</span>
-                  <span className="text-xl font-semibold text-[rgb(52,199,89)]">
-                    $
-                    {netBeforeTax.toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Tasks */}
-            {deal && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckSquare className="w-5 h-5 text-gray-600" strokeWidth={2} />
-                    <h3 className="font-semibold text-gray-900">Tasks</h3>
-                    <span className="text-sm text-gray-500">({tasks.length})</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowQuickAddTask((prev) => !prev)}
-                    className="hig-btn-secondary text-sm py-2"
-                  >
-                    <Plus className="w-4 h-4" strokeWidth={2} />
-                    <span>Add Task</span>
-                  </button>
-                </div>
-
-                {showQuickAddTask && deal && (
-                  <QuickAddTask
-                    contextDealId={deal.id}
-                    contextDealLabel={`${deal.client_name} — ${deal.property_address || 'Address TBD'}`}
-                    defaultDuePreset="today"
-                    allowDealChange
-                    dealById={{
-                      [deal.id]: {
-                        id: deal.id,
-                        user_id: deal.user_id,
-                        client_name: deal.client_name,
-                        property_address: deal.property_address,
-                        city: deal.city,
-                        state: deal.state,
-                        updated_at: deal.updated_at
-                      }
-                    }}
-                    onCreated={(createdTask) => {
-                      setTasks((prev) => {
-                        const next = [...prev, createdTask];
-                        return next.sort((a, b) => {
-                          if (!a.due_date && !b.due_date) return 0;
-                          if (!a.due_date) return -1;
-                          if (!b.due_date) return 1;
-                          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-                        });
-                      });
-                      setShowQuickAddTask(false);
-                    }}
-                    onCancel={() => setShowQuickAddTask(false)}
-                    autoFocus
-                  />
-                )}
-
-                <div className="space-y-2">
-                  {tasks.map(task => {
-                    const isOverdue =
-                      task.due_date &&
-                      !task.completed &&
-                      new Date(task.due_date) < new Date();
-                    const isDueToday =
-                      task.due_date &&
-                      !task.completed &&
-                      new Date(task.due_date).toDateString() ===
-                        new Date().toDateString();
-
-                    if (editingTaskId === task.id) {
-                      return (
-                        <div
-                          key={task.id}
-                          className="bg-gray-50 rounded-xl p-4 border border-gray-200/60"
-                        >
-                          <div className="space-y-3">
-                            <input
-                              type="text"
-                              value={editingTaskTitle}
-                              onChange={e => setEditingTaskTitle(e.target.value)}
-                              placeholder="Task description..."
-                              className="hig-input"
-                              autoFocus
-                              onKeyPress={e => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleUpdateTask();
-                                }
-                              }}
-                            />
-                            <div className="flex gap-3">
-                              <input
-                                type="date"
-                                value={editingTaskDueDate}
-                                onChange={e => setEditingTaskDueDate(e.target.value)}
-                                placeholder="Due date (optional)"
-                                className="hig-input flex-1"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleCancelEditTask}
-                                className="hig-btn-secondary text-sm py-2"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleUpdateTask}
-                                disabled={!editingTaskTitle.trim()}
-                                className="hig-btn-primary text-sm py-2"
-                              >
-                                Save
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div
-                        key={task.id}
-                        className="group flex items-center p-3 bg-white border border-gray-200/60 rounded-xl hover:shadow-sm transition-all"
-                      >
-                        <div className="flex items-center space-x-3 flex-1 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              toggleTaskComplete(task.id, task.completed)
-                            }
-                            className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all duration-150 ${
-                              task.completed
-                                ? 'bg-[rgb(52,199,89)] border-[rgb(52,199,89)]'
-                                : 'border-gray-300 hover:border-[rgb(52,199,89)]'
-                            }`}
-                          >
-                            {task.completed && (
-                              <Check
-                                className="w-3 h-3 text-white"
-                                strokeWidth={2.5}
-                              />
-                            )}
-                          </button>
-                          <div className="flex-1 min-w-0">
-                            <span
-                              className={
-                                task.completed
-                                  ? 'line-through text-gray-500 hig-text-body'
-                                  : 'text-gray-900 hig-text-body'
-                              }
-                            >
-                              {task.title}
-                            </span>
-                            {task.due_date && (
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <Calendar
-                                  className="w-3.5 h-3.5 text-gray-400"
-                                  strokeWidth={2}
-                                />
-                                <span
-                                  className={`hig-text-caption ${
-                                    isOverdue
-                                      ? 'text-[rgb(255,59,48)] font-medium'
-                                      : isDueToday
-                                      ? 'text-[rgb(255,149,0)] font-medium'
-                                      : task.completed
-                                      ? 'text-gray-400'
-                                      : 'text-gray-500'
-                                  }`}
-                                >
-                                  {isOverdue
-                                    ? 'Overdue: '
-                                    : isDueToday
-                                    ? 'Due today: '
-                                    : ''}
-                                  {new Date(task.due_date).toLocaleDateString(
-                                    'en-US',
-                                    {
-                                      month: 'short',
-                                      day: 'numeric',
-                                      year: 'numeric'
-                                    }
-                                  )}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
-                            <button
-                              type="button"
-                              onClick={() => handleEditTask(task)}
-                              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                              title="Edit task"
-                            >
-                              <Edit2
-                                className="w-4 h-4 text-gray-600"
-                                strokeWidth={2}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Delete task"
-                            >
-                              <Trash2
-                                className="w-4 h-4 text-red-600"
-                                strokeWidth={2}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Deal Notes */}
-            {deal && (
-              <div className="pt-8 border-t border-gray-200/60">
-                <DealNotes dealId={deal.id} />
-              </div>
-            )}
-
-            {/* Archive section */}
-            {isEditing ? (
-              <div className="rounded-xl border border-gray-200/70 bg-white/90 p-5 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 border border-gray-200">
-                    <CheckSquare className="h-5 w-5 text-gray-700" />
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">
-                          Archive this deal (Closed Lost)
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          Use when a deal falls through, goes MIA, or stops responding.
-                          We’ll remove it from the active pipeline and track it for KPIs.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:items-center">
-                      <label className="inline-flex items-center gap-2 md:justify-self-start">
-                        <span className="text-sm text-gray-700">Archived</span>
-                        <input
-                          type="checkbox"
-                          checked={archived}
-                          onChange={e => setArchived(e.target.checked)}
-                          className="h-5 w-5 rounded border-gray-300 text-[var(--app-accent)] focus:ring-[var(--app-accent)]"
-                        />
-                      </label>
-                      <div className="md:col-span-2">
-                        <label className="hig-label mb-1">Archive reason</label>
-                        <select
-                          value={archivedReason}
-                          onChange={e => setArchivedReason(e.target.value)}
-                          className="hig-input"
-                          disabled={!archived}
-                        >
-                          <option value="">Select a reason</option>
-                          <option value="No Response / Ghosted">
-                            No Response / Ghosted
-                          </option>
-                          <option value="Client Not Ready / Timeline Changed">
-                            Client Not Ready / Timeline Changed
-                          </option>
-                          <option value="Chose Another Agent">Chose Another Agent</option>
-                          <option value="Financing Didn’t Work Out">
-                            Financing Didn’t Work Out
-                          </option>
-                          <option value="Deal Fell Through">Deal Fell Through</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-gray-200/70 bg-white/90 p-5 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 border border-gray-200">
-                    <CheckSquare className="h-5 w-5 text-gray-700" />
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <p className="font-semibold text-gray-900">Archive status</p>
-                    <p className="text-sm text-gray-700">
-                      {archived ? 'Archived (Closed Lost)' : 'Active'}
-                    </p>
-                    {archivedReason && (
-                      <p className="text-sm text-gray-600">Reason: {archivedReason}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Footer actions */}
-            <div className="flex justify-between items-center pt-6 border-t border-gray-200/60">
-              <div className="flex gap-3">
-                {deal && (
+          {/* Header - Name primary, Status secondary */}
+          <div className="bg-white border-b border-gray-200 px-6 py-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <Text variant="h2" className="truncate">
+                  {formData.client_name || 'New Deal'}
+                </Text>
+                {(currentStatus || archived) && (
                   <>
-                    <button
-                      type="button"
-                      onClick={handleGenerateOffer}
-                      className="hig-btn-secondary gap-2"
-                    >
-                      <FileText className="w-4 h-4" strokeWidth={2} />
-                      <span>Generate Offer</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="bg-white hover:bg-red-50 active:bg-red-100 text-[rgb(255,59,48)] font-medium px-5 py-2 rounded-lg border border-red-200 transition-colors duration-150 text-[15px] min-h-[44px] inline-flex items-center justify-center gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" strokeWidth={2} />
-                      <span>Delete</span>
-                    </button>
+                    <span className="text-gray-300 mx-1">·</span>
+                    {archived ? (
+                      <span className="px-2.5 py-1 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold">
+                        Archived
+                      </span>
+                    ) : currentStatus && (() => {
+                      const statusColor = getColorByName(currentStatus.color);
+                      return (
+                        <span 
+                          className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                          style={{ 
+                            backgroundColor: statusColor.bg,
+                            color: statusColor.text
+                          }}
+                        >
+                          {currentStatus.name}
+                        </span>
+                      );
+                    })()}
                   </>
                 )}
               </div>
-              <div className="flex gap-3">
-                {isEditing ? (
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {!isEditing && deal && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="hig-btn-secondary text-sm py-1.5 px-3"
+                  >
+                    <Edit2 className="w-4 h-4 mr-1.5" />
+                    Edit
+                  </button>
+                )}
+                
+                {isEditing && (
                   <>
                     <button
                       type="button"
                       onClick={handleCancelFormEdit}
-                      className="hig-btn-secondary"
+                      className="hig-btn-text text-sm"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
+                      form="deal-edit-form"
                       disabled={loading}
-                      className="hig-btn-primary"
+                      className="hig-btn-primary text-sm py-1.5 px-4"
                     >
-                      {loading ? 'Saving...' : deal ? 'Update Deal' : 'Create Deal'}
+                      {loading ? 'Saving…' : 'Save'}
                     </button>
                   </>
-                ) : (
+                )}
+
+                {deal && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowMoreMenu(!showMoreMenu)}
+                      className="hig-icon-btn"
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                    </button>
+                    
+                    {showMoreMenu && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowMoreMenu(false)} />
+                        <div className={`absolute right-0 top-full mt-1 w-48 bg-white ${ui.radius.control} ${ui.shadow.card} border border-gray-200 py-1 z-20`}>
+                          <button
+                            onClick={() => { handleGenerateOffer(); setShowMoreMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" />
+                            Generate Offer
+                          </button>
+                          <button
+                            onClick={() => { setShowDeleteConfirm(true); setShowMoreMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete Deal
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <button onClick={onClose} type="button" className="hig-icon-btn">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {submitError && (
+            <div className="bg-red-50 border-b border-red-200 px-6 py-3">
+              <Text variant="body" className="text-red-700">{submitError}</Text>
+            </div>
+          )}
+
+          {/* Two-column layout */}
+          <form id="deal-edit-form" onSubmit={handleSubmit} className="flex-1 overflow-hidden flex">
+            {/* Left column - Main content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {initializing && (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading...
+                </div>
+              )}
+
+              {/* Hero Card - Reusing Card component */}
+              <Card padding="card">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 min-w-0 flex-1">
+                    <div className={`w-10 h-10 ${ui.radius.control} bg-gray-100 flex items-center justify-center flex-shrink-0`}>
+                      <Home className="w-5 h-5 text-[#1e3a5f]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {isEditing ? (
+                        <input
+                          ref={firstFieldRef}
+                          type="text"
+                          value={formData.property_address}
+                          onChange={e => setFormData(prev => ({ ...prev, property_address: e.target.value }))}
+                          className="hig-input text-base font-semibold w-full mb-1"
+                          placeholder="Property address"
+                        />
+                      ) : (
+                        <Text variant="h2" className="truncate">{heroTitle}</Text>
+                      )}
+                      {isEditing ? (
+                        <div className="flex gap-2 mt-1">
+                          <input
+                            type="text"
+                            value={formData.city}
+                            onChange={e => setFormData(prev => ({ ...prev, city: e.target.value }))}
+                            className="hig-input text-sm py-1 w-28"
+                            placeholder="City"
+                          />
+                          <input
+                            type="text"
+                            value={formData.state}
+                            onChange={e => setFormData(prev => ({ ...prev, state: e.target.value }))}
+                            className="hig-input text-sm py-1 w-14"
+                            placeholder="ST"
+                            maxLength={2}
+                          />
+                          <input
+                            type="text"
+                            value={formData.zip}
+                            onChange={e => setFormData(prev => ({ ...prev, zip: e.target.value }))}
+                            className="hig-input text-sm py-1 w-20"
+                            placeholder="ZIP"
+                          />
+                        </div>
+                      ) : (
+                        <Text variant="muted">{heroSubtitle || 'No location'}</Text>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <Text variant="h2">
+                      ${Number(formData.expected_sale_price || 0).toLocaleString()}
+                    </Text>
+                    <Text variant="micro">Expected Price</Text>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Tasks Section */}
+              {deal && (
+                <Card padding="card">
+                  <SectionHeader
+                    title="Tasks"
+                    count={tasks.length}
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickAddTask(prev => !prev)}
+                        className="hig-btn-text text-xs py-1 px-2"
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Add
+                      </button>
+                    }
+                  />
+
+                  <div className="mt-3">
+                    {showQuickAddTask && (
+                      <div className="mb-3">
+                        <QuickAddTask
+                          contextDealId={deal.id}
+                          contextDealLabel={`${deal.client_name} — ${deal.property_address || 'Address TBD'}`}
+                          defaultDuePreset="today"
+                          allowDealChange
+                          dealById={{
+                            [deal.id]: {
+                              id: deal.id,
+                              user_id: deal.user_id,
+                              client_name: deal.client_name,
+                              property_address: deal.property_address,
+                              city: deal.city,
+                              state: deal.state,
+                              updated_at: deal.updated_at
+                            }
+                          }}
+                          onCreated={(createdTask) => {
+                            setTasks(prev => [...prev, createdTask].sort((a, b) => {
+                              if (!a.due_date && !b.due_date) return 0;
+                              if (!a.due_date) return -1;
+                              if (!b.due_date) return 1;
+                              return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+                            }));
+                            setShowQuickAddTask(false);
+                          }}
+                          onCancel={() => setShowQuickAddTask(false)}
+                          autoFocus
+                        />
+                      </div>
+                    )}
+
+                    {tasks.length === 0 ? (
+                      <Text variant="muted" className="py-2">No tasks yet</Text>
+                    ) : (
+                      <div className="space-y-1">
+                        {tasks.map(task => {
+                          const taskDate = parseLocalDate(task.due_date);
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const isOverdue = taskDate && !task.completed && taskDate < today;
+                          const isDueToday = taskDate && !task.completed && taskDate.toDateString() === today.toDateString();
+
+                          if (editingTaskId === task.id) {
+                            return (
+                              <div key={task.id} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                                <input
+                                  type="text"
+                                  value={editingTaskTitle}
+                                  onChange={e => setEditingTaskTitle(e.target.value)}
+                                  className="hig-input w-full"
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <input type="date" value={editingTaskDueDate} onChange={e => setEditingTaskDueDate(e.target.value)} className="hig-input flex-1" />
+                                  <button type="button" onClick={handleCancelEditTask} className="hig-btn-text text-sm">Cancel</button>
+                                  <button type="button" onClick={handleUpdateTask} className="hig-btn-primary text-sm py-1.5 px-3">Save</button>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div key={task.id} className="group flex items-center gap-3 py-2 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition">
+                              <button
+                                type="button"
+                                onClick={() => toggleTaskComplete(task.id, task.completed)}
+                                className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition ${
+                                  task.completed ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-green-500'
+                                }`}
+                              >
+                                {task.completed && <Check className="w-3 h-3 text-white" />}
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <Text variant="body" className={task.completed ? 'line-through text-gray-400' : ''}>
+                                  {task.title}
+                                </Text>
+                                {task.due_date && (
+                                  <Text variant="muted" className={isOverdue ? 'text-red-500' : isDueToday ? 'text-orange-500' : ''}>
+                                    {formatDate(task.due_date, { month: 'short', day: 'numeric' })}
+                                  </Text>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                                <button type="button" onClick={() => handleEditTask(task)} className="p-1 hover:bg-gray-200 rounded">
+                                  <Edit2 className="w-3.5 h-3.5 text-gray-500" />
+                                </button>
+                                <button type="button" onClick={() => handleDeleteTask(task.id)} className="p-1 hover:bg-red-100 rounded">
+                                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {/* Notes Section */}
+              {deal && (
+                <Card padding="card">
+                  <DealNotes dealId={deal.id} />
+                </Card>
+              )}
+
+              {/* Quick Actions */}
+              {deal && !archived && (
+                <div className="flex gap-2">
+                  {/* Update Status Dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowStatusMenu(!showStatusMenu)}
+                      className="hig-btn-secondary text-sm py-2 px-4"
+                    >
+                      <TrendingUp className="w-4 h-4 mr-1.5" />
+                      Update Status
+                      <ChevronDown className="w-4 h-4 ml-1.5" />
+                    </button>
+                    {showStatusMenu && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowStatusMenu(false)} />
+                        <div className={`absolute left-0 bottom-full mb-1 w-56 bg-white ${ui.radius.control} ${ui.shadow.card} border border-gray-200 py-1 z-20 max-h-64 overflow-y-auto`}>
+                          {pipelineStatuses.map(status => {
+                            const isCurrentStatus = status.id === formData.pipeline_status_id;
+                            const statusColor = getColorByName(status.color);
+                            return (
+                              <button
+                                key={status.id}
+                                onClick={() => handleUpdateStatus(status.id)}
+                                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${isCurrentStatus ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                              >
+                                <span 
+                                  className="w-3 h-3 rounded-full flex-shrink-0" 
+                                  style={{ backgroundColor: statusColor.bg }}
+                                />
+                                <span className={isCurrentStatus ? 'font-medium' : ''}>{status.name}</span>
+                                {isCurrentStatus && <span className="ml-auto text-xs text-gray-400">Current</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
                   <button
                     type="button"
-                    onClick={onClose}
-                    className="hig-btn-secondary"
+                    onClick={handleGenerateOffer}
+                    className="hig-btn-secondary text-sm py-2 px-4"
                   >
-                    Close
+                    <FileText className="w-4 h-4 mr-1.5" />
+                    Generate Offer
                   </button>
-                )}
+                </div>
+              )}
+            </div>
+
+            {/* Right column - Details sidebar */}
+            <div className="w-72 bg-white border-l border-gray-200 overflow-y-auto p-5 flex-shrink-0">
+              {/* Details section */}
+              <h3 className="text-sm font-semibold text-[#1e3a5f] mb-3">Details</h3>
+              
+              <DetailField label="TYPE" isEditing={isEditing} editComponent={
+                <select value={formData.deal_type} onChange={e => setFormData(prev => ({ ...prev, deal_type: e.target.value as Deal['deal_type'] }))} className="hig-input w-full">
+                  {Object.entries(DEAL_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              }>
+                {DEAL_TYPE_LABELS[formData.deal_type]}
+              </DetailField>
+
+              <DetailField label="SOURCE" isEditing={isEditing} editComponent={
+                <select value={formData.lead_source_id} onChange={e => handleLeadSourceChange(e.target.value)} className="hig-input w-full" required>
+                  <option value="">Select source</option>
+                  {leadSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              }>
+                {leadSourceLabel}
+              </DetailField>
+
+              <DetailField label="CLOSE DATE" isEditing={isEditing} editComponent={
+                <input type="date" value={formData.close_date || ''} onChange={e => setFormData(prev => ({ ...prev, close_date: e.target.value }))} className="hig-input w-full" />
+              }>
+                {formatDate(formData.close_date)}
+              </DetailField>
+
+              <div className="border-t border-gray-100 my-4" />
+
+              {/* Client section */}
+              <h3 className="text-sm font-semibold text-[#1e3a5f] mb-3">Client</h3>
+
+              <DetailField label="NAME" isEditing={isEditing} editComponent={
+                <input type="text" value={formData.client_name} onChange={e => setFormData(prev => ({ ...prev, client_name: e.target.value }))} className="hig-input w-full" required />
+              }>
+                {formData.client_name || 'Not set'}
+              </DetailField>
+
+              <DetailField label="PHONE" isEditing={isEditing} editComponent={
+                <input type="tel" value={formData.client_phone} onChange={e => setFormData(prev => ({ ...prev, client_phone: e.target.value }))} className="hig-input w-full" />
+              }>
+                {formData.client_phone || 'Not set'}
+              </DetailField>
+
+              <DetailField label="EMAIL" isEditing={isEditing} editComponent={
+                <input type="email" value={formData.client_email} onChange={e => setFormData(prev => ({ ...prev, client_email: e.target.value }))} className="hig-input w-full" />
+              }>
+                {formData.client_email || 'Not set'}
+              </DetailField>
+
+              <div className="border-t border-gray-100 my-4" />
+
+              {/* Financials section - matches Analytics formatting */}
+              <h3 className="text-sm font-semibold text-[#1e3a5f] mb-3">Financials</h3>
+
+              <DetailField label="EXPECTED" isEditing={isEditing} editComponent={
+                <input type="number" value={formData.expected_sale_price} onChange={e => setFormData(prev => ({ ...prev, expected_sale_price: e.target.value }))} className="hig-input w-full" placeholder="500000" />
+              }>
+                ${Number(formData.expected_sale_price || 0).toLocaleString()}
+              </DetailField>
+
+              <DetailField label="ACTUAL" isEditing={isEditing} editComponent={
+                <input type="number" value={formData.actual_sale_price || ''} onChange={e => setFormData(prev => ({ ...prev, actual_sale_price: e.target.value }))} className="hig-input w-full" placeholder="505000" />
+              }>
+                {formData.actual_sale_price ? `$${Number(formData.actual_sale_price).toLocaleString()}` : 'Not set'}
+              </DetailField>
+
+              <DetailField label="COMMISSION" isEditing={isEditing} editComponent={
+                <input type="number" step="0.01" value={formData.gross_commission_rate * 100} onChange={e => setFormData(prev => ({ ...prev, gross_commission_rate: parseFloat(e.target.value) / 100 || 0 }))} className="hig-input w-full" />
+              }>
+                {(formData.gross_commission_rate * 100).toFixed(2)}%
+              </DetailField>
+
+              <DetailField label="BROKER SPLIT" isEditing={isEditing} editComponent={
+                <input type="number" step="0.01" value={formData.brokerage_split_rate * 100} onChange={e => setFormData(prev => ({ ...prev, brokerage_split_rate: parseFloat(e.target.value) / 100 || 0 }))} className="hig-input w-full" />
+              }>
+                {(formData.brokerage_split_rate * 100).toFixed(2)}%
+              </DetailField>
+
+              {/* Deductions/Fees - same style as other financial fields */}
+              {formData.deal_deductions.map(d => (
+                <div key={d.id} className="py-2">
+                  {isEditing ? (
+                    <>
+                      {d.deduction_id === 'custom' ? (
+                        <input
+                          type="text"
+                          value={d.name}
+                          onChange={e => updateCustomDeductionName(d.id, e.target.value)}
+                          className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[rgba(30,58,95,0.5)] bg-transparent border-0 border-b border-transparent focus:border-gray-300 focus:outline-none w-full mb-1 p-0"
+                          placeholder="FEE NAME"
+                        />
+                      ) : (
+                        <Text variant="micro" className="mb-1">{d.name?.toUpperCase() || 'FEE'}</Text>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="number" 
+                          value={d.value || ''} 
+                          onChange={e => updateDeductionValue(d.id, parseFloat(e.target.value) || 0)} 
+                          className="hig-input w-full" 
+                          placeholder="0" 
+                        />
+                        {d.deduction_id === 'custom' && (
+                          <button type="button" onClick={() => removeDeduction(d.id)} className="text-gray-400 hover:text-red-500 text-lg leading-none">
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Text variant="micro" className="mb-1">{d.name?.toUpperCase() || 'FEE'}</Text>
+                      <Text variant="body">{d.type === 'flat' ? `-$${d.value.toLocaleString()}` : `-${d.value}%`}</Text>
+                    </>
+                  )}
+                </div>
+              ))}
+
+              {/* Add fee link in edit mode */}
+              {isEditing && (
+                <div className="py-2">
+                  <button type="button" onClick={addCustomDeduction} className="text-xs text-[#D4883A] hover:underline">
+                    + Add fee
+                  </button>
+                </div>
+              )}
+
+              {/* Net to Agent - Neutral info block */}
+              <div className="mt-4 py-3 border-t border-gray-100">
+                <Text variant="micro" className="mb-1">NET TO AGENT</Text>
+                <Text variant="h2">
+                  ${netBeforeTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
               </div>
+
+              {/* Archive option */}
+              {isEditing && (
+                <>
+                  <div className="border-t border-gray-100 my-4" />
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={archived}
+                      onChange={e => setArchived(e.target.checked)}
+                      className="hig-checkbox"
+                    />
+                    <Text variant="muted">Archive (Closed Lost)</Text>
+                  </label>
+                  {archived && (
+                    <select
+                      value={archivedReason}
+                      onChange={e => setArchivedReason(e.target.value)}
+                      className="hig-input w-full mt-2"
+                    >
+                      <option value="">Select reason</option>
+                      <option value="No Response / Ghosted">No Response / Ghosted</option>
+                      <option value="Client Not Ready / Timeline Changed">Client Not Ready</option>
+                      <option value="Chose Another Agent">Chose Another Agent</option>
+                      <option value="Financing Didn't Work Out">Financing Issue</option>
+                      <option value="Deal Fell Through">Deal Fell Through</option>
+                    </select>
+                  )}
+                </>
+              )}
             </div>
           </form>
         </div>

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search, Tag } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, X, AlertCircle, Handshake, Sparkles, GripVertical, Search, Tag, Layers, DollarSign } from 'lucide-react';
 import { DndContext, DragEndEvent, DragOverlay, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
-import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { Database } from '../../lib/database.types';
+import type { Database, TieredSplit, CustomDeduction } from '../../lib/database.types';
 
-type PayoutStructure = 'standard' | 'partnership';
+type PayoutStructure = 'standard' | 'partnership' | 'tiered';
 
 type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
 type LeadSourceInsert = Database['public']['Tables']['lead_sources']['Insert'];
@@ -19,14 +19,22 @@ interface LeadSourceFormState {
   payout_structure: PayoutStructure;
   partnership_split_rate: number;
   partnership_notes: string;
+  tiered_splits: TieredSplit[];
+  custom_deductions: CustomDeduction[];
 }
+
+const generateId = () => crypto.randomUUID();
 
 const createDefaultFormState = (): LeadSourceFormState => ({
   name: '',
   brokerage_split_rate: 20,
   payout_structure: 'standard',
   partnership_split_rate: 35,
-  partnership_notes: ''
+  partnership_notes: '',
+  tiered_splits: [
+    { id: generateId(), min_amount: 0, max_amount: null, split_rate: 20 }
+  ],
+  custom_deductions: []
 });
 
 interface LeadSourcesSettingsProps {
@@ -139,6 +147,23 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
       const brokerageSplit = Number.isNaN(brokerageSplitRaw) ? 0 : brokerageSplitRaw;
       const partnershipSplitRaw = formData.partnership_split_rate ?? 0;
       const partnershipSplit = Number.isNaN(partnershipSplitRaw) ? 0 : partnershipSplitRaw;
+      
+      // Convert tiered splits from percentage to decimal for storage
+      const tieredSplitsForDb = formData.payout_structure === 'tiered' && formData.tiered_splits.length > 0
+        ? formData.tiered_splits.map(t => ({
+            ...t,
+            split_rate: t.split_rate / 100
+          }))
+        : null;
+      
+      // Convert custom deductions from percentage to decimal for storage
+      const customDeductionsForDb = formData.custom_deductions.length > 0
+        ? formData.custom_deductions.map(d => ({
+            ...d,
+            value: d.type === 'percentage' ? d.value / 100 : d.value
+          }))
+        : null;
+      
       const payload: LeadSourceUpdate = {
         name: formData.name,
         team_id: teamId,
@@ -146,6 +171,8 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
         payout_structure: formData.payout_structure,
         partnership_split_rate: formData.payout_structure === 'partnership' ? partnershipSplit / 100 : null,
         partnership_notes: formData.payout_structure === 'partnership' ? formData.partnership_notes.trim() || null : null,
+        tiered_splits: tieredSplitsForDb,
+        custom_deductions: customDeductionsForDb,
         workspace_id: roleInfo.workspaceId
       };
 
@@ -185,12 +212,31 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
   const handleEdit = (source: LeadSource) => {
     if (!canEdit) return;
     setEditingSource(source);
+    
+    // Parse tiered splits - convert from decimal to percentage for display
+    const tieredSplits = source.tiered_splits?.length 
+      ? source.tiered_splits.map(t => ({
+          ...t,
+          split_rate: t.split_rate * 100
+        }))
+      : [{ id: generateId(), min_amount: 0, max_amount: null, split_rate: source.brokerage_split_rate * 100 }];
+    
+    // Parse custom deductions - convert percentages from decimal to percentage for display
+    const customDeductions = source.custom_deductions?.length
+      ? source.custom_deductions.map(d => ({
+          ...d,
+          value: d.type === 'percentage' ? d.value * 100 : d.value
+        }))
+      : [];
+    
     setFormData({
       name: source.name,
       brokerage_split_rate: source.brokerage_split_rate * 100,
       payout_structure: source.payout_structure,
       partnership_split_rate: (source.partnership_split_rate ?? 0.35) * 100,
-      partnership_notes: source.partnership_notes || ''
+      partnership_notes: source.partnership_notes || '',
+      tiered_splits: tieredSplits,
+      custom_deductions: customDeductions
     });
     setShowModal(true);
     setError(null);
@@ -217,24 +263,87 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
     }
   };
 
-  const payoutOptions: { value: PayoutStructure; title: string; description: string }[] = [
+  const payoutOptions: { value: PayoutStructure; title: string; description: string; icon: typeof Sparkles }[] = [
     {
       value: 'standard',
       title: 'Standard Split',
-      description: 'Only your brokerage split applies.'
+      description: 'A fixed percentage split applies to all deals.',
+      icon: Sparkles
     },
     {
       value: 'partnership',
       title: 'Partnership Program',
-      description: 'Pay the partner first, then split the remainder with your brokerage.'
+      description: 'Pay the partner first, then split the remainder with your brokerage.',
+      icon: Handshake
+    },
+    {
+      value: 'tiered',
+      title: 'Tiered Split',
+      description: 'Split varies by deal amount (e.g., Zillow, Realogy).',
+      icon: Layers
     }
   ];
 
   const typeFilterOptions: { value: 'all' | PayoutStructure; label: string }[] = [
     { value: 'all', label: 'All sources' },
     { value: 'standard', label: 'Standard' },
-    { value: 'partnership', label: 'Partnership' }
+    { value: 'partnership', label: 'Partnership' },
+    { value: 'tiered', label: 'Tiered' }
   ];
+  
+  // Helper functions for tiered splits
+  const addTieredSplit = () => {
+    const lastTier = formData.tiered_splits[formData.tiered_splits.length - 1];
+    const newMinAmount = lastTier?.max_amount ?? (lastTier?.min_amount ?? 0) + 500000;
+    setFormData({
+      ...formData,
+      tiered_splits: [
+        ...formData.tiered_splits,
+        { id: generateId(), min_amount: newMinAmount, max_amount: null, split_rate: Math.max(5, (lastTier?.split_rate ?? 20) - 5) }
+      ]
+    });
+  };
+  
+  const updateTieredSplit = (id: string, updates: Partial<TieredSplit>) => {
+    setFormData({
+      ...formData,
+      tiered_splits: formData.tiered_splits.map(t => t.id === id ? { ...t, ...updates } : t)
+    });
+  };
+  
+  const removeTieredSplit = (id: string) => {
+    if (formData.tiered_splits.length <= 1) return;
+    setFormData({
+      ...formData,
+      tiered_splits: formData.tiered_splits.filter(t => t.id !== id)
+    });
+  };
+  
+  // Helper functions for custom deductions
+  const addCustomDeduction = () => {
+    const nextOrder = formData.custom_deductions.length + 1;
+    setFormData({
+      ...formData,
+      custom_deductions: [
+        ...formData.custom_deductions,
+        { id: generateId(), name: '', type: 'flat', value: 0, apply_order: nextOrder }
+      ]
+    });
+  };
+  
+  const updateCustomDeduction = (id: string, updates: Partial<CustomDeduction>) => {
+    setFormData({
+      ...formData,
+      custom_deductions: formData.custom_deductions.map(d => d.id === id ? { ...d, ...updates } : d)
+    });
+  };
+  
+  const removeCustomDeduction = (id: string) => {
+    setFormData({
+      ...formData,
+      custom_deductions: formData.custom_deductions.filter(d => d.id !== id)
+    });
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -418,19 +527,17 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
           onDragEnd={handleDragEnd}
           onDragCancel={() => setActiveSource(null)}
         >
-          <SortableContext items={filteredSources.map(source => source.id)} strategy={rectSortingStrategy}>
-            <div
-              className="grid w-full gap-4"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
-            >
-              {filteredSources.map(source => (
-                <LeadSourceCard
+          <SortableContext items={filteredSources.map(source => source.id)} strategy={verticalListSortingStrategy}>
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+              {filteredSources.map((source, index) => (
+                <LeadSourceRow
                   key={source.id}
                   source={source}
                   canEdit={canEdit}
                   disableDrag={!canReorder}
                   onEdit={() => handleEdit(source)}
                   onDelete={() => handleDelete(source.id)}
+                  isLast={index === filteredSources.length - 1}
                 />
               ))}
             </div>
@@ -510,37 +617,39 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">
-                  Brokerage Split Rate
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={formData.brokerage_split_rate}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        brokerage_split_rate: Number.isNaN(parseFloat(e.target.value))
-                          ? 0
-                          : parseFloat(e.target.value)
-                      })
-                    }
-                    className="hig-input pr-8"
-                    placeholder="20"
-                    min="0"
-                    max="100"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
-                    %
-                  </span>
+              {/* Standard Split - single rate */}
+              {formData.payout_structure === 'standard' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">
+                    Brokerage Split Rate
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={formData.brokerage_split_rate || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          brokerage_split_rate: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0
+                        })
+                      }
+                      className="hig-input pr-8"
+                      placeholder="20"
+                      min="0"
+                      max="100"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
+                      %
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Percentage of the commission that goes to your brokerage/team.
+                  </p>
                 </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Percentage of the remaining commission that goes to your brokerage/team.
-                </p>
-              </div>
+              )}
 
+              {/* Partnership Split */}
               {formData.payout_structure === 'partnership' && (
                 <>
                   <div>
@@ -551,13 +660,11 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                       <input
                         type="number"
                         step="0.5"
-                        value={formData.partnership_split_rate}
+                        value={formData.partnership_split_rate || ''}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            partnership_split_rate: Number.isNaN(parseFloat(e.target.value))
-                              ? 0
-                              : parseFloat(e.target.value)
+                            partnership_split_rate: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0
                           })
                         }
                         className="hig-input pr-8"
@@ -570,7 +677,36 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-gray-500">
-                      Portion of the gross commission that goes to the partner program before any brokerage split.
+                      Portion of the gross commission that goes to the partner program first.
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Brokerage Split Rate
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={formData.brokerage_split_rate || ''}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            brokerage_split_rate: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0
+                          })
+                        }
+                        className="hig-input pr-8"
+                        placeholder="20"
+                        min="0"
+                        max="100"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
+                        %
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Percentage of the remaining commission that goes to your brokerage/team.
                     </p>
                   </div>
 
@@ -588,6 +724,171 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                 </>
               )}
 
+              {/* Tiered Splits */}
+              {formData.payout_structure === 'tiered' && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-900">
+                      Tiered Split Rates
+                    </label>
+                    <button
+                      type="button"
+                      onClick={addTieredSplit}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[#1e3a5f] hover:text-[#D4883A] transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add Tier
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {formData.tiered_splits.map((tier, index) => (
+                      <div key={tier.id} className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 bg-gray-50/50">
+                        <div className="flex-1 grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Min Amount</label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                              <input
+                                type="number"
+                                value={tier.min_amount || ''}
+                                onChange={(e) => updateTieredSplit(tier.id, { min_amount: parseFloat(e.target.value) || 0 })}
+                                className="hig-input pl-6 text-sm"
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Max Amount</label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                              <input
+                                type="number"
+                                value={tier.max_amount ?? ''}
+                                onChange={(e) => updateTieredSplit(tier.id, { max_amount: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                                className="hig-input pl-6 text-sm"
+                                placeholder="No limit"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Split Rate</label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={tier.split_rate || ''}
+                                onChange={(e) => updateTieredSplit(tier.id, { split_rate: parseFloat(e.target.value) || 0 })}
+                                className="hig-input pr-6 text-sm"
+                                placeholder="20"
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                            </div>
+                          </div>
+                        </div>
+                        {formData.tiered_splits.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeTieredSplit(tier.id)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Define different split rates based on deal amount. Leave max amount empty for "and above".
+                  </p>
+                </div>
+              )}
+
+              {/* Custom Deductions */}
+              <div className="border-t border-gray-200/60 pt-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900">
+                      Additional Deductions
+                    </label>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Admin fees, E&O insurance, desk fees, etc.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addCustomDeduction}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-[#1e3a5f] hover:text-[#D4883A] transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Deduction
+                  </button>
+                </div>
+                
+                {formData.custom_deductions.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/50 p-4 text-center">
+                    <DollarSign className="mx-auto h-6 w-6 text-gray-400 mb-2" />
+                    <p className="text-xs text-gray-500">No additional deductions configured</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {formData.custom_deductions.map((deduction) => (
+                      <div key={deduction.id} className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 bg-gray-50/50">
+                        <div className="flex-1 grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Name</label>
+                            <input
+                              type="text"
+                              value={deduction.name}
+                              onChange={(e) => updateCustomDeduction(deduction.id, { name: e.target.value })}
+                              className="hig-input text-sm"
+                              placeholder="Admin Fee"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Type</label>
+                            <select
+                              value={deduction.type}
+                              onChange={(e) => updateCustomDeduction(deduction.id, { type: e.target.value as 'percentage' | 'flat' })}
+                              className="hig-input text-sm"
+                            >
+                              <option value="flat">Flat ($)</option>
+                              <option value="percentage">Percentage (%)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Amount</label>
+                            <div className="relative">
+                              {deduction.type === 'flat' && (
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                              )}
+                              <input
+                                type="number"
+                                step={deduction.type === 'percentage' ? '0.5' : '1'}
+                                value={deduction.value || ''}
+                                onChange={(e) => updateCustomDeduction(deduction.id, { value: parseFloat(e.target.value) || 0 })}
+                                className={`hig-input text-sm ${deduction.type === 'flat' ? 'pl-6' : 'pr-6'}`}
+                                placeholder={deduction.type === 'flat' ? '500' : '2'}
+                              />
+                              {deduction.type === 'percentage' && (
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeCustomDeduction(deduction.id)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Payout Preview */}
               <div className="rounded-2xl border border-gray-200/70 bg-gray-50/60 p-4">
                 <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">Payout Preview</p>
                 <ol className="space-y-3 text-sm text-gray-800">
@@ -599,12 +900,47 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
                       Pay partner first ({formData.partnership_split_rate || 0}% of gross commission)
                     </li>
                   )}
-                  <li className="flex items-center gap-3">
-                    <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)] text-xs font-semibold">
-                      {formData.payout_structure === 'partnership' ? '2' : '1'}
-                    </span>
-                    Split the remaining commission with your brokerage ({formData.brokerage_split_rate || 0}% to broker)
-                  </li>
+                  {formData.payout_structure === 'tiered' ? (
+                    <li className="flex items-start gap-3">
+                      <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)] text-xs font-semibold flex-shrink-0">
+                        1
+                      </span>
+                      <div>
+                        <span>Brokerage split based on deal amount:</span>
+                        <ul className="mt-1 ml-2 text-xs text-gray-600 space-y-1">
+                          {formData.tiered_splits.map((tier, i) => (
+                            <li key={tier.id}>
+                              ${tier.min_amount.toLocaleString()} - {tier.max_amount ? `$${tier.max_amount.toLocaleString()}` : 'and above'}: {tier.split_rate}%
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </li>
+                  ) : (
+                    <li className="flex items-center gap-3">
+                      <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)] text-xs font-semibold">
+                        {formData.payout_structure === 'partnership' ? '2' : '1'}
+                      </span>
+                      Brokerage split ({formData.brokerage_split_rate || 0}% to broker)
+                    </li>
+                  )}
+                  {formData.custom_deductions.length > 0 && (
+                    <li className="flex items-start gap-3">
+                      <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-[var(--app-accent)]/10 text-[var(--app-accent)] text-xs font-semibold flex-shrink-0">
+                        {formData.payout_structure === 'partnership' ? '3' : '2'}
+                      </span>
+                      <div>
+                        <span>Deduct additional fees:</span>
+                        <ul className="mt-1 ml-2 text-xs text-gray-600 space-y-1">
+                          {formData.custom_deductions.map((d) => (
+                            <li key={d.id}>
+                              {d.name || 'Unnamed'}: {d.type === 'flat' ? `$${d.value.toLocaleString()}` : `${d.value}%`}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </li>
+                  )}
                 </ol>
               </div>
 
@@ -644,21 +980,23 @@ export default function LeadSourcesSettings({ canEdit = true }: LeadSourcesSetti
   );
 }
 
-interface LeadSourceCardProps {
+interface LeadSourceRowProps {
   source: LeadSource;
   canEdit: boolean;
   disableDrag: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  isLast: boolean;
 }
 
-function LeadSourceCard({
+function LeadSourceRow({
   source,
   canEdit,
   disableDrag,
   onEdit,
-  onDelete
-}: LeadSourceCardProps) {
+  onDelete,
+  isLast
+}: LeadSourceRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: source.id,
     disabled: disableDrag
@@ -670,88 +1008,117 @@ function LeadSourceCard({
   };
 
   const isPartnership = source.payout_structure === 'partnership';
+  const isTiered = source.payout_structure === 'tiered';
   const brokerSplit = `${(source.brokerage_split_rate * 100).toFixed(1)}%`;
   const partnerSplit = isPartnership ? `${((source.partnership_split_rate ?? 0) * 100).toFixed(1)}%` : null;
+  const deductionCount = source.custom_deductions?.length ?? 0;
+  const tierCount = source.tiered_splits?.length ?? 0;
+
+  const getTypeIcon = () => {
+    if (isTiered) return <Layers className="h-3 w-3" strokeWidth={2} />;
+    if (isPartnership) return <Handshake className="h-3 w-3" strokeWidth={2} />;
+    return <Sparkles className="h-3 w-3" strokeWidth={2} />;
+  };
+
+  const getTypeLabel = () => {
+    if (isTiered) return 'Tiered';
+    if (isPartnership) return 'Partnership';
+    return 'Standard';
+  };
+
+  const getTypeColor = () => {
+    if (isTiered) return 'bg-blue-100 text-blue-700';
+    if (isPartnership) return 'bg-orange-100 text-[var(--app-accent)]';
+    return 'bg-gray-100 text-gray-600';
+  };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`w-full rounded-[24px] border border-gray-200/80 bg-white/95 p-4 shadow-[0_14px_40px_rgba(15,23,42,0.08)] transition ${
+      className={`flex items-center gap-4 px-4 py-3 transition ${
         isDragging
-          ? 'ring-2 ring-[var(--app-accent)]/40 shadow-[0_20px_50px_rgba(15,23,42,0.15)]'
-          : 'hover:border-gray-300/80 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]'
-      }`}
+          ? 'bg-orange-50 ring-2 ring-[var(--app-accent)]/40'
+          : 'hover:bg-gray-50'
+      } ${!isLast ? 'border-b border-gray-100' : ''}`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          {canEdit && (
-            <button
-              type="button"
-              {...attributes}
-              {...listeners}
-              disabled={disableDrag}
-              className={`rounded-full border border-gray-200/70 bg-white/80 p-2 text-gray-400 transition ${
-                disableDrag ? 'cursor-not-allowed opacity-40' : 'cursor-grab hover:text-gray-700 active:cursor-grabbing'
-              }`}
-              aria-label="Drag to reorder lead source"
-            >
-              <GripVertical className="h-4 w-4" />
-            </button>
+      {/* Drag handle */}
+      {canEdit && (
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          disabled={disableDrag}
+          className={`flex-shrink-0 p-1 text-gray-400 transition ${
+            disableDrag ? 'cursor-not-allowed opacity-40' : 'cursor-grab hover:text-gray-700 active:cursor-grabbing'
+          }`}
+          aria-label="Drag to reorder lead source"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      )}
+
+      {/* Name and type */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-[#1e3a5f] truncate">{source.name}</span>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${getTypeColor()}`}>
+            {getTypeIcon()}
+            {getTypeLabel()}
+          </span>
+          {deductionCount > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600">
+              <DollarSign className="h-3 w-3" strokeWidth={2} />
+              {deductionCount} fee{deductionCount > 1 ? 's' : ''}
+            </span>
           )}
-          <div>
-            <div className="flex items-center gap-1 text-[11px] font-semibold tracking-[0.35em] text-gray-500">
-              {isPartnership ? (
-                <Handshake className="h-3 w-3 text-[var(--app-accent)]" strokeWidth={2} />
-              ) : (
-                <Sparkles className="h-3 w-3 text-gray-500" strokeWidth={2} />
-              )}
-              <span className={isPartnership ? 'text-[var(--app-accent)]' : ''}>
-                {isPartnership ? 'PARTNERSHIP' : 'STANDARD'}
-              </span>
-            </div>
-            <h3 className="mt-1 text-base font-semibold text-gray-900">{source.name}</h3>
-          </div>
         </div>
-        {canEdit ? (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={onEdit}
-              className="rounded-xl p-1.5 text-gray-600 transition hover:bg-blue-50 hover:text-[var(--app-accent)]"
-              title="Edit lead source"
-            >
-              <Pencil className="h-4 w-4" strokeWidth={2} />
-            </button>
-            <button
-              onClick={onDelete}
-              className="rounded-xl p-1.5 text-gray-600 transition hover:bg-red-50 hover:text-red-600"
-              title="Delete lead source"
-            >
-              <Trash2 className="h-4 w-4" strokeWidth={2} />
-            </button>
+        {source.partnership_notes && (
+          <p className="text-xs text-gray-500 truncate mt-0.5">{source.partnership_notes}</p>
+        )}
+      </div>
+
+      {/* Splits display */}
+      <div className="flex items-center gap-4 flex-shrink-0 text-sm">
+        {isPartnership && partnerSplit && (
+          <div className="text-right">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wide">Partner</div>
+            <div className="font-semibold text-[#1e3a5f]">{partnerSplit}</div>
+          </div>
+        )}
+        {isTiered ? (
+          <div className="text-right">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wide">Tiers</div>
+            <div className="font-semibold text-[#1e3a5f]">{tierCount} level{tierCount > 1 ? 's' : ''}</div>
           </div>
         ) : (
-          <span className="text-[11px] uppercase tracking-[0.35em] text-gray-400">View only</span>
-        )}
-      </div>
-
-      <div className="mt-4 rounded-[20px] border border-gray-100 bg-gray-50/80 px-3 py-3 text-sm">
-        {isPartnership && partnerSplit && (
-          <div className="mb-2 flex items-center justify-between text-gray-600">
-            <span>Partner share</span>
-            <span className="font-semibold text-gray-900">{partnerSplit}</span>
+          <div className="text-right">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wide">Broker</div>
+            <div className="font-semibold text-[#1e3a5f]">{brokerSplit}</div>
           </div>
         )}
-        <div className="flex items-center justify-between text-gray-600">
-          <span>Broker split</span>
-          <span className="font-semibold text-gray-900">{brokerSplit}</span>
-        </div>
       </div>
 
-      {source.partnership_notes && (
-        <p className="mt-3 rounded-[18px] border border-gray-100 bg-white/80 px-3 py-2 text-[12px] text-gray-600 shadow-inner line-clamp-2">
-          {source.partnership_notes}
-        </p>
+      {/* Actions */}
+      {canEdit ? (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded-lg text-gray-500 transition hover:bg-gray-100 hover:text-[var(--app-accent)]"
+            title="Edit lead source"
+          >
+            <Pencil className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1.5 rounded-lg text-gray-500 transition hover:bg-red-50 hover:text-red-600"
+            title="Delete lead source"
+          >
+            <Trash2 className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </div>
+      ) : (
+        <span className="text-[10px] uppercase tracking-wider text-gray-400 flex-shrink-0">View only</span>
       )}
     </div>
   );

@@ -28,7 +28,10 @@ const formatPercentValue = (value?: number | null) => {
 
 const formatDateDisplay = (value?: string | null) => {
   if (!value) return '—';
-  const parsed = new Date(value);
+  // Parse date string without timezone conversion (avoids off-by-one day issue)
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return '—';
+  const parsed = new Date(year, month - 1, day);
   if (Number.isNaN(parsed.getTime())) return '—';
   return parsed.toLocaleDateString('en-US', {
     month: 'short',

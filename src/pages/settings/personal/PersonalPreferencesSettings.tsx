@@ -13,6 +13,7 @@ export default function PersonalPreferencesSettings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [formData, setFormData] = useState({
+    annual_gross_sales_goal: 0,
     annual_gci_goal: 0,
     default_tax_rate: 25,
     default_brokerage_split_rate: 20
@@ -30,6 +31,7 @@ export default function PersonalPreferencesSettings() {
     if (data) {
       const settings = data as UserSettingsRow;
       setFormData({
+        annual_gross_sales_goal: settings.annual_gross_sales_goal ?? 0,
         annual_gci_goal: settings.annual_gci_goal ?? 0,
         default_tax_rate: (settings.default_tax_rate ?? 0) * 100,
         default_brokerage_split_rate: (settings.default_brokerage_split_rate ?? 0) * 100
@@ -50,17 +52,21 @@ export default function PersonalPreferencesSettings() {
     setSaving(true);
     setMessage(null);
 
-    const payload: UserSettingsInsert = {
-      user_id: user.id,
+    const updatePayload = {
+      annual_gross_sales_goal: formData.annual_gross_sales_goal,
       annual_gci_goal: formData.annual_gci_goal,
       default_tax_rate: formData.default_tax_rate / 100,
       default_brokerage_split_rate: formData.default_brokerage_split_rate / 100
     };
+    
+    // Update existing settings (all users should have a settings row)
     const { error } = await supabase
       .from('user_settings')
-      .upsert(payload);
+      .update(updatePayload)
+      .eq('user_id', user.id);
 
     if (error) {
+      console.error('Update error:', error);
       setMessage({ type: 'error', text: 'Failed to save preferences. Please try again.' });
     } else {
       setMessage({ type: 'success', text: 'Preferences updated!' });
@@ -90,6 +96,29 @@ export default function PersonalPreferencesSettings() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-900 mb-2">
+            Annual Gross Sales Goal
+          </label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
+              $
+            </span>
+            <input
+              type="number"
+              value={formData.annual_gross_sales_goal || ''}
+              onChange={(e) => setFormData({ ...formData, annual_gross_sales_goal: parseFloat(e.target.value) || 0 })}
+              className="hig-input pl-8"
+              placeholder="5000000"
+              min="0"
+              step="100000"
+            />
+          </div>
+          <p className="mt-2 text-sm text-gray-500">
+            Your target total sales volume for the year.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-900 mb-2">
             Annual GCI Goal
           </label>
           <div className="relative">
@@ -98,7 +127,7 @@ export default function PersonalPreferencesSettings() {
             </span>
             <input
               type="number"
-              value={formData.annual_gci_goal}
+              value={formData.annual_gci_goal || ''}
               onChange={(e) => setFormData({ ...formData, annual_gci_goal: parseFloat(e.target.value) || 0 })}
               className="hig-input pl-8"
               placeholder="100000"

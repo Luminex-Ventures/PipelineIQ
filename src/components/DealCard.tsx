@@ -80,10 +80,13 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
           <div className="text-[11px] uppercase tracking-wide text-gray-400">Close Date</div>
           <div className="text-sm font-medium text-gray-500">
             {deal.close_date
-              ? new Date(deal.close_date).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric'
-                })
+              ? (() => {
+                  const [year, month, day] = deal.close_date.split('-').map(Number);
+                  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric'
+                  });
+                })()
               : '—'}
           </div>
         </div>

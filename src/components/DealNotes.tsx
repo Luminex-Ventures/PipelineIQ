@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Trash2, Edit2, Loader2, MessageSquare } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2 } from 'lucide-react';
 import type { Database } from '../lib/database.types';
+import { Text } from '../ui/Text';
 
 type DealNote = Database['public']['Tables']['deal_notes']['Row'];
 type DealNoteInsert = Database['public']['Tables']['deal_notes']['Insert'];
@@ -157,20 +158,19 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="w-5 h-5 text-gray-600" strokeWidth={2} />
-          <h3 className="font-semibold text-gray-900">Notes</h3>
-          <span className="text-sm text-gray-500">({notes.length})</span>
-        </div>
+    <div className="space-y-3">
+      {/* Section header - matches Tasks pattern */}
+      <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+        <Text variant="micro" className="font-semibold">
+          NOTES ({notes.length})
+        </Text>
         {!showAddForm && (
           <button
             onClick={() => setShowAddForm(true)}
-            className="hig-btn-secondary text-sm py-2"
+            className="hig-btn-text text-xs py-1 px-2"
           >
-            <Plus className="w-4 h-4" strokeWidth={2} />
-            <span>Add Note</span>
+            <Plus className="w-3 h-3 mr-1" />
+            Add
           </button>
         )}
       </div>
@@ -211,9 +211,7 @@ export default function DealNotes({ dealId, taskId, showTaskBadge = false }: Dea
       )}
 
       {notes.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 text-sm">
-          No notes yet. Add your first note to track important information.
-        </div>
+        <Text variant="muted" className="py-2">No notes yet</Text>
       ) : (
         <div className="space-y-3">
           {notes.map((note) => (

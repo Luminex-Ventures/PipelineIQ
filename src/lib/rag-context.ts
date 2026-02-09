@@ -190,8 +190,14 @@ ${yearlyClosedCounts
 `;
     if (taskList.length > 0) {
       taskList.forEach((task, idx) => {
+        const dueFormatted = (() => {
+          if (!task.due_date) return 'No due date';
+          const [year, month, day] = task.due_date.split('-').map(Number);
+          if (!year || !month || !day) return 'No due date';
+          return new Date(year, month - 1, day).toLocaleDateString();
+        })();
         context += `${idx + 1}. ${task.title}
-   Due: ${task.due_date ? new Date(task.due_date).toLocaleDateString() : 'No due date'}
+   Due: ${dueFormatted}
    ${task.deals?.client_name ? `Deal: ${task.deals.client_name} (${task.deals.status})` : ''}
 
 `;

@@ -287,9 +287,12 @@ export function AppHeader() {
       }
       case 'task_created': {
         const title = item.payload?.title || 'a task';
-        const due = item.payload?.due_date
-          ? ` with a due date of ${new Date(item.payload.due_date).toLocaleDateString()}`
-          : '';
+        const due = (() => {
+          if (!item.payload?.due_date) return '';
+          const [year, month, day] = item.payload.due_date.split('-').map(Number);
+          if (!year || !month || !day) return '';
+          return ` with a due date of ${new Date(year, month - 1, day).toLocaleDateString()}`;
+        })();
         return `${actor} created a new task "${title}"${due}.`;
       }
       default:

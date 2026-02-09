@@ -7,7 +7,8 @@ import {
   Layers,
   Users,
   Mail,
-  FolderTree
+  FolderTree,
+  DollarSign
 } from 'lucide-react';
 import PipelineStatusesSettings from './settings/PipelineStatusesSettings';
 import LeadSourcesSettings from './settings/LeadSourcesSettings';
@@ -17,6 +18,7 @@ import WorkspaceConfigurationSettings from './settings/workspace/WorkspaceConfig
 import WorkspaceMembersSettings from './settings/workspace/WorkspaceMembersSettings';
 import WorkspaceInvitesSettings from './settings/workspace/WorkspaceInvitesSettings';
 import WorkspaceTeamsSettings from './settings/workspace/WorkspaceTeamsSettings';
+import WorkspaceDeductionsSettings from './settings/workspace/WorkspaceDeductionsSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { canInviteAgents, canManageTeams, canManageWorkspaceMembers, getRoleLabel, isAdmin, isTeamLead, isSalesManagerOrAdmin } from '../lib/rbac';
 import { useMemo, useState } from 'react';
@@ -25,6 +27,7 @@ const baseSections = [
   { id: 'workspace.info' as const, label: 'Workspace Info', description: 'Identity, locale, and defaults', icon: Building },
   { id: 'workspace.pipeline-statuses' as const, label: 'Pipeline Statuses', description: 'Shared stage definitions', icon: List },
   { id: 'workspace.lead-sources' as const, label: 'Lead Sources', description: 'Partner & portal sources', icon: Tag },
+  { id: 'workspace.deductions' as const, label: 'Default Deductions', description: 'Broker fees & team fees', icon: DollarSign },
   { id: 'workspace.integrations' as const, label: 'Integrations', description: 'CRM & email connections', icon: PlugZap },
   { id: 'workspace.configuration' as const, label: 'Shared Configuration', description: 'Templates & custom fields', icon: Layers }
 ] as const;
@@ -33,6 +36,7 @@ type WorkspaceSectionId =
   | 'workspace.info'
   | 'workspace.pipeline-statuses'
   | 'workspace.lead-sources'
+  | 'workspace.deductions'
   | 'workspace.integrations'
   | 'workspace.configuration'
   | 'workspace.teams'
@@ -86,6 +90,8 @@ export default function WorkspaceSettings() {
         return <PipelineStatusesSettings canEdit={canEditTeamScoped} />;
       case 'workspace.lead-sources':
         return <LeadSourcesSettings canEdit={canEditTeamScoped} />;
+      case 'workspace.deductions':
+        return <WorkspaceDeductionsSettings />;
       case 'workspace.integrations':
         return <IntegrationsSettings canEdit={canEditWorkspace} />;
       case 'workspace.teams':
