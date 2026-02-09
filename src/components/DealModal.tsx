@@ -16,7 +16,8 @@ import {
   Home,
   MoreHorizontal,
   TrendingUp,
-  ChevronDown
+  ChevronDown,
+  Sparkles
 } from 'lucide-react';
 import QuickAddTask from './QuickAddTask';
 import type { Database, DealDeduction } from '../lib/database.types';
@@ -87,7 +88,11 @@ const buildFormState = (deal: Deal | null): FormState => ({
   referral_in_rate: deal?.referral_in_rate || '',
   transaction_fee: deal?.transaction_fee || '',
   close_date: deal?.close_date || '',
-  deal_deductions: deal?.deal_deductions || []
+  deal_deductions: (deal?.deal_deductions || []).map(d => ({
+    ...d,
+    // Convert percentage values from decimal (DB) to display percentage
+    value: d.type === 'percentage' ? d.value * 100 : d.value
+  }))
 });
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -1069,52 +1074,68 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               {/* Quick Actions */}
               {deal && !archived && (
                 <div className="flex gap-2">
-                  {/* Update Status Dropdown */}
-                  <div className="relative">
+                  {/* Update Status Dropdown — only in edit mode */}
+                  {isEditing && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusMenu(!showStatusMenu)}
+                        className="hig-btn-secondary text-sm py-2 px-4"
+                      >
+                        <TrendingUp className="w-4 h-4 mr-1.5" />
+                        Update Status
+                        <ChevronDown className="w-4 h-4 ml-1.5" />
+                      </button>
+                      {showStatusMenu && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setShowStatusMenu(false)} />
+                          <div className={`absolute left-0 bottom-full mb-1 w-56 bg-white ${ui.radius.control} ${ui.shadow.card} border border-gray-200 py-1 z-20 max-h-64 overflow-y-auto`}>
+                            {pipelineStatuses.map(status => {
+                              const isCurrentStatus = status.id === formData.pipeline_status_id;
+                              const statusColor = getColorByName(status.color);
+                              return (
+                                <button
+                                  key={status.id}
+                                  onClick={() => handleUpdateStatus(status.id)}
+                                  className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${isCurrentStatus ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                                >
+                                  <span 
+                                    className="w-3 h-3 rounded-full flex-shrink-0" 
+                                    style={{ backgroundColor: statusColor.bg }}
+                                  />
+                                  <span className={isCurrentStatus ? 'font-medium' : ''}>{status.name}</span>
+                                  {isCurrentStatus && <span className="ml-auto text-xs text-gray-400">Current</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  
+                  {!isEditing && (
                     <button
                       type="button"
-                      onClick={() => setShowStatusMenu(!showStatusMenu)}
-                      className="hig-btn-secondary text-sm py-2 px-4"
+                      onClick={handleGenerateOffer}
+                      className="inline-flex items-center text-sm font-semibold py-2 px-5 rounded-lg text-[#1e3a5f] transition-all duration-200 shadow-sm active:scale-[0.97]"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(30,58,95,0.08) 0%, rgba(212,136,58,0.18) 100%)',
+                        border: '1px solid rgba(212,136,58,0.25)',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(30,58,95,0.12) 0%, rgba(212,136,58,0.28) 100%)';
+                        e.currentTarget.style.borderColor = 'rgba(212,136,58,0.4)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(30,58,95,0.08) 0%, rgba(212,136,58,0.18) 100%)';
+                        e.currentTarget.style.borderColor = 'rgba(212,136,58,0.25)';
+                      }}
                     >
-                      <TrendingUp className="w-4 h-4 mr-1.5" />
-                      Update Status
-                      <ChevronDown className="w-4 h-4 ml-1.5" />
+                      <Sparkles className="w-4 h-4 mr-1.5" />
+                      Generate Offer
                     </button>
-                    {showStatusMenu && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setShowStatusMenu(false)} />
-                        <div className={`absolute left-0 bottom-full mb-1 w-56 bg-white ${ui.radius.control} ${ui.shadow.card} border border-gray-200 py-1 z-20 max-h-64 overflow-y-auto`}>
-                          {pipelineStatuses.map(status => {
-                            const isCurrentStatus = status.id === formData.pipeline_status_id;
-                            const statusColor = getColorByName(status.color);
-                            return (
-                              <button
-                                key={status.id}
-                                onClick={() => handleUpdateStatus(status.id)}
-                                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${isCurrentStatus ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
-                              >
-                                <span 
-                                  className="w-3 h-3 rounded-full flex-shrink-0" 
-                                  style={{ backgroundColor: statusColor.bg }}
-                                />
-                                <span className={isCurrentStatus ? 'font-medium' : ''}>{status.name}</span>
-                                {isCurrentStatus && <span className="ml-auto text-xs text-gray-400">Current</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  
-                  <button
-                    type="button"
-                    onClick={handleGenerateOffer}
-                    className="hig-btn-secondary text-sm py-2 px-4"
-                  >
-                    <FileText className="w-4 h-4 mr-1.5" />
-                    Generate Offer
-                  </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1199,54 +1220,62 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 {(formData.brokerage_split_rate * 100).toFixed(2)}%
               </DetailField>
 
-              {/* Deductions/Fees - same style as other financial fields */}
-              {formData.deal_deductions.map(d => (
-                <div key={d.id} className="py-2">
-                  {isEditing ? (
-                    <>
-                      {d.deduction_id === 'custom' ? (
-                        <input
-                          type="text"
-                          value={d.name}
-                          onChange={e => updateCustomDeductionName(d.id, e.target.value)}
-                          className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[rgba(30,58,95,0.5)] bg-transparent border-0 border-b border-transparent focus:border-gray-300 focus:outline-none w-full mb-1 p-0"
-                          placeholder="FEE NAME"
-                        />
-                      ) : (
-                        <Text variant="micro" className="mb-1">{d.name?.toUpperCase() || 'FEE'}</Text>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="number" 
-                          value={d.value || ''} 
-                          onChange={e => updateDeductionValue(d.id, parseFloat(e.target.value) || 0)} 
-                          className="hig-input w-full" 
-                          placeholder="0" 
-                        />
-                        {d.deduction_id === 'custom' && (
-                          <button type="button" onClick={() => removeDeduction(d.id)} className="text-gray-400 hover:text-red-500 text-lg leading-none">
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Text variant="micro" className="mb-1">{d.name?.toUpperCase() || 'FEE'}</Text>
-                      <Text variant="body">{d.type === 'flat' ? `-$${d.value.toLocaleString()}` : `-${d.value}%`}</Text>
-                    </>
+              {/* Fees sub-section */}
+              <div className="py-2">
+                <div className="flex items-center justify-between mb-1">
+                  <Text variant="micro">FEES</Text>
+                  {isEditing && (
+                    <button type="button" onClick={addCustomDeduction} className="text-[11px] text-[#D4883A] hover:underline">
+                      + Add
+                    </button>
                   )}
                 </div>
-              ))}
 
-              {/* Add fee link in edit mode */}
-              {isEditing && (
-                <div className="py-2">
-                  <button type="button" onClick={addCustomDeduction} className="text-xs text-[#D4883A] hover:underline">
-                    + Add fee
-                  </button>
-                </div>
-              )}
+                {formData.deal_deductions.length === 0 ? (
+                  <Text variant="muted" className="text-[13px]">No fees</Text>
+                ) : (
+                  <div className="pl-2 space-y-2 mt-1">
+                    {formData.deal_deductions.map(d => (
+                      <div key={d.id}>
+                        {isEditing ? (
+                          <>
+                            {d.deduction_id === 'custom' ? (
+                              <input
+                                type="text"
+                                value={d.name}
+                                onChange={e => updateCustomDeductionName(d.id, e.target.value)}
+                                className="text-[11px] font-medium text-[rgba(30,58,95,0.45)] bg-transparent border-0 border-b border-dashed border-gray-300 focus:border-gray-400 focus:outline-none w-full mb-1 p-0 placeholder:font-normal placeholder:text-gray-400"
+                                placeholder="Enter fee name (e.g., Processing Fee)"
+                              />
+                            ) : (
+                              <Text variant="muted" className="text-[11px] font-medium mb-0.5">{d.name || 'Fee'}</Text>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <input 
+                                type="number" 
+                                value={d.value || ''} 
+                                onChange={e => updateDeductionValue(d.id, parseFloat(e.target.value) || 0)} 
+                                className="hig-input w-full" 
+                                placeholder="0" 
+                              />
+                              {d.deduction_id === 'custom' && (
+                                <button type="button" onClick={() => removeDeduction(d.id)} className="text-gray-400 hover:text-red-500 text-lg leading-none">
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
+                            <Text variant="body" className="text-[13px] font-medium">{d.type === 'flat' ? `-$${d.value.toLocaleString()}` : `-${d.value}%`}</Text>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Net to Agent - Neutral info block */}
               <div className="mt-4 py-3 border-t border-gray-100">

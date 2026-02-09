@@ -68,10 +68,12 @@ export function usePipelineStatuses() {
   const [error, setError] = useState<string | null>(null);
   const [colorOverrides, setColorOverrides] = useState<ColorOverrides>({});
   const baseColorsRef = useRef<Record<string, string>>({});
+  const dbOverridesLoadedRef = useRef(false);
   const teamId = roleInfo?.teamId || null;
   const overrideStorageKey = user ? getOverrideStorageKey(user.id) : null;
 
-  const readColorOverrides = useCallback((): ColorOverrides => {
+  // Read from localStorage as a fast cache
+  const readLocalOverrides = useCallback((): ColorOverrides => {
     if (typeof window === 'undefined' || !overrideStorageKey) return {};
     try {
       const raw = window.localStorage.getItem(overrideStorageKey);
@@ -81,15 +83,122 @@ export function usePipelineStatuses() {
         return parsed as ColorOverrides;
       }
     } catch (err) {
-      console.warn('Failed to read status color overrides', err);
+      console.warn('Failed to read status color overrides from localStorage', err);
     }
     return {};
   }, [overrideStorageKey]);
 
-  const persistColorOverrides = useCallback((overrides: ColorOverrides) => {
+  // Write to localStorage as a cache
+  const persistLocalOverrides = useCallback((overrides: ColorOverrides) => {
     if (typeof window === 'undefined' || !overrideStorageKey) return;
     window.localStorage.setItem(overrideStorageKey, JSON.stringify(overrides));
   }, [overrideStorageKey]);
+
+  // Read color overrides from database
+  const readDbOverrides = useCallback(async (): Promise<ColorOverrides> => {
+    if (!user) return {};
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('user_status_color_overrides')
+        .select('pipeline_status_id, color')
+        .eq('user_id', user.id);
+
+      if (fetchError) {
+        console.warn('Failed to read color overrides from database', fetchError);
+        return {};
+      }
+
+      const overrides: ColorOverrides = {};
+      (data || []).forEach((row: { pipeline_status_id: string; color: string }) => {
+        overrides[row.pipeline_status_id] = row.color;
+      });
+      return overrides;
+    } catch (err) {
+      console.warn('Failed to read color overrides from database', err);
+      return {};
+    }
+  }, [user]);
+
+  // Persist a single color override to the database
+  const persistDbOverride = useCallback(async (statusId: string, color: string) => {
+    if (!user) return;
+    try {
+      await supabase
+        .from('user_status_color_overrides')
+        .upsert(
+          { user_id: user.id, pipeline_status_id: statusId, color },
+          { onConflict: 'user_id,pipeline_status_id' }
+        );
+    } catch (err) {
+      console.warn('Failed to persist color override to database', err);
+    }
+  }, [user]);
+
+  // Remove a color override from the database
+  const removeDbOverride = useCallback(async (statusId: string) => {
+    if (!user) return;
+    try {
+      await supabase
+        .from('user_status_color_overrides')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('pipeline_status_id', statusId);
+    } catch (err) {
+      console.warn('Failed to remove color override from database', err);
+    }
+  }, [user]);
+
+  // Migrate any existing localStorage overrides to the database (one-time)
+  const migrateLocalToDb = useCallback(async (localOverrides: ColorOverrides, dbOverrides: ColorOverrides) => {
+    if (!user) return;
+    const localKeys = Object.keys(localOverrides);
+    if (localKeys.length === 0) return;
+
+    // Only migrate keys that aren't already in the database
+    const toMigrate = localKeys.filter(key => !(key in dbOverrides));
+    if (toMigrate.length === 0) return;
+
+    const inserts = toMigrate.map(statusId => ({
+      user_id: user.id,
+      pipeline_status_id: statusId,
+      color: localOverrides[statusId]
+    }));
+
+    try {
+      await supabase
+        .from('user_status_color_overrides')
+        .upsert(inserts, { onConflict: 'user_id,pipeline_status_id' });
+    } catch (err) {
+      console.warn('Failed to migrate localStorage overrides to database', err);
+    }
+  }, [user]);
+
+  // Combined read: database first, fall back to localStorage, migrate if needed
+  const readColorOverrides = useCallback(async (): Promise<ColorOverrides> => {
+    const localOverrides = readLocalOverrides();
+
+    // If we've already loaded from DB this session, use local cache
+    if (dbOverridesLoadedRef.current) {
+      return localOverrides;
+    }
+
+    // Load from database
+    const dbOverrides = await readDbOverrides();
+    dbOverridesLoadedRef.current = true;
+
+    // Migrate localStorage overrides to database if they exist
+    if (Object.keys(localOverrides).length > 0) {
+      migrateLocalToDb(localOverrides, dbOverrides);
+    }
+
+    // Merge: database wins, then localStorage fills gaps
+    const merged = { ...localOverrides, ...dbOverrides };
+
+    // Update localStorage cache with merged result
+    persistLocalOverrides(merged);
+
+    return merged;
+  }, [readLocalOverrides, readDbOverrides, persistLocalOverrides, migrateLocalToDb]);
 
   const resolveBaseColor = useCallback((status: PipelineStatus, index: number) => {
     const stored = status.color?.trim();
@@ -133,7 +242,7 @@ export function usePipelineStatuses() {
 
       const fetched = (sourceStatuses || []) as PipelineStatus[];
       const updates: Array<{ id: string; color: string }> = [];
-      const overrides = readColorOverrides();
+      const overrides = await readColorOverrides();
       const baseColors: Record<string, string> = {};
       const normalized = fetched.map((status, idx) => {
         const baseColor = resolveBaseColor(status, idx);
@@ -331,24 +440,25 @@ export function usePipelineStatuses() {
   };
 
   const setPersonalStatusColor = (statusId: string, color: string) => {
-    if (!overrideStorageKey) return;
-    const currentOverrides = readColorOverrides();
-    const nextOverrides = { ...currentOverrides, [statusId]: color };
-    persistColorOverrides(nextOverrides);
+    if (!user) return;
+    // Update local state immediately for instant feedback
+    const nextOverrides = { ...colorOverrides, [statusId]: color };
+    persistLocalOverrides(nextOverrides);
     setColorOverrides(nextOverrides);
     setStatuses(prev => prev.map(status => status.id === statusId ? { ...status, color } : status));
+    // Persist to database in background
+    persistDbOverride(statusId, color);
   };
 
   const clearPersonalStatusColor = (statusId: string) => {
-    if (!overrideStorageKey) return;
-    const currentOverrides = readColorOverrides();
-    if (!(statusId in currentOverrides)) {
+    if (!user) return;
+    if (!(statusId in colorOverrides)) {
       return;
     }
 
-    const nextOverrides = { ...currentOverrides };
+    const nextOverrides = { ...colorOverrides };
     delete nextOverrides[statusId];
-    persistColorOverrides(nextOverrides);
+    persistLocalOverrides(nextOverrides);
     setColorOverrides(nextOverrides);
 
     setStatuses(prev => prev.map(status => {
@@ -356,6 +466,8 @@ export function usePipelineStatuses() {
       const fallback = baseColorsRef.current[statusId] || resolveBaseColor(status, (status.sort_order || 1) - 1);
       return { ...status, color: fallback };
     }));
+    // Remove from database in background
+    removeDbOverride(statusId);
   };
 
   return {

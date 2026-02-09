@@ -229,6 +229,33 @@ export interface Database {
           updated_at?: string;
         };
       };
+      // Personal color overrides for pipeline statuses (per user)
+      user_status_color_overrides: {
+        Row: {
+          id: string;
+          user_id: string;
+          pipeline_status_id: string;
+          color: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          pipeline_status_id: string;
+          color: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          pipeline_status_id?: string;
+          color?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       activity_events: {
         Row: {
           id: string;

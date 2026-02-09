@@ -77,7 +77,8 @@ const DEAL_LIST_COLUMNS = `
   transaction_fee,
   next_task_description,
   next_task_due_date,
-  archived_reason
+  archived_reason,
+  deal_deductions
 `;
 const PIPELINE_STATUS_COLUMNS = `
   pipeline_statuses (
@@ -129,14 +130,17 @@ const DEAL_TYPE_OPTIONS = Object.keys(DEAL_TYPE_FILTER_META) as Deal['deal_type'
 const buildOrderByStatus = (
   deals: Deal[],
   statusIds: string[],
+  aliasMap?: Map<string, string>,
   prev?: Record<string, string[]>
 ) => {
   const byStatus = new Map<string, string[]>();
   deals.forEach(deal => {
     if (!deal.pipeline_status_id) return;
-    const list = byStatus.get(deal.pipeline_status_id) ?? [];
+    // Resolve aliased status IDs to the primary status
+    const resolvedId = aliasMap?.get(deal.pipeline_status_id) ?? deal.pipeline_status_id;
+    const list = byStatus.get(resolvedId) ?? [];
     list.push(deal.id);
-    byStatus.set(deal.pipeline_status_id, list);
+    byStatus.set(resolvedId, list);
   });
 
   return statusIds.reduce<Record<string, string[]>>((acc, statusId) => {
@@ -200,19 +204,38 @@ export default function Pipeline() {
   const isSalesManager = roleInfo?.globalRole === 'sales_manager';
   const formatAgentLabel = (agent: AccessibleAgentRow) =>
     agent.display_name || agent.email || `Agent ${agent.user_id.slice(0, 8)}`;
+  // Build a mapping from foreign-team status IDs to the current user's equivalent status
+  const statusIdAliasMap = useRef<Map<string, string>>(new Map());
+
   const combinedStatuses = useMemo(() => {
     const statusMap = new Map<string, PipelineStatus>();
+    const nameToId = new Map<string, string>(); // lowercase name → primary status id
+    const aliasMap = new Map<string, string>(); // foreign status id → primary status id
 
+    // Add the user's/team's own statuses first (these are the primary ones)
     statuses.forEach(status => {
       statusMap.set(status.id, status);
+      nameToId.set(status.name.trim().toLowerCase(), status.id);
     });
 
+    // For deals from other teams, map their statuses to matching primary statuses by name
     const statusDeals = [...kanbanDeals, ...tableRows];
     statusDeals.forEach(deal => {
       if (deal.pipeline_statuses && !statusMap.has(deal.pipeline_statuses.id)) {
-        statusMap.set(deal.pipeline_statuses.id, deal.pipeline_statuses as PipelineStatus);
+        const normalizedName = deal.pipeline_statuses.name.trim().toLowerCase();
+        const matchingPrimaryId = nameToId.get(normalizedName);
+        if (matchingPrimaryId) {
+          // This is a duplicate from another team — alias it to the primary status
+          aliasMap.set(deal.pipeline_statuses.id, matchingPrimaryId);
+        } else {
+          // Genuinely new status not in the user's pipeline — add it
+          statusMap.set(deal.pipeline_statuses.id, deal.pipeline_statuses as PipelineStatus);
+          nameToId.set(normalizedName, deal.pipeline_statuses.id);
+        }
       }
     });
+
+    statusIdAliasMap.current = aliasMap;
 
     return Array.from(statusMap.values()).sort((a, b) => {
       const orderA = a.sort_order ?? 999;
@@ -334,7 +357,7 @@ export default function Pipeline() {
   useEffect(() => {
     if (!combinedStatuses.length) return;
     const statusIds = combinedStatuses.map(status => status.id);
-    setOrderByStatus(prev => buildOrderByStatus(kanbanDeals, statusIds, prev));
+    setOrderByStatus(prev => buildOrderByStatus(kanbanDeals, statusIds, statusIdAliasMap.current, prev));
   }, [combinedStatuses, kanbanDeals]);
 
   useEffect(() => {
@@ -1126,6 +1149,7 @@ export default function Pipeline() {
 
   const getDealsByStatusId = (statusId: string) => {
     const ids = orderByStatus[statusId] ?? [];
+    const aliasMap = statusIdAliasMap.current;
     const filteredDeals = debouncedSearch
       ? kanbanDeals.filter(deal => {
           const query = debouncedSearch.toLowerCase();
@@ -1138,7 +1162,10 @@ export default function Pipeline() {
     const dealMap = new Map(filteredDeals.map(deal => [deal.id, deal]));
     const ordered = ids.map(id => dealMap.get(id)).filter(Boolean) as Deal[];
     const remainder = filteredDeals.filter(
-      deal => deal.pipeline_status_id === statusId && !ids.includes(deal.id)
+      deal => {
+        const resolvedId = aliasMap.get(deal.pipeline_status_id ?? '') ?? deal.pipeline_status_id;
+        return resolvedId === statusId && !ids.includes(deal.id);
+      }
     );
     return [...ordered, ...remainder];
   };
