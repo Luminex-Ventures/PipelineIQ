@@ -58,4 +58,5 @@ export const COLOR_SWATCHES: ColorDefinition[] = [
   { name: 'Soft Taupe', value: '#CFC1B2' }
 ];
 
-export const DEFAULT_STATUS_COLOR = COLOR_SWATCHES[0].value;
+// Default to "Cloud Blue" - a soft, professional blue that works well for pipeline stages
+export const DEFAULT_STATUS_COLOR = '#D6E7FF';

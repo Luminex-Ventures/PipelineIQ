@@ -1430,34 +1430,56 @@ export default function Tasks() {
               onClick={() => setViewMode('list')}
               className={[
                 viewToggleButton,
-                viewMode === 'list' ? 'bg-gray-900' : 'hover:bg-gray-100/70',
-                viewMode === 'list' ? ui.tone.inverse : ui.tone.subtle
+                viewMode === 'list' ? 'bg-[#1e3a5f] ring-1 ring-[#1e3a5f]/30' : ''
               ].join(' ')}
+              style={{ 
+                color: viewMode === 'list' ? '#ffffff' : '#1e3a5f',
+                backgroundColor: viewMode === 'list' ? '#1e3a5f' : 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                if (viewMode !== 'list') {
+                  e.currentTarget.style.backgroundColor = 'rgba(212, 136, 58, 0.1)';
+                  e.currentTarget.style.color = '#D4883A';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (viewMode !== 'list') {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#1e3a5f';
+                }
+              }}
             >
-              <Text
-                as="span"
-                variant="body"
-                className={['font-medium', viewMode === 'list' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
-              >
+              <span className="font-medium text-[15px]" style={{ color: 'inherit' }}>
                 List
-              </Text>
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('compact')}
               className={[
                 viewToggleButton,
-                viewMode === 'compact' ? 'bg-gray-900' : 'hover:bg-gray-100/70',
-                viewMode === 'compact' ? ui.tone.inverse : ui.tone.subtle
+                viewMode === 'compact' ? 'bg-[#1e3a5f] ring-1 ring-[#1e3a5f]/30' : ''
               ].join(' ')}
+              style={{ 
+                color: viewMode === 'compact' ? '#ffffff' : '#1e3a5f',
+                backgroundColor: viewMode === 'compact' ? '#1e3a5f' : 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                if (viewMode !== 'compact') {
+                  e.currentTarget.style.backgroundColor = 'rgba(212, 136, 58, 0.1)';
+                  e.currentTarget.style.color = '#D4883A';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (viewMode !== 'compact') {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#1e3a5f';
+                }
+              }}
             >
-              <Text
-                as="span"
-                variant="body"
-                className={['font-medium', viewMode === 'compact' ? ui.tone.inverse : ui.tone.subtle].join(' ')}
-              >
+              <span className="font-medium text-[15px]" style={{ color: 'inherit' }}>
                 Compact
-              </Text>
+              </span>
             </button>
           </div>
         </div>
