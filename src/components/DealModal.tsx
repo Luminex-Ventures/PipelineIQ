@@ -1194,7 +1194,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               </DetailField>
 
               <DetailField label="BROKER SPLIT" isEditing={isEditing} editComponent={
-                <input type="number" step="0.01" value={formData.brokerage_split_rate * 100} onChange={e => setFormData(prev => ({ ...prev, brokerage_split_rate: parseFloat(e.target.value) / 100 || 0 }))} className="hig-input w-full" />
+                <input type="number" step="0.01" value={formData.brokerage_split_rate ? (formData.brokerage_split_rate * 100) : ''} onChange={e => setFormData(prev => ({ ...prev, brokerage_split_rate: parseFloat(e.target.value) / 100 || 0 }))} className="hig-input w-full" placeholder="20" />
               }>
                 {(formData.brokerage_split_rate * 100).toFixed(2)}%
               </DetailField>

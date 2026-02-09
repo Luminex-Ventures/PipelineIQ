@@ -187,8 +187,8 @@ const CLOSED_DEALS_SELECT = `
   ${DEAL_LEAD_SOURCE_COLUMNS}
 `;
 
-const INSIGHTS_REFRESH_MS = 30 * 60 * 1000;
-const AI_INSIGHTS_TTL_MS = 30 * 60 * 1000;
+const INSIGHTS_REFRESH_MS = 60 * 60 * 1000; // 1 hour
+const AI_INSIGHTS_TTL_MS = 60 * 60 * 1000; // 1 hour
 const GREETING_CHECK_INTERVAL_MS = 60 * 1000;
 
 const DEFAULT_WIDGETS = [
@@ -512,20 +512,19 @@ export default function Dashboard() {
     })
   );
 
-  useEffect(() => {
-    if (!user) return;
-    setAgentsReady(false);
-
-    const bootstrapAgents = async () => {
+  // Agents query - cached to avoid refetching on every navigation
+  const agentsQuery = useQuery({
+    queryKey: ['dashboard', 'agents', user?.id, roleInfo?.globalRole, roleInfo?.teamId],
+    queryFn: async () => {
       const fallback: AgentOption = {
-        id: user.id,
-        label: user.user_metadata?.name || user.email || 'You',
-        email: user.email || ''
+        id: user!.id,
+        label: user!.user_metadata?.name || user!.email || 'You',
+        email: user!.email || ''
       };
 
       const resolveTeamUserIds = async () => {
         if (!roleInfo?.teamId) return [] as string[];
-      const { data, error } = await supabase
+        const { data, error } = await supabase
           .from('user_teams')
           .select('user_id')
           .eq('team_id', roleInfo.teamId);
@@ -537,7 +536,7 @@ export default function Dashboard() {
       };
 
       const resolveVisibleAgentIds = async () => {
-        if (!roleInfo) return [user.id];
+        if (!roleInfo) return [user!.id];
         switch (roleInfo.globalRole) {
           case 'admin': {
             return await getVisibleUserIds(roleInfo);
@@ -556,10 +555,7 @@ export default function Dashboard() {
       };
 
       if (!roleInfo || roleInfo.globalRole === 'agent') {
-        setAvailableAgents([fallback]);
-        setSelectedAgentIds([user.id]);
-        setAgentsReady(true);
-        return;
+        return { agents: [fallback], selectedIds: [user!.id] };
       }
 
       const agentIds = await resolveVisibleAgentIds();
@@ -598,8 +594,8 @@ export default function Dashboard() {
       }
 
       const fallbackLabel = (id: string) =>
-        id === user.id
-          ? (user.user_metadata?.name || user.email || 'You')
+        id === user!.id
+          ? (user!.user_metadata?.name || user!.email || 'You')
           : `Agent ${id.slice(0, 8)}`;
 
       if (!agentOptions.length) {
@@ -623,13 +619,21 @@ export default function Dashboard() {
         }
       }
 
-      setAvailableAgents(agentOptions);
-      setSelectedAgentIds([]);
-      setAgentsReady(true);
-    };
+      return { agents: agentOptions, selectedIds: [] as string[] };
+    },
+    enabled: !!user,
+    staleTime: 10 * 60 * 1000, // Agent list is stable for 10 minutes
+    gcTime: 30 * 60 * 1000, // Cache for 30 minutes
+  });
 
-    bootstrapAgents();
-  }, [user, roleInfo, roleInfo?.globalRole, roleInfo?.teamId]);
+  // Sync agents query to state
+  useEffect(() => {
+    if (agentsQuery.data) {
+      setAvailableAgents(agentsQuery.data.agents);
+      setSelectedAgentIds(agentsQuery.data.selectedIds);
+      setAgentsReady(true);
+    }
+  }, [agentsQuery.data]);
 
   // Derived metrics (memoized)
   const showFocusOnMe = !!user && (roleInfo?.globalRole === 'team_lead' || roleInfo?.teamRole === 'team_lead');
@@ -1281,8 +1285,9 @@ export default function Dashboard() {
   ]);
 
   // React Query for cached filter context (pipeline stages, lead sources)
+  // Load immediately when user is available - doesn't depend on agents
   const filterContextQuery = useQuery({
-    queryKey: ['dashboard', 'filterContext', scopeKey],
+    queryKey: ['dashboard', 'filterContext', user?.id],
     queryFn: async () => {
       const [pipelineResponse, leadResponse] = await Promise.all([
         supabase
@@ -1316,9 +1321,9 @@ export default function Dashboard() {
 
       return { stages, leadSources };
     },
-    enabled: !!user && agentsReady && resolvedAgentIds.length > 0,
-    staleTime: 5 * 60 * 1000, // Filter context is stable for 5 minutes
-    gcTime: 15 * 60 * 1000,
+    enabled: !!user,
+    staleTime: 10 * 60 * 1000, // Filter context is stable for 10 minutes
+    gcTime: 30 * 60 * 1000, // Cache for 30 minutes
   });
 
   // Sync filter context to state
@@ -1392,9 +1397,10 @@ export default function Dashboard() {
       };
     },
     enabled: !!user && agentsReady && resolvedAgentIds.length > 0,
-    staleTime: 2 * 60 * 1000, // Data is fresh for 2 minutes
-    gcTime: 10 * 60 * 1000, // Cache for 10 minutes
-    refetchOnWindowFocus: true,
+    staleTime: 3 * 60 * 1000, // Data is fresh for 3 minutes
+    gcTime: 15 * 60 * 1000, // Cache for 15 minutes
+    refetchOnWindowFocus: false, // Don't refetch on every window focus
+    refetchOnMount: 'always', // But do refetch when component mounts
   });
 
   // Process cached data when it changes
@@ -1442,37 +1448,38 @@ export default function Dashboard() {
     loadAIInsights();
   }, [loading, insightsKey, aiInsightsState, queryKey, loadAIInsights]);
 
-  // Widget layout functions
-  const loadWidgetLayout = useCallback(async () => {
-    if (!user) return;
-
-    try {
+  // Widget layout query - cached separately from dashboard data
+  const widgetLayoutQuery = useQuery({
+    queryKey: ['dashboard', 'widgetLayout', user?.id],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('dashboard_layouts')
         .select('widget_order')
-        .eq('user_id', user.id)
+        .eq('user_id', user!.id)
         .maybeSingle();
 
       if (error) {
         console.error('Error loading widget layout:', error);
-        return;
+        return [...DEFAULT_WIDGETS];
       }
 
       const layout = data as DashboardLayoutRow | null;
       if (layout?.widget_order) {
-        setWidgetOrder(normalizeWidgetOrder(layout.widget_order as string[]));
-      } else {
-        setWidgetOrder([...DEFAULT_WIDGETS]);
+        return normalizeWidgetOrder(layout.widget_order as string[]);
       }
-    } catch (err) {
-      console.error('Error loading widget layout:', err);
-    }
-  }, [user]);
+      return [...DEFAULT_WIDGETS];
+    },
+    enabled: !!user,
+    staleTime: 30 * 60 * 1000, // Widget layout is very stable - 30 minutes
+    gcTime: 60 * 60 * 1000, // Cache for 1 hour
+  });
 
+  // Sync widget layout to state
   useEffect(() => {
-    if (!user) return;
-    loadWidgetLayout();
-  }, [user, loadWidgetLayout]);
+    if (widgetLayoutQuery.data) {
+      setWidgetOrder(widgetLayoutQuery.data);
+    }
+  }, [widgetLayoutQuery.data]);
 
   const saveWidgetLayout = async (order: string[]) => {
     if (!user) return;

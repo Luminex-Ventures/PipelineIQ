@@ -535,8 +535,7 @@ export default function Pipeline() {
       }
       
       const deals = (data || []) as DealRow[];
-      setKanbanDeals(deals);
-      setLastRefreshedAt(Date.now());
+      // Note: State is synced via useEffect watching kanbanQuery.data
       hasLoadedKanbanRef.current = true;
       return deals;
     } catch (err) {
@@ -774,9 +773,11 @@ export default function Pipeline() {
       return result ?? []; // Ensure we never return undefined
     },
     enabled: viewMode === 'kanban' && !!user && !!roleInfo,
-    staleTime: 1 * 60 * 1000, // 1 minute stale time for deals
-    gcTime: 5 * 60 * 1000, // 5 minutes cache time
-    refetchOnWindowFocus: true,
+    staleTime: 2 * 60 * 1000, // 2 minute stale time for deals
+    gcTime: 10 * 60 * 1000, // 10 minutes cache time
+    refetchOnWindowFocus: false, // Don't refetch on window focus to avoid flicker
+    refetchOnMount: 'always', // Always refetch when component mounts
+    placeholderData: (previousData) => previousData, // Keep showing old data while fetching new
   });
 
   // React Query for cached table deals
@@ -787,10 +788,31 @@ export default function Pipeline() {
       return result ?? { rows: [], total: 0 }; // Ensure we never return undefined
     },
     enabled: viewMode === 'table' && !!user && !!roleInfo,
-    staleTime: 1 * 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: true,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+    placeholderData: (previousData) => previousData,
   });
+
+  // Sync React Query data with component states
+  useEffect(() => {
+    // Always sync kanban data when available (even if empty array)
+    if (kanbanQuery.data !== undefined) {
+      setKanbanDeals(kanbanQuery.data);
+      if (kanbanQuery.data.length > 0 || !kanbanQuery.isLoading) {
+        setLastRefreshedAt(Date.now());
+      }
+    }
+  }, [kanbanQuery.data, kanbanQuery.isLoading]);
+
+  useEffect(() => {
+    if (tableQuery.data) {
+      setTableRows(tableQuery.data.rows ?? []);
+      setTableTotal(tableQuery.data.total ?? 0);
+      setLastRefreshedAt(Date.now());
+    }
+  }, [tableQuery.data]);
 
   // Sync React Query states with component states for loading indicators
   useEffect(() => {
