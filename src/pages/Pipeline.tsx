@@ -1692,7 +1692,7 @@ export default function Pipeline() {
           onDragEnd={handleDragEnd}
         >
           <div className="overflow-x-auto">
-            <div className={[ui.pad.cardTight, 'flex gap-3 sm:gap-4 min-w-max'].join(' ')}>
+            <div className={[ui.pad.cardTight, 'flex gap-3.5 min-w-max'].join(' ')}>
               {combinedStatuses.map(status => (
                 <PipelineColumn
                   key={status.id}

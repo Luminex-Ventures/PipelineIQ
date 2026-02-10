@@ -13,81 +13,88 @@ interface DealCardProps {
   isDragging?: boolean;
 }
 
+const DEAL_TYPE_COLORS: Record<string, string> = {
+  buyer: '#60a5fa',
+  seller: '#34d399',
+  buyer_and_seller: '#a78bfa',
+  renter: '#fb923c',
+  landlord: '#2dd4bf'
+};
+
 export default function DealCard({ deal, netCommission, daysInStage, onClick, isDragging = false }: DealCardProps) {
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(amount);
-  };
+
+  const dealTypeColor = DEAL_TYPE_COLORS[deal.deal_type] || '#94a3b8';
 
   return (
     <div
       onClick={onClick}
       data-deal-id={deal.id}
-      className={`rounded-xl border border-gray-200/70 bg-white p-3 shadow-[0_4px_10px_rgba(15,23,42,0.06)] cursor-move transition-transform duration-200 ${
-        isDragging ? 'opacity-60' : 'hover:-translate-y-0.5'
+      className={`group rounded-[3px] bg-white cursor-pointer transition-all duration-100 ${
+        isDragging
+          ? 'opacity-60 rotate-[2deg] shadow-[0_8px_16px_rgba(9,30,66,0.25)]'
+          : 'shadow-[0_1px_1px_rgba(9,30,66,0.25),0_0_1px_rgba(9,30,66,0.13)] hover:bg-[#f4f5f7]'
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h4 className="font-semibold text-gray-900 text-sm">{deal.client_name}</h4>
-          <div className="flex items-center text-xs text-gray-500">
-            <Home className="w-3.5 h-3.5 mr-1 text-gray-400" />
-            <span className="truncate">{deal.property_address}</span>
-          </div>
-        </div>
-        <div className="text-right">
-          <span className="text-[11px] uppercase tracking-wide text-gray-400">Expected</span>
-          <div className="text-sm font-semibold text-gray-900">
-            {formatCurrency(deal.actual_sale_price || deal.expected_sale_price)}
-          </div>
-        </div>
-      </div>
+      {/* Deal type left accent */}
+      <div className="flex">
+        <div
+          className="w-[3px] flex-shrink-0 rounded-l-[3px]"
+          style={{ backgroundColor: dealTypeColor }}
+        />
+        <div className="flex-1 min-w-0 p-2.5">
+          {/* Client name */}
+          <h4 className="text-[13px] font-medium text-[#172b4d] leading-tight mb-1">{deal.client_name}</h4>
 
-      <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-        <span className="truncate">
-          {deal.deal_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-400">
-        <div className="flex items-center gap-1">
-          {daysInStage >= 70 && <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />}
-          <Clock className="w-3.5 h-3.5 text-gray-300" />
-          <span>{daysInStage}d in stage</span>
-        </div>
-        {deal.lead_sources ? (
-          <div className="flex items-center gap-1 justify-end">
-            <TrendingUp className="w-3.5 h-3.5 text-gray-300" />
-            <span className="truncate">{deal.lead_sources.name}</span>
+          {/* Property address */}
+          <div className="flex items-center text-[12px] text-[#6b778c] mb-2">
+            <Home className="w-3 h-3 mr-1 text-[#a5adba] flex-shrink-0" />
+            <span className="truncate">{deal.property_address || 'No address'}</span>
           </div>
-        ) : (
-          <div />
-        )}
-      </div>
 
-      <div className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs">
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-gray-400">Net Commission</div>
-          <div className="text-sm font-semibold text-emerald-700">
-            {formatCurrency(netCommission)}
+          {/* Price + Commission row */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[13px] font-semibold text-[#172b4d]">
+              {formatCurrency(deal.actual_sale_price || deal.expected_sale_price)}
+            </span>
+            <span className="text-[12px] font-semibold text-emerald-600">
+              {formatCurrency(netCommission)}
+            </span>
           </div>
-        </div>
-        <div className="text-right">
-          <div className="text-[11px] uppercase tracking-wide text-gray-400">Close Date</div>
-          <div className="text-sm font-medium text-gray-500">
-            {deal.close_date
-              ? (() => {
-                  const [year, month, day] = deal.close_date.split('-').map(Number);
-                  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric'
-                  });
-                })()
-              : '—'}
+
+          {/* Bottom meta row */}
+          <div className="flex items-center justify-between text-[11px] text-[#a5adba]">
+            <div className="flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              <span>{daysInStage}d</span>
+              {daysInStage >= 70 && <span className="h-1.5 w-1.5 rounded-full bg-orange-400 ml-0.5" />}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {deal.lead_sources && (
+                <div className="flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" />
+                  <span className="truncate max-w-[80px]">{deal.lead_sources.name}</span>
+                </div>
+              )}
+              {deal.close_date && (
+                <span className="text-[#6b778c]">
+                  {(() => {
+                    const [year, month, day] = deal.close_date.split('-').map(Number);
+                    return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric'
+                    });
+                  })()}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
