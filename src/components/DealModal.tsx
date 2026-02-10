@@ -893,6 +893,16 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
 
   const netWithCredits = prelimNet - netFeeTotal + netCreditTotal;
 
+  // --- Waterfall line items from Total GCI → Net to Agent (for summary display) ---
+  const brokerSplitAmount = commissionBreakdown.afterPartnership - commissionBreakdown.afterBrokerage;
+  const partnershipSplitAmount = commissionBreakdown.gross - commissionBreakdown.afterPartnership;
+  const referralOutAmount = commissionBreakdown.afterBrokerage - commissionBreakdown.afterReferralOut;
+  const referralInAmount = commissionBreakdown.afterReferralIn - commissionBreakdown.afterReferralOut;
+  const transactionFeeAmount = commissionBreakdown.transactionFee;
+  const partnerDeductionsAmount = commissionBreakdown.customDeductions;
+  const nonGciDeductionsTotal = tgciFeeTotal + netFeeTotal;
+  const nonGciAdditionsTotal = tgciCreditTotal + netCreditTotal;
+
   // Helper to get the dollar amount for any individual fee/credit (for display)
   const getItemDollarAmount = (item: { type: string; value: number; percent_of?: PercentBasis; include_in_gci?: boolean }) => {
     if (item.type === 'flat') return item.value;
@@ -1331,7 +1341,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               {/* Details section */}
               <h3 className="text-sm font-semibold text-[#1e3a5f] mb-3">Details</h3>
               
-              <DetailField label="TYPE" isEditing={isEditing} editComponent={
+              <DetailField label="DEAL TYPE" isEditing={isEditing} editComponent={
                 <select value={formData.deal_type} onChange={e => setFormData(prev => ({ ...prev, deal_type: e.target.value as Deal['deal_type'] }))} className="hig-input w-full">
                   {Object.entries(DEAL_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
@@ -1339,19 +1349,19 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 {DEAL_TYPE_LABELS[formData.deal_type]}
               </DetailField>
 
-              <DetailField label="SOURCE" isEditing={isEditing} editComponent={
+              <DetailField label="LEAD SOURCE" isEditing={isEditing} editComponent={
                 <select value={formData.lead_source_id} onChange={e => handleLeadSourceChange(e.target.value)} className="hig-input w-full" required>
                   <option value="">Select source</option>
                   {leadSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               }>
-                {leadSourceLabel}
+                {leadSourceLabel === 'Not set' ? '—' : leadSourceLabel}
               </DetailField>
 
               <DetailField label="CLOSE DATE" isEditing={isEditing} editComponent={
                 <input type="date" value={formData.close_date || ''} onChange={e => setFormData(prev => ({ ...prev, close_date: e.target.value }))} className="hig-input w-full" />
               }>
-                {formatDate(formData.close_date)}
+                {formatDate(formData.close_date) || '—'}
               </DetailField>
 
               <div className="border-t border-gray-100 my-4" />
@@ -1362,19 +1372,19 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               <DetailField label="NAME" isEditing={isEditing} editComponent={
                 <input type="text" value={formData.client_name} onChange={e => setFormData(prev => ({ ...prev, client_name: e.target.value }))} className="hig-input w-full" required />
               }>
-                {formData.client_name || 'Not set'}
+                {formData.client_name || '—'}
               </DetailField>
 
               <DetailField label="PHONE" isEditing={isEditing} editComponent={
                 <input type="tel" value={formData.client_phone} onChange={e => setFormData(prev => ({ ...prev, client_phone: e.target.value }))} className="hig-input w-full" />
               }>
-                {formData.client_phone || 'Not set'}
+                {formData.client_phone || '—'}
               </DetailField>
 
               <DetailField label="EMAIL" isEditing={isEditing} editComponent={
                 <input type="email" value={formData.client_email} onChange={e => setFormData(prev => ({ ...prev, client_email: e.target.value }))} className="hig-input w-full" />
               }>
-                {formData.client_email || 'Not set'}
+                {formData.client_email || '—'}
               </DetailField>
 
               <div className="border-t border-gray-100 my-4" />
@@ -1391,7 +1401,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               <DetailField label="ACTUAL" isEditing={isEditing} editComponent={
                 <input type="number" value={formData.actual_sale_price || ''} onChange={e => setFormData(prev => ({ ...prev, actual_sale_price: e.target.value }))} className="hig-input w-full" placeholder="505000" />
               }>
-                {formData.actual_sale_price ? `$${Number(formData.actual_sale_price).toLocaleString()}` : 'Not set'}
+                {formData.actual_sale_price ? `$${Number(formData.actual_sale_price).toLocaleString()}` : '—'}
               </DetailField>
 
               <DetailField label="COMMISSION" isEditing={isEditing} editComponent={
@@ -1413,11 +1423,11 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 })()}
               </DetailField>
 
-              {/* Partner fees (from lead source) */}
+              {/* Partner deductions (from lead source) */}
               {partnerDeductions.length > 0 && (
                 <div className="py-2">
                   <div className="flex items-center justify-between mb-1">
-                    <Text variant="micro">PARTNER FEES</Text>
+                    <Text variant="micro">PARTNER DEDUCTIONS</Text>
                     <Text variant="muted" className="text-[10px]">{selectedLeadSource?.name}</Text>
                   </div>
                   <div className="pl-2 space-y-1 mt-1">
@@ -1426,9 +1436,9 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                       const engineDetail = commissionBreakdown.deductionDetails[idx];
                       const amount = engineDetail ? engineDetail.amount : (d.type === 'flat' ? d.value : grossCommission * d.value);
                       return (
-                        <div key={d.id} className="flex items-center justify-between">
-                          <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
-                          <Text variant="body" className="text-[13px] font-medium">
+                        <div key={d.id} className="flex items-baseline justify-between">
+                          <Text variant="muted" className="text-[13px]">{d.name || 'Deduction'}</Text>
+                          <Text variant="body" className="text-[13px] tabular-nums text-right">
                             {`-$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                             {d.type === 'percentage' ? ` (${fmtPct(d.value * 100)}%)` : ''}
                           </Text>
@@ -1446,10 +1456,10 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 </DetailField>
               )}
 
-              {/* Fees sub-section */}
+              {/* Deductions sub-section */}
               <div className="py-2">
                 <div className="flex items-center justify-between mb-1">
-                  <Text variant="micro">FEES</Text>
+                  <Text variant="micro">DEDUCTIONS</Text>
                   {isEditing && (
                     <button type="button" onClick={addCustomDeduction} className="text-[11px] text-[#D4883A] hover:underline">
                       + Add
@@ -1458,7 +1468,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 </div>
 
                 {formData.deal_deductions.length === 0 ? (
-                  <Text variant="muted" className="text-[13px]">No fees</Text>
+                  <Text variant="muted" className="text-[13px]">No deductions</Text>
                 ) : (
                   <div className="pl-2 space-y-2 mt-1">
                     {formData.deal_deductions.map(d => {
@@ -1474,7 +1484,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                                 value={d.name}
                                 onChange={e => updateCustomDeductionName(d.id, e.target.value)}
                                 className="text-[11px] font-medium text-[rgba(30,58,95,0.45)] bg-transparent border-0 border-b border-dashed border-gray-300 focus:border-gray-400 focus:outline-none w-full mb-1 p-0 placeholder:font-normal placeholder:text-gray-400"
-                                placeholder="Enter fee name (e.g., Processing Fee)"
+                                placeholder="Enter name (e.g., Processing Fee)"
                               />
                             ) : (
                               <Text variant="muted" className="text-[11px] font-medium mb-0.5">{d.name || 'Fee'}</Text>
@@ -1532,17 +1542,17 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                             )}
                           </>
                         ) : (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
+                          <div className="flex items-baseline justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Text variant="muted" className="text-[13px] truncate">{d.name || 'Deduction'}</Text>
                               {d.type === 'percentage' && (
-                                <span className="text-[9px] font-medium text-[#42526e] bg-gray-100 px-1.5 py-0.5 rounded">{basisLabel}</span>
+                                <span className="text-[9px] font-medium text-[rgba(30,58,95,0.5)] bg-[rgba(30,58,95,0.06)] px-1.5 py-0.5 rounded flex-shrink-0">{basisLabel}</span>
                               )}
                               {d.type === 'flat' && d.include_in_gci && (
-                                <span className="text-[9px] font-medium text-[#1e3a5f] bg-[#1e3a5f]/10 px-1.5 py-0.5 rounded">GCI</span>
+                                <span className="text-[9px] font-medium text-[rgba(30,58,95,0.5)] bg-[rgba(30,58,95,0.06)] px-1.5 py-0.5 rounded flex-shrink-0">GCI</span>
                               )}
                             </div>
-                            <Text variant="body" className="text-[13px] font-medium">
+                            <Text variant="body" className="text-[13px] tabular-nums text-right flex-shrink-0 ml-2">
                               {d.type === 'flat'
                                 ? `-$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : `-$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(d.value)}%)`
@@ -1584,7 +1594,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                               value={c.name}
                               onChange={e => updateCreditName(c.id, e.target.value)}
                               className="text-[11px] font-medium text-[rgba(30,58,95,0.45)] bg-transparent border-0 border-b border-dashed border-gray-300 focus:border-gray-400 focus:outline-none w-full mb-1 p-0 placeholder:font-normal placeholder:text-gray-400"
-                              placeholder="Enter credit name (e.g., Referral Bonus)"
+                              placeholder="Enter name (e.g., Referral Bonus)"
                             />
                             <div className="flex items-center gap-1.5">
                               <button
@@ -1616,7 +1626,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                                     onClick={() => setCreditPercentOf(c.id, b)}
                                     className={`text-[10px] px-1.5 py-0.5 rounded transition ${
                                       (c.percent_of || 'gross') === b
-                                        ? 'bg-emerald-600 text-white'
+                                        ? 'bg-[#1e3a5f] text-white'
                                         : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                                     }`}
                                   >
@@ -1637,17 +1647,17 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                             )}
                           </>
                         ) : (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Text variant="muted" className="text-[12px]">{c.name || 'Credit'}</Text>
+                          <div className="flex items-baseline justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Text variant="muted" className="text-[13px] truncate">{c.name || 'Addition'}</Text>
                               {c.type === 'percentage' && (
-                                <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">{basisLabel}</span>
+                                <span className="text-[9px] font-medium text-[rgba(30,58,95,0.5)] bg-[rgba(30,58,95,0.06)] px-1.5 py-0.5 rounded flex-shrink-0">{basisLabel}</span>
                               )}
                               {c.type === 'flat' && c.include_in_gci && (
-                                <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">GCI</span>
+                                <span className="text-[9px] font-medium text-[rgba(30,58,95,0.5)] bg-[rgba(30,58,95,0.06)] px-1.5 py-0.5 rounded flex-shrink-0">GCI</span>
                               )}
                             </div>
-                            <Text variant="body" className="text-[13px] font-medium text-emerald-600">
+                            <Text variant="body" className="text-[13px] tabular-nums text-right flex-shrink-0 ml-2">
                               {c.type === 'flat'
                                 ? `+$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : `+$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(c.value)}%)`
@@ -1663,39 +1673,125 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               </div>
 
               {/* Commission summary */}
-              <div className="mt-4 pt-3 border-t border-gray-200 space-y-3">
-                {/* Gross Commission = sale price × commission rate */}
-                <div className="flex items-center justify-between">
-                  <Text variant="micro">GROSS COMMISSION</Text>
-                  <Text variant="body" className="text-[14px] font-medium text-[#1e3a5f]">
+              <div className="mt-4 pt-3 border-t border-gray-200">
+
+                {/* ── Gross Comm. ── */}
+                <div className="flex items-baseline justify-between py-2">
+                  <Text variant="micro">GROSS COMM.</Text>
+                  <Text variant="body" className="font-medium tabular-nums text-right">
                     ${grossCommission.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </div>
 
-                {/* Total GCI = gross commission + GCI credits − GCI fees */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Text variant="micro">TOTAL GCI</Text>
-                    {(gciFeeTotal !== 0 || gciCreditTotal !== 0) && (
-                      <div className="mt-0.5 space-y-0">
-                        {gciCreditTotal > 0 && (
-                          <Text variant="muted" className="text-[10px]">+${gciCreditTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} additions</Text>
-                        )}
-                        {gciFeeTotal > 0 && (
-                          <Text variant="muted" className="text-[10px]">&minus;${gciFeeTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} fees</Text>
-                        )}
+                {/* GCI-level adjustments */}
+                {(gciCreditTotal > 0 || gciFeeTotal > 0) && (
+                  <div className="space-y-0.5 -mt-1 mb-1">
+                    {gciCreditTotal > 0 && (
+                      <div className="flex items-baseline justify-between py-0.5 pl-3">
+                        <span className="text-[13px] text-[rgba(30,58,95,0.5)]">+ Additions</span>
+                        <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                          +${gciCreditTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                    {gciFeeTotal > 0 && (
+                      <div className="flex items-baseline justify-between py-0.5 pl-3">
+                        <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Deductions</span>
+                        <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                          &minus;${gciFeeTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
                     )}
                   </div>
-                  <Text variant="body" className="text-[14px] font-semibold text-[#1e3a5f]">
+                )}
+
+                {/* ── Total GCI ── */}
+                <div className="flex items-baseline justify-between py-2 border-t border-dashed border-gray-200">
+                  <Text variant="micro">TOTAL GCI</Text>
+                  <Text variant="body" className="font-medium tabular-nums text-right">
                     ${reportedGCI.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </div>
 
-                {/* Net to Agent */}
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                  <Text variant="micro">NET TO AGENT</Text>
-                  <Text variant="body" className="text-[16px] font-bold text-[#1e3a5f]">
+                {/* ── Waterfall: Total GCI → Net to Agent ── */}
+                <div className="space-y-0.5 -mt-1 mb-1">
+                  {brokerSplitAmount > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Broker Split</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        &minus;${brokerSplitAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {partnershipSplitAmount > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Partnership Split</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        &minus;${partnershipSplitAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {referralOutAmount > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Referral Out</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        &minus;${referralOutAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {referralInAmount > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">+ Referral In</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        +${referralInAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {transactionFeeAmount > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Transaction Fee</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        &minus;${transactionFeeAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {partnerDeductionsAmount > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Partner Deductions</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        &minus;${partnerDeductionsAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {nonGciAdditionsTotal > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">+ Additions</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        +${nonGciAdditionsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {nonGciDeductionsTotal > 0 && (
+                    <div className="flex items-baseline justify-between py-0.5 pl-3">
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)]">&minus; Deductions</span>
+                      <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums text-right">
+                        &minus;${nonGciDeductionsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Net to Agent — strongest emphasis ── */}
+                <div className="flex items-baseline justify-between py-2 border-t-2 border-[#1e3a5f]/15 bg-[rgba(30,58,95,0.03)] rounded-md px-2 -mx-1">
+                  <Text variant="micro" className="!text-[#1e3a5f]">NET TO AGENT</Text>
+                  <Text variant="body" className="font-bold tabular-nums text-right">
                     ${netWithCredits.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </div>
