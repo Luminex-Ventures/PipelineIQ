@@ -68,7 +68,7 @@ export default function PipelineColumn({
     .filter(group => group.deals.length > 0);
 
   return (
-    <div className="flex-shrink-0 w-[272px] sm:w-[296px] flex flex-col rounded-lg overflow-hidden">
+    <div className="flex flex-col rounded-lg overflow-hidden min-w-0">
       {/* Colored accent bar */}
       <div className="h-[3px] flex-shrink-0" style={{ backgroundColor: statusColor.bg }} />
 

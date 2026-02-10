@@ -1691,8 +1691,17 @@ export default function Pipeline() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="overflow-x-auto">
-            <div className={[ui.pad.cardTight, 'flex gap-3.5 min-w-max'].join(' ')}>
+          <div className="overflow-x-auto px-4 py-4">
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${combinedStatuses.length}, minmax(280px, 1fr))`,
+                gap: '14px',
+                minWidth: `${combinedStatuses.length * 280 + (combinedStatuses.length - 1) * 14}px`,
+                maxWidth: `${combinedStatuses.length * 480 + (combinedStatuses.length - 1) * 14}px`,
+                width: '100%',
+              }}
+            >
               {combinedStatuses.map(status => (
                 <PipelineColumn
                   key={status.id}
@@ -1710,13 +1719,15 @@ export default function Pipeline() {
 
           <DragOverlay>
             {activeDeal ? (
-              <DealCard
-                deal={activeDeal}
-                netCommission={calculateNetCommission(activeDeal)}
-                daysInStage={getDaysInStage(activeDeal.stage_entered_at)}
-                onClick={() => {}}
-                isDragging
-              />
+              <div style={{ width: 296 }}>
+                <DealCard
+                  deal={activeDeal}
+                  netCommission={calculateNetCommission(activeDeal)}
+                  daysInStage={getDaysInStage(activeDeal.stage_entered_at)}
+                  onClick={() => {}}
+                  isDragging
+                />
+              </div>
             ) : null}
           </DragOverlay>
         </DndContext>
