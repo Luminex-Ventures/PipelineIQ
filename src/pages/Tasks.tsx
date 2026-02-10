@@ -485,7 +485,7 @@ export default function Tasks() {
   });
 
   // React Query for cached agents
-  useQuery({
+  const agentsQuery = useQuery({
     queryKey: ['tasks', 'agents', user?.id, roleInfo?.globalRole],
     queryFn: async () => {
       const result = await loadAgents();
@@ -495,6 +495,13 @@ export default function Tasks() {
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   });
+
+  // Sync cached agent data to state when component mounts with fresh cache
+  useEffect(() => {
+    if (agentsQuery.data && agentsQuery.data.length > 0 && agentOptions.length === 0 && isManagerRole) {
+      setAgentOptions(agentsQuery.data);
+    }
+  }, [agentsQuery.data, agentOptions.length, isManagerRole]);
 
   // Sync loading states
   useEffect(() => {

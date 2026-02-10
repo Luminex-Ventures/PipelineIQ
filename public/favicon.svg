@@ -1,5 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Luma-IQ icon">
-  <polygon fill="#a8e1ff" points="15 100 15 25 45 40 45 115" />
-  <polygon fill="#69b1ff" points="45 115 45 40 75 25 75 100" />
-  <polygon fill="#185df7" points="75 100 75 25 105 40 105 115" />
+  <!-- Main diamond body with left notch -->
+  <path d="M60,4 L116,60 L60,116 L60,86 L36,62 L60,28 Z" fill="#D4883A"/>
+  <!-- Separate left triangle -->
+  <polygon points="4,60 32,32 32,60" fill="#D4883A"/>
+  <!-- Bottom accent triangle -->
+  <polygon points="60,86 84,86 84,112" fill="#D4883A"/>
 </svg>

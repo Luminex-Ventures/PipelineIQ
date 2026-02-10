@@ -155,7 +155,7 @@ export function MultiSelectCombobox({
         </div>
       }
     >
-      <div ref={containerRef} className="multiselect-body">
+      <div ref={containerRef} className="multiselect-body relative">
         <div
           className={`hig-input flex items-center gap-2 ${ui.radius.card} bg-white/90 ${
             disabled ? 'opacity-60' : 'cursor-text'
@@ -193,7 +193,7 @@ export function MultiSelectCombobox({
         </div>
         {open && !disabled && (
           <div
-            className="max-h-64 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
+            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
             role="listbox"
             id={listboxId}
           >

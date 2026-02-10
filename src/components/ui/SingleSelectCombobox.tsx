@@ -136,7 +136,7 @@ export function SingleSelectCombobox({
   };
 
   return (
-    <div ref={containerRef} className="space-y-2">
+    <div ref={containerRef} className="space-y-2 relative">
       <label className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
         {label}
       </label>
@@ -185,7 +185,7 @@ export function SingleSelectCombobox({
       </div>
       {open && !disabled && (
         <div
-          className="max-h-64 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
+          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg"
           role="listbox"
           id={listboxId}
         >
