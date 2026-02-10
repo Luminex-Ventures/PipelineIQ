@@ -1199,25 +1199,13 @@ export default function Pipeline() {
   const calculateNetCommission = (deal: Deal) => {
     const ls = deal.lead_source_id ? leadSourceMap.get(deal.lead_source_id) : null;
 
-    // Partner-level deductions from the lead source
+    // Partner-level deductions from the lead source (handled by engine)
     const partnerDeductions = (ls?.custom_deductions || []).map((d: any, i: number) => ({
       ...d,
       apply_order: d.apply_order ?? i
     }));
 
-    // Deal-level fees (stored as decimals in DB, e.g. 2.5% = 0.025 — pass through as-is)
-    const dealDeductions = ((deal as any).deal_deductions || [])
-      .filter((d: any) => !d.is_waived)
-      .map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        type: d.type,
-        value: d.value,
-        apply_order: (d.apply_order ?? 0) + 1000
-      }));
-
-    const allDeductions = [...partnerDeductions, ...dealDeductions];
-
+    // Engine handles: gross, partnership, brokerage, referrals, transaction fee, partner deductions
     const commissionInput = {
       actual_sale_price: deal.actual_sale_price,
       expected_sale_price: deal.expected_sale_price,
@@ -1226,7 +1214,7 @@ export default function Pipeline() {
       referral_out_rate: deal.referral_out_rate,
       referral_in_rate: deal.referral_in_rate,
       transaction_fee: deal.transaction_fee,
-      custom_deductions: allDeductions.length > 0 ? allDeductions : null,
+      custom_deductions: partnerDeductions.length > 0 ? partnerDeductions : null,
       payout_structure: (ls?.payout_structure as any) || null,
       partnership_split_rate: ls?.partnership_split_rate || null,
       tiered_splits: ls?.tiered_splits || null
@@ -1234,16 +1222,41 @@ export default function Pipeline() {
 
     const preferActual = !!deal.actual_sale_price;
     const breakdown = calculateCommissionBreakdown(commissionInput, { preferActual, includeReferralIn: true });
+    const gross = breakdown.gross;
 
-    // Add deal-level credits back (stored as decimals in DB, e.g. 2.5% = 0.025)
-    const credits: DealCredit[] = (deal as any).deal_credits || [];
-    const totalCredits = credits.reduce((sum, c) => {
-      if (c.type === 'flat') return sum + c.value;
-      if (c.type === 'percentage') return sum + (breakdown.gross * c.value);
-      return sum;
-    }, 0);
+    // Deal-level fees/credits (stored as decimals in DB, e.g. 2.5% = 0.025)
+    // percent_of: 'gross' (GCI), 'total_gci', or 'net'; flat items use include_in_gci
+    const dealFees: any[] = ((deal as any).deal_deductions || []).filter((d: any) => !d.is_waived);
+    const dealCredits: any[] = (deal as any).deal_credits || [];
 
-    return breakdown.net + totalCredits;
+    const getBasis = (item: any) => {
+      if (item.type === 'flat') return item.include_in_gci ? 'flat_gci' : 'flat_other';
+      return item.percent_of || 'gross';
+    };
+    const amt = (item: any, base: number) =>
+      item.type === 'flat' ? item.value : base * item.value;
+
+    // Phase 1: GCI items (% of gross + flat GCI)
+    const gciFeeT = dealFees.filter((d: any) => { const b = getBasis(d); return b === 'gross' || b === 'flat_gci'; })
+      .reduce((s: number, d: any) => s + amt(d, gross), 0);
+    const gciCredT = dealCredits.filter((c: any) => { const b = getBasis(c); return b === 'gross' || b === 'flat_gci'; })
+      .reduce((s: number, c: any) => s + amt(c, gross), 0);
+    const totalGCI = gross - gciFeeT + gciCredT;
+
+    // Phase 2: Total-GCI items (% of totalGCI + flat non-GCI)
+    const tgciFeeT = dealFees.filter((d: any) => { const b = getBasis(d); return b === 'total_gci' || b === 'flat_other'; })
+      .reduce((s: number, d: any) => s + amt(d, totalGCI), 0);
+    const tgciCredT = dealCredits.filter((c: any) => { const b = getBasis(c); return b === 'total_gci' || b === 'flat_other'; })
+      .reduce((s: number, c: any) => s + amt(c, totalGCI), 0);
+
+    // Phase 3: Net items (% of preliminary net)
+    const prelimNet = breakdown.net - gciFeeT - tgciFeeT + gciCredT + tgciCredT;
+    const netFeeT = dealFees.filter((d: any) => getBasis(d) === 'net')
+      .reduce((s: number, d: any) => s + prelimNet * d.value, 0);
+    const netCredT = dealCredits.filter((c: any) => getBasis(c) === 'net')
+      .reduce((s: number, c: any) => s + prelimNet * c.value, 0);
+
+    return prelimNet - netFeeT + netCredT;
   };
 
   const filteredTableRows = useMemo(() => {

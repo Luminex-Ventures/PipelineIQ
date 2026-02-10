@@ -28,6 +28,12 @@ export interface CustomDeduction {
   apply_order: number;      // Order in which deductions are applied (lower = first)
 }
 
+// Percentage basis: which dollar amount the % is applied against
+//   'gross'     = Gross Commission (sale × rate) — counts toward GCI
+//   'total_gci' = Total GCI (gross ± GCI items) — does NOT count toward GCI
+//   'net'       = Net to Agent — does NOT count toward GCI
+export type PercentBasis = 'gross' | 'total_gci' | 'net';
+
 // Deal-level deduction override (allows agents to waive, reduce, or add fees)
 export interface DealDeduction {
   id: string;
@@ -37,6 +43,8 @@ export interface DealDeduction {
   value: number;            // The actual value for this deal (can be modified from default)
   apply_order: number;
   is_waived: boolean;       // If true, this deduction is skipped for this deal
+  include_in_gci?: boolean; // If true (flat fees only), factored into reported GCI
+  percent_of?: PercentBasis; // For percentage type: which base to apply against (default: 'gross')
 }
 
 // Deal-level credit (bonus, referral credit, etc.)
@@ -45,6 +53,8 @@ export interface DealCredit {
   name: string;             // Display name (e.g., "Referral Bonus", "Volume Credit")
   type: 'percentage' | 'flat';
   value: number;            // The dollar amount or percentage
+  include_in_gci?: boolean; // If true (flat credits only), factored into reported GCI
+  percent_of?: PercentBasis; // For percentage type: which base to apply against (default: 'gross')
 }
 
 export interface Database {

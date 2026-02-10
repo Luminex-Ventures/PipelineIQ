@@ -20,7 +20,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import QuickAddTask from './QuickAddTask';
-import type { Database, DealDeduction, DealCredit } from '../lib/database.types';
+import type { Database, DealDeduction, DealCredit, PercentBasis } from '../lib/database.types';
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getVisibleUserIds } from '../lib/rbac';
 import DealNotes from './DealNotes';
@@ -104,11 +104,15 @@ const buildFormState = (deal: Deal | null): FormState => ({
   deal_deductions: (deal?.deal_deductions || []).map(d => ({
     ...d,
     // Convert percentage values from decimal (DB) to display percentage
-    value: d.type === 'percentage' ? d.value * 100 : d.value
+    value: d.type === 'percentage' ? d.value * 100 : d.value,
+    include_in_gci: !!d.include_in_gci,
+    percent_of: (d.percent_of as PercentBasis) || 'gross'
   })),
   deal_credits: (deal?.deal_credits || []).map(c => ({
     ...c,
-    value: c.type === 'percentage' ? c.value * 100 : c.value
+    value: c.type === 'percentage' ? c.value * 100 : c.value,
+    include_in_gci: !!c.include_in_gci,
+    percent_of: (c.percent_of as PercentBasis) || 'gross'
   }))
 });
 
@@ -454,7 +458,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     setFormData(prev => ({
       ...prev,
       deal_deductions: prev.deal_deductions.map(d =>
-        d.id === deductionId ? { ...d, type: d.type === 'flat' ? 'percentage' : 'flat', value: 0 } : d
+        d.id === deductionId ? { ...d, type: d.type === 'flat' ? 'percentage' : 'flat', value: 0, percent_of: d.type === 'flat' ? 'gross' : undefined } : d
       )
     }));
   };
@@ -468,6 +472,24 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     }));
   };
 
+  const setDeductionPercentOf = (deductionId: string, basis: PercentBasis) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.map(d =>
+        d.id === deductionId ? { ...d, percent_of: basis, include_in_gci: basis === 'gross' } : d
+      )
+    }));
+  };
+
+  const toggleDeductionGci = (deductionId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.map(d =>
+        d.id === deductionId ? { ...d, include_in_gci: !d.include_in_gci } : d
+      )
+    }));
+  };
+
   const addCustomDeduction = () => {
     const maxOrder = formData.deal_deductions.reduce((max, d) => Math.max(max, d.apply_order), 0);
     const newDeduction: DealDeduction = {
@@ -477,7 +499,9 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
       type: 'flat',
       value: 0,
       apply_order: maxOrder + 1,
-      is_waived: false
+      is_waived: false,
+      include_in_gci: false,
+      percent_of: 'gross'
     };
     setFormData(prev => ({
       ...prev,
@@ -502,12 +526,32 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   };
 
   // --- Credit CRUD ---
+  const setCreditPercentOf = (creditId: string, basis: PercentBasis) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: prev.deal_credits.map(c =>
+        c.id === creditId ? { ...c, percent_of: basis, include_in_gci: basis === 'gross' } : c
+      )
+    }));
+  };
+
+  const toggleCreditGci = (creditId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: prev.deal_credits.map(c =>
+        c.id === creditId ? { ...c, include_in_gci: !c.include_in_gci } : c
+      )
+    }));
+  };
+
   const addCredit = () => {
     const newCredit: DealCredit = {
       id: generateId(),
       name: '',
       type: 'flat',
-      value: 0
+      value: 0,
+      include_in_gci: false,
+      percent_of: 'gross'
     };
     setFormData(prev => ({
       ...prev,
@@ -528,7 +572,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     setFormData(prev => ({
       ...prev,
       deal_credits: prev.deal_credits.map(c =>
-        c.id === creditId ? { ...c, type: c.type === 'flat' ? 'percentage' : 'flat', value: 0 } : c
+        c.id === creditId ? { ...c, type: c.type === 'flat' ? 'percentage' : 'flat', value: 0, percent_of: c.type === 'flat' ? 'gross' : undefined } : c
       )
     }));
   };
@@ -576,15 +620,26 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     const deductionsForDb: DealDeduction[] = formData.deal_deductions
       .filter(d => !d.is_waived)
       .map(d => ({
-        ...d,
-        value: d.type === 'percentage' ? d.value / 100 : d.value
+        id: d.id,
+        deduction_id: d.deduction_id,
+        name: d.name,
+        type: d.type,
+        value: d.type === 'percentage' ? d.value / 100 : d.value,
+        apply_order: d.apply_order,
+        is_waived: d.is_waived,
+        include_in_gci: d.type === 'percentage' ? (d.percent_of || 'gross') === 'gross' : !!d.include_in_gci,
+        percent_of: d.type === 'percentage' ? (d.percent_of || 'gross') : undefined
       }));
 
     const creditsForDb: DealCredit[] = formData.deal_credits
       .filter(c => c.value > 0)
       .map(c => ({
-        ...c,
-        value: c.type === 'percentage' ? c.value / 100 : c.value
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        value: c.type === 'percentage' ? c.value / 100 : c.value,
+        include_in_gci: c.type === 'percentage' ? (c.percent_of || 'gross') === 'gross' : !!c.include_in_gci,
+        percent_of: c.type === 'percentage' ? (c.percent_of || 'gross') : undefined
       }));
 
     const dealData: DealInsert & DealUpdate = {
@@ -776,29 +831,14 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   // Derived values
   const selectedLeadSource = leadSources.find(s => s.id === formData.lead_source_id) || null;
 
-  // Deal-level fees (entered by the user on this deal)
-  const activeDeductions = formData.deal_deductions
-    .filter(d => !d.is_waived)
-    .map(d => ({
-      id: d.id,
-      name: d.name,
-      type: d.type,
-      value: d.type === 'percentage' ? d.value / 100 : d.value,
-      apply_order: d.apply_order
-    }));
-
-  // Lead source (preferred partner) fees — applied before deal-level fees
+  // Lead source (preferred partner) fees — applied through the commission engine
   const partnerDeductions = (selectedLeadSource?.custom_deductions || []).map((d, i) => ({
     ...d,
     apply_order: d.apply_order ?? i
   }));
 
-  // Combine: partner fees first, then deal-level fees
-  const allDeductions = [
-    ...partnerDeductions,
-    ...activeDeductions.map(d => ({ ...d, apply_order: d.apply_order + 1000 }))
-  ];
-
+  // Commission engine handles: gross, partnership, brokerage, referrals, transaction fee, partner deductions
+  // Deal-level fees/credits are handled manually below (GCI vs non-GCI ordering)
   const commissionInput = {
     actual_sale_price: Number(formData.actual_sale_price),
     expected_sale_price: Number(formData.expected_sale_price),
@@ -807,22 +847,59 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     referral_out_rate: Number(formData.referral_out_rate),
     referral_in_rate: Number(formData.referral_in_rate),
     transaction_fee: Number(formData.transaction_fee),
-    custom_deductions: allDeductions,
+    custom_deductions: partnerDeductions.length > 0 ? partnerDeductions : null,
     payout_structure: selectedLeadSource?.payout_structure || null,
     partnership_split_rate: selectedLeadSource?.partnership_split_rate || null,
     tiered_splits: selectedLeadSource?.tiered_splits || null
   };
   const commissionBreakdown = calculateCommissionBreakdown(commissionInput, { includeReferralIn: true });
-  const netBeforeTax = commissionBreakdown.net;
-
-  // Calculate total credits to add back (percentage is against gross commission to agent)
   const grossCommission = commissionBreakdown.gross;
-  const totalCredits = formData.deal_credits.reduce((sum, c) => {
-    if (c.type === 'flat') return sum + c.value;
-    if (c.type === 'percentage') return sum + (grossCommission * (c.value / 100));
-    return sum;
-  }, 0);
-  const netWithCredits = netBeforeTax + totalCredits;
+  const afterEngineNet = commissionBreakdown.net; // net after broker split, referrals, partner fees, etc.
+
+  // Active deal-level fees/credits (not waived)
+  const activeFees = formData.deal_deductions.filter(d => !d.is_waived);
+
+  // Helper: resolve percent_of for an item (flat items use include_in_gci; percentage items use percent_of)
+  const getBasis = (item: { type: string; percent_of?: PercentBasis; include_in_gci?: boolean }): PercentBasis | 'flat_gci' | 'flat_other' => {
+    if (item.type === 'flat') return item.include_in_gci ? 'flat_gci' : 'flat_other';
+    return item.percent_of || 'gross';
+  };
+
+  // --- Phase 1: GCI items (% of gross + flat GCI) → determine Total GCI ---
+  const gciFeeTotal = activeFees
+    .filter(d => getBasis(d) === 'gross' || getBasis(d) === 'flat_gci')
+    .reduce((sum, d) => sum + (d.type === 'flat' ? d.value : grossCommission * (d.value / 100)), 0);
+  const gciCreditTotal = formData.deal_credits
+    .filter(c => getBasis(c) === 'gross' || getBasis(c) === 'flat_gci')
+    .reduce((sum, c) => sum + (c.type === 'flat' ? c.value : grossCommission * (c.value / 100)), 0);
+  const reportedGCI = grossCommission - gciFeeTotal + gciCreditTotal;
+
+  // --- Phase 2: Total-GCI items (% of Total GCI + flat non-GCI) ---
+  const tgciFeeTotal = activeFees
+    .filter(d => getBasis(d) === 'total_gci' || getBasis(d) === 'flat_other')
+    .reduce((sum, d) => sum + (d.type === 'flat' ? d.value : reportedGCI * (d.value / 100)), 0);
+  const tgciCreditTotal = formData.deal_credits
+    .filter(c => getBasis(c) === 'total_gci' || getBasis(c) === 'flat_other')
+    .reduce((sum, c) => sum + (c.type === 'flat' ? c.value : reportedGCI * (c.value / 100)), 0);
+
+  // --- Phase 3: Net items (% of preliminary net) ---
+  const prelimNet = afterEngineNet - gciFeeTotal - tgciFeeTotal + gciCreditTotal + tgciCreditTotal;
+  const netFeeTotal = activeFees
+    .filter(d => getBasis(d) === 'net')
+    .reduce((sum, d) => sum + prelimNet * (d.value / 100), 0);
+  const netCreditTotal = formData.deal_credits
+    .filter(c => getBasis(c) === 'net')
+    .reduce((sum, c) => sum + prelimNet * (c.value / 100), 0);
+
+  const netWithCredits = prelimNet - netFeeTotal + netCreditTotal;
+
+  // Helper to get the dollar amount for any individual fee/credit (for display)
+  const getItemDollarAmount = (item: { type: string; value: number; percent_of?: PercentBasis; include_in_gci?: boolean }) => {
+    if (item.type === 'flat') return item.value;
+    const basis = item.percent_of || 'gross';
+    const base = basis === 'gross' ? grossCommission : basis === 'total_gci' ? reportedGCI : prelimNet;
+    return base * (item.value / 100);
+  };
 
   const currentStatus = pipelineStatuses.find(s => s.id === formData.pipeline_status_id);
   const leadSourceLabel = leadSources.find(source => source.id === formData.lead_source_id)?.name || 'Not set';
@@ -1384,10 +1461,9 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                   <Text variant="muted" className="text-[13px]">No fees</Text>
                 ) : (
                   <div className="pl-2 space-y-2 mt-1">
-                    {formData.deal_deductions.map((d, idx) => {
-                      // Deal-level deductions start after partner deductions in the engine details
-                      const engineIdx = partnerDeductions.length + idx;
-                      const engineDetail = commissionBreakdown.deductionDetails[engineIdx];
+                    {formData.deal_deductions.map(d => {
+                      const dollarAmount = getItemDollarAmount(d);
+                      const basisLabel = d.percent_of === 'total_gci' ? 'Total GCI' : d.percent_of === 'net' ? 'Net' : 'GCI';
                       return (
                       <div key={d.id}>
                         {isEditing ? (
@@ -1425,14 +1501,51 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                                 </button>
                               )}
                             </div>
+                            {d.type === 'percentage' ? (
+                              <div className="flex items-center gap-1 mt-1">
+                                <span className="text-[10px] text-gray-400">% of</span>
+                                {(['gross', 'total_gci', 'net'] as PercentBasis[]).map(b => (
+                                  <button
+                                    key={b}
+                                    type="button"
+                                    onClick={() => setDeductionPercentOf(d.id, b)}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded transition ${
+                                      (d.percent_of || 'gross') === b
+                                        ? 'bg-[#1e3a5f] text-white'
+                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    {b === 'gross' ? 'GCI' : b === 'total_gci' ? 'Total GCI' : 'Net'}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <label className="flex items-center gap-1.5 mt-1 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={!!d.include_in_gci}
+                                  onChange={() => toggleDeductionGci(d.id)}
+                                  className="w-3.5 h-3.5 rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                                />
+                                <span className="text-[10px] text-gray-500">Include in GCI</span>
+                              </label>
+                            )}
                           </>
                         ) : (
                           <div className="flex items-center justify-between">
-                            <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
+                            <div className="flex items-center gap-1.5">
+                              <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
+                              {d.type === 'percentage' && (
+                                <span className="text-[9px] font-medium text-[#42526e] bg-gray-100 px-1.5 py-0.5 rounded">{basisLabel}</span>
+                              )}
+                              {d.type === 'flat' && d.include_in_gci && (
+                                <span className="text-[9px] font-medium text-[#1e3a5f] bg-[#1e3a5f]/10 px-1.5 py-0.5 rounded">GCI</span>
+                              )}
+                            </div>
                             <Text variant="body" className="text-[13px] font-medium">
                               {d.type === 'flat'
-                                ? `-$${(engineDetail?.amount ?? d.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                : `-$${(engineDetail?.amount ?? (grossCommission * (d.value / 100))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(d.value)}%)`
+                                ? `-$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : `-$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(d.value)}%)`
                               }
                             </Text>
                           </div>
@@ -1444,10 +1557,10 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 )}
               </div>
 
-              {/* Credits sub-section */}
+              {/* Additions sub-section */}
               <div className="py-2">
                 <div className="flex items-center justify-between mb-1">
-                  <Text variant="micro">CREDITS</Text>
+                  <Text variant="micro">ADDITIONS</Text>
                   {isEditing && (
                     <button type="button" onClick={addCredit} className="text-[11px] text-[#D4883A] hover:underline">
                       + Add
@@ -1456,10 +1569,13 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                 </div>
 
                 {formData.deal_credits.length === 0 ? (
-                  <Text variant="muted" className="text-[13px]">No credits</Text>
+                  <Text variant="muted" className="text-[13px]">No additions</Text>
                 ) : (
                   <div className="pl-2 space-y-2 mt-1">
-                    {formData.deal_credits.map(c => (
+                    {formData.deal_credits.map(c => {
+                      const dollarAmount = getItemDollarAmount(c);
+                      const basisLabel = c.percent_of === 'total_gci' ? 'Total GCI' : c.percent_of === 'net' ? 'Net' : 'GCI';
+                      return (
                       <div key={c.id}>
                         {isEditing ? (
                           <>
@@ -1490,30 +1606,99 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                                 ×
                               </button>
                             </div>
+                            {c.type === 'percentage' ? (
+                              <div className="flex items-center gap-1 mt-1">
+                                <span className="text-[10px] text-gray-400">% of</span>
+                                {(['gross', 'total_gci', 'net'] as PercentBasis[]).map(b => (
+                                  <button
+                                    key={b}
+                                    type="button"
+                                    onClick={() => setCreditPercentOf(c.id, b)}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded transition ${
+                                      (c.percent_of || 'gross') === b
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    {b === 'gross' ? 'GCI' : b === 'total_gci' ? 'Total GCI' : 'Net'}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <label className="flex items-center gap-1.5 mt-1 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={!!c.include_in_gci}
+                                  onChange={() => toggleCreditGci(c.id)}
+                                  className="w-3.5 h-3.5 rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                                />
+                                <span className="text-[10px] text-gray-500">Include in GCI</span>
+                              </label>
+                            )}
                           </>
                         ) : (
                           <div className="flex items-center justify-between">
-                            <Text variant="muted" className="text-[12px]">{c.name || 'Credit'}</Text>
+                            <div className="flex items-center gap-1.5">
+                              <Text variant="muted" className="text-[12px]">{c.name || 'Credit'}</Text>
+                              {c.type === 'percentage' && (
+                                <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">{basisLabel}</span>
+                              )}
+                              {c.type === 'flat' && c.include_in_gci && (
+                                <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">GCI</span>
+                              )}
+                            </div>
                             <Text variant="body" className="text-[13px] font-medium text-emerald-600">
                               {c.type === 'flat'
-                                ? `+$${c.value.toLocaleString()}`
-                                : `+$${(grossCommission * (c.value / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(c.value)}%)`
+                                ? `+$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : `+$${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(c.value)}%)`
                               }
                             </Text>
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Net to Agent - Neutral info block */}
-              <div className="mt-4 py-3 border-t border-gray-100">
-                <Text variant="micro" className="mb-1">NET TO AGENT</Text>
-                <Text variant="h2">
-                  ${netWithCredits.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
+              {/* Commission summary */}
+              <div className="mt-4 pt-3 border-t border-gray-200 space-y-3">
+                {/* Gross Commission = sale price × commission rate */}
+                <div className="flex items-center justify-between">
+                  <Text variant="micro">GROSS COMMISSION</Text>
+                  <Text variant="body" className="text-[14px] font-medium text-[#1e3a5f]">
+                    ${grossCommission.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </div>
+
+                {/* Total GCI = gross commission + GCI credits − GCI fees */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Text variant="micro">TOTAL GCI</Text>
+                    {(gciFeeTotal !== 0 || gciCreditTotal !== 0) && (
+                      <div className="mt-0.5 space-y-0">
+                        {gciCreditTotal > 0 && (
+                          <Text variant="muted" className="text-[10px]">+${gciCreditTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} additions</Text>
+                        )}
+                        {gciFeeTotal > 0 && (
+                          <Text variant="muted" className="text-[10px]">&minus;${gciFeeTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} fees</Text>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <Text variant="body" className="text-[14px] font-semibold text-[#1e3a5f]">
+                    ${reportedGCI.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </div>
+
+                {/* Net to Agent */}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <Text variant="micro">NET TO AGENT</Text>
+                  <Text variant="body" className="text-[16px] font-bold text-[#1e3a5f]">
+                    ${netWithCredits.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </div>
               </div>
 
               {/* Archive option */}
