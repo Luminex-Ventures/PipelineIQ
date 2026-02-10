@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
@@ -22,7 +22,8 @@ import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
 import { usePipelineStatuses } from '../hooks/usePipelineStatuses';
 import { getVisibleUserIds } from '../lib/rbac';
-import { calculateActualGCI, calculateExpectedGCI } from '../lib/commission';
+import { calculateCommissionBreakdown } from '../lib/commission';
+import type { DealCredit } from '../lib/database.types';
 import type { Database } from '../lib/database.types';
 
 type Deal = Database['public']['Tables']['deals']['Row'] & {
@@ -78,7 +79,8 @@ const DEAL_LIST_COLUMNS = `
   next_task_description,
   next_task_due_date,
   archived_reason,
-  deal_deductions
+  deal_deductions,
+  deal_credits
 `;
 const PIPELINE_STATUS_COLUMNS = `
   pipeline_statuses (
@@ -154,6 +156,7 @@ const buildOrderByStatus = (
 };
 
 export default function Pipeline() {
+  const queryClient = useQueryClient();
   const { user, roleInfo } = useAuth();
   const { statuses, loading: statusesLoading, applyTemplate, createCustomWorkflow } = usePipelineStatuses();
   const [kanbanDeals, setKanbanDeals] = useState<Deal[]>([]);
@@ -924,13 +927,13 @@ export default function Pipeline() {
     }
   }, [effectiveFilters, resolveVisibleUserIds, roleInfo, user]);
 
-  // React Query for cached lead sources
+  // React Query for cached lead sources (includes financial config for commission calc)
   const leadSourcesQuery = useQuery({
     queryKey: ['pipeline', 'leadSources', roleInfo?.teamId],
     queryFn: async () => {
       let query = supabase
         .from('lead_sources')
-        .select('id,name')
+        .select('id,name,custom_deductions,payout_structure,partnership_split_rate,tiered_splits,brokerage_split_rate')
         .order('name', { ascending: true });
 
       if (roleInfo?.teamId) {
@@ -942,7 +945,15 @@ export default function Pipeline() {
         console.error('Error loading lead sources', error);
         return [];
       }
-      return (data || []) as { id: string; name: string }[];
+      return (data || []) as Array<{
+        id: string;
+        name: string;
+        custom_deductions: any[] | null;
+        payout_structure: string | null;
+        partnership_split_rate: number | null;
+        tiered_splits: any[] | null;
+        brokerage_split_rate: number;
+      }>;
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000, // Lead sources are stable
@@ -954,6 +965,21 @@ export default function Pipeline() {
     if (leadSourcesQuery.data) {
       setAvailableLeadSources(leadSourcesQuery.data);
     }
+  }, [leadSourcesQuery.data]);
+
+  // Lead source lookup map for commission calculations
+  const leadSourceMap = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      custom_deductions: any[] | null;
+      payout_structure: string | null;
+      partnership_split_rate: number | null;
+      tiered_splits: any[] | null;
+      brokerage_split_rate: number;
+    }>();
+    (leadSourcesQuery.data || []).forEach(ls => map.set(ls.id, ls));
+    return map;
   }, [leadSourcesQuery.data]);
 
   // React Query for cached summary deals
@@ -1170,8 +1196,55 @@ export default function Pipeline() {
     return [...ordered, ...remainder];
   };
 
-  const calculateNetCommission = (deal: Deal) =>
-    deal.status === 'closed' ? calculateActualGCI(deal) : calculateExpectedGCI(deal);
+  const calculateNetCommission = (deal: Deal) => {
+    const ls = deal.lead_source_id ? leadSourceMap.get(deal.lead_source_id) : null;
+
+    // Partner-level deductions from the lead source
+    const partnerDeductions = (ls?.custom_deductions || []).map((d: any, i: number) => ({
+      ...d,
+      apply_order: d.apply_order ?? i
+    }));
+
+    // Deal-level fees (stored as decimals in DB, e.g. 2.5% = 0.025 — pass through as-is)
+    const dealDeductions = ((deal as any).deal_deductions || [])
+      .filter((d: any) => !d.is_waived)
+      .map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        value: d.value,
+        apply_order: (d.apply_order ?? 0) + 1000
+      }));
+
+    const allDeductions = [...partnerDeductions, ...dealDeductions];
+
+    const commissionInput = {
+      actual_sale_price: deal.actual_sale_price,
+      expected_sale_price: deal.expected_sale_price,
+      gross_commission_rate: deal.gross_commission_rate,
+      brokerage_split_rate: deal.brokerage_split_rate,
+      referral_out_rate: deal.referral_out_rate,
+      referral_in_rate: deal.referral_in_rate,
+      transaction_fee: deal.transaction_fee,
+      custom_deductions: allDeductions.length > 0 ? allDeductions : null,
+      payout_structure: (ls?.payout_structure as any) || null,
+      partnership_split_rate: ls?.partnership_split_rate || null,
+      tiered_splits: ls?.tiered_splits || null
+    };
+
+    const preferActual = !!deal.actual_sale_price;
+    const breakdown = calculateCommissionBreakdown(commissionInput, { preferActual, includeReferralIn: true });
+
+    // Add deal-level credits back (stored as decimals in DB, e.g. 2.5% = 0.025)
+    const credits: DealCredit[] = (deal as any).deal_credits || [];
+    const totalCredits = credits.reduce((sum, c) => {
+      if (c.type === 'flat') return sum + c.value;
+      if (c.type === 'percentage') return sum + (breakdown.gross * c.value);
+      return sum;
+    }, 0);
+
+    return breakdown.net + totalCredits;
+  };
 
   const filteredTableRows = useMemo(() => {
     if (!debouncedSearch) return tableRows;
@@ -1199,9 +1272,14 @@ export default function Pipeline() {
       .delete()
       .in('id', dealIds);
 
-    if (!error) {
-      loadTableDeals();
+    if (error) {
+      console.error('Error bulk deleting deals', error);
+      alert('Failed to delete deals. You may only delete deals you own.');
+      return;
     }
+
+    // Invalidate both table and kanban caches so data refreshes
+    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
   };
 
   const handleBulkEdit = async (dealIds: string[], updates: Partial<Deal>) => {
@@ -1226,9 +1304,12 @@ export default function Pipeline() {
       .update(updateData)
       .in('id', dealIds);
 
-    if (!error) {
-      loadTableDeals();
+    if (error) {
+      console.error('Error bulk editing deals', error);
+      return;
     }
+
+    queryClient.invalidateQueries({ queryKey: ['pipeline'] });
   };
 
   const getSummaryMetrics = (sourceDeals: Deal[]) => {

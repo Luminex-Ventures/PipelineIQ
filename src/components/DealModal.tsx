@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
-import { calculateCommissionBreakdown } from '../lib/commission';
+import { calculateCommissionBreakdown, getTieredSplitRate } from '../lib/commission';
 import { useAuth } from '../contexts/AuthContext';
 import {
   X,
@@ -20,7 +20,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import QuickAddTask from './QuickAddTask';
-import type { Database, DealDeduction } from '../lib/database.types';
+import type { Database, DealDeduction, DealCredit } from '../lib/database.types';
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getVisibleUserIds } from '../lib/rbac';
 import DealNotes from './DealNotes';
@@ -28,6 +28,18 @@ import { Card } from '../ui/Card';
 import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
 import { getColorByName } from '../lib/colors';
+
+/** Format a percentage: 1 decimal minimum, more if the value has more precision (e.g. 2.5 → "2.5%", 2.55 → "2.55%", 20.0 → "20.0%") */
+const fmtPct = (v: number): string => {
+  // Show at least 1 decimal place; if the value has more precision, show up to 4
+  const s1 = v.toFixed(1);
+  if (parseFloat(s1) === v) return s1;
+  const s2 = v.toFixed(2);
+  if (parseFloat(s2) === v) return s2;
+  const s3 = v.toFixed(3);
+  if (parseFloat(s3) === v) return s3;
+  return v.toFixed(4);
+};
 
 type Deal = Database['public']['Tables']['deals']['Row'];
 type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
@@ -59,6 +71,7 @@ type FormState = {
   transaction_fee: number | string;
   close_date: string | null;
   deal_deductions: DealDeduction[];
+  deal_credits: DealCredit[];
 };
 
 interface DealModalProps {
@@ -92,6 +105,10 @@ const buildFormState = (deal: Deal | null): FormState => ({
     ...d,
     // Convert percentage values from decimal (DB) to display percentage
     value: d.type === 'percentage' ? d.value * 100 : d.value
+  })),
+  deal_credits: (deal?.deal_credits || []).map(c => ({
+    ...c,
+    value: c.type === 'percentage' ? c.value * 100 : c.value
   }))
 });
 
@@ -433,6 +450,15 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     }));
   };
 
+  const toggleDeductionType = (deductionId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_deductions: prev.deal_deductions.map(d =>
+        d.id === deductionId ? { ...d, type: d.type === 'flat' ? 'percentage' : 'flat', value: 0 } : d
+      )
+    }));
+  };
+
   const updateDeductionValue = (deductionId: string, value: number) => {
     setFormData(prev => ({
       ...prev,
@@ -475,6 +501,54 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     }));
   };
 
+  // --- Credit CRUD ---
+  const addCredit = () => {
+    const newCredit: DealCredit = {
+      id: generateId(),
+      name: '',
+      type: 'flat',
+      value: 0
+    };
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: [...prev.deal_credits, newCredit]
+    }));
+  };
+
+  const updateCreditName = (creditId: string, name: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: prev.deal_credits.map(c =>
+        c.id === creditId ? { ...c, name } : c
+      )
+    }));
+  };
+
+  const toggleCreditType = (creditId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: prev.deal_credits.map(c =>
+        c.id === creditId ? { ...c, type: c.type === 'flat' ? 'percentage' : 'flat', value: 0 } : c
+      )
+    }));
+  };
+
+  const updateCreditValue = (creditId: string, value: number) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: prev.deal_credits.map(c =>
+        c.id === creditId ? { ...c, value } : c
+      )
+    }));
+  };
+
+  const removeCredit = (creditId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      deal_credits: prev.deal_credits.filter(c => c.id !== creditId)
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -506,6 +580,13 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
         value: d.type === 'percentage' ? d.value / 100 : d.value
       }));
 
+    const creditsForDb: DealCredit[] = formData.deal_credits
+      .filter(c => c.value > 0)
+      .map(c => ({
+        ...c,
+        value: c.type === 'percentage' ? c.value / 100 : c.value
+      }));
+
     const dealData: DealInsert & DealUpdate = {
       ...formData,
       user_id: user.id,
@@ -523,7 +604,8 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
           ? (deal?.closed_at || new Date().toISOString())
           : null,
       archived_reason: archived ? archivedReason : null,
-      deal_deductions: deductionsForDb.length > 0 ? deductionsForDb : null
+      deal_deductions: deductionsForDb.length > 0 ? deductionsForDb : null,
+      deal_credits: creditsForDb.length > 0 ? creditsForDb : null
     };
 
     let dealId = deal?.id || null;
@@ -692,6 +774,9 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
   };
 
   // Derived values
+  const selectedLeadSource = leadSources.find(s => s.id === formData.lead_source_id) || null;
+
+  // Deal-level fees (entered by the user on this deal)
   const activeDeductions = formData.deal_deductions
     .filter(d => !d.is_waived)
     .map(d => ({
@@ -702,6 +787,18 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
       apply_order: d.apply_order
     }));
 
+  // Lead source (preferred partner) fees — applied before deal-level fees
+  const partnerDeductions = (selectedLeadSource?.custom_deductions || []).map((d, i) => ({
+    ...d,
+    apply_order: d.apply_order ?? i
+  }));
+
+  // Combine: partner fees first, then deal-level fees
+  const allDeductions = [
+    ...partnerDeductions,
+    ...activeDeductions.map(d => ({ ...d, apply_order: d.apply_order + 1000 }))
+  ];
+
   const commissionInput = {
     actual_sale_price: Number(formData.actual_sale_price),
     expected_sale_price: Number(formData.expected_sale_price),
@@ -710,10 +807,22 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     referral_out_rate: Number(formData.referral_out_rate),
     referral_in_rate: Number(formData.referral_in_rate),
     transaction_fee: Number(formData.transaction_fee),
-    custom_deductions: activeDeductions
+    custom_deductions: allDeductions,
+    payout_structure: selectedLeadSource?.payout_structure || null,
+    partnership_split_rate: selectedLeadSource?.partnership_split_rate || null,
+    tiered_splits: selectedLeadSource?.tiered_splits || null
   };
   const commissionBreakdown = calculateCommissionBreakdown(commissionInput, { includeReferralIn: true });
   const netBeforeTax = commissionBreakdown.net;
+
+  // Calculate total credits to add back (percentage is against gross commission to agent)
+  const grossCommission = commissionBreakdown.gross;
+  const totalCredits = formData.deal_credits.reduce((sum, c) => {
+    if (c.type === 'flat') return sum + c.value;
+    if (c.type === 'percentage') return sum + (grossCommission * (c.value / 100));
+    return sum;
+  }, 0);
+  const netWithCredits = netBeforeTax + totalCredits;
 
   const currentStatus = pipelineStatuses.find(s => s.id === formData.pipeline_status_id);
   const leadSourceLabel = leadSources.find(source => source.id === formData.lead_source_id)?.name || 'Not set';
@@ -1211,14 +1320,54 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               <DetailField label="COMMISSION" isEditing={isEditing} editComponent={
                 <input type="number" step="0.01" value={formData.gross_commission_rate * 100} onChange={e => setFormData(prev => ({ ...prev, gross_commission_rate: parseFloat(e.target.value) / 100 || 0 }))} className="hig-input w-full" />
               }>
-                {(formData.gross_commission_rate * 100).toFixed(2)}%
+                {fmtPct(formData.gross_commission_rate * 100)}%
               </DetailField>
 
               <DetailField label="BROKER SPLIT" isEditing={isEditing} editComponent={
                 <input type="number" step="0.01" value={formData.brokerage_split_rate ? (formData.brokerage_split_rate * 100) : ''} onChange={e => setFormData(prev => ({ ...prev, brokerage_split_rate: parseFloat(e.target.value) / 100 || 0 }))} className="hig-input w-full" placeholder="20" />
               }>
-                {(formData.brokerage_split_rate * 100).toFixed(2)}%
+                {(() => {
+                  if (selectedLeadSource?.payout_structure === 'tiered' && selectedLeadSource.tiered_splits?.length) {
+                    const salePrice = Number(formData.actual_sale_price) || Number(formData.expected_sale_price) || 0;
+                    const effectiveRate = getTieredSplitRate(salePrice, selectedLeadSource.tiered_splits, formData.brokerage_split_rate);
+                    return `${fmtPct(effectiveRate * 100)}% (tiered)`;
+                  }
+                  return `${fmtPct(formData.brokerage_split_rate * 100)}%`;
+                })()}
               </DetailField>
+
+              {/* Partner fees (from lead source) */}
+              {partnerDeductions.length > 0 && (
+                <div className="py-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <Text variant="micro">PARTNER FEES</Text>
+                    <Text variant="muted" className="text-[10px]">{selectedLeadSource?.name}</Text>
+                  </div>
+                  <div className="pl-2 space-y-1 mt-1">
+                    {partnerDeductions.map((d, idx) => {
+                      // Use the engine's computed amount for accuracy (waterfall ordering)
+                      const engineDetail = commissionBreakdown.deductionDetails[idx];
+                      const amount = engineDetail ? engineDetail.amount : (d.type === 'flat' ? d.value : grossCommission * d.value);
+                      return (
+                        <div key={d.id} className="flex items-center justify-between">
+                          <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
+                          <Text variant="body" className="text-[13px] font-medium">
+                            {`-$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                            {d.type === 'percentage' ? ` (${fmtPct(d.value * 100)}%)` : ''}
+                          </Text>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Partnership split (from lead source) */}
+              {selectedLeadSource?.payout_structure === 'partnership' && selectedLeadSource.partnership_split_rate != null && (
+                <DetailField label="PARTNERSHIP SPLIT" isEditing={false}>
+                  {fmtPct(selectedLeadSource.partnership_split_rate * 100)}%
+                </DetailField>
+              )}
 
               {/* Fees sub-section */}
               <div className="py-2">
@@ -1235,7 +1384,11 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                   <Text variant="muted" className="text-[13px]">No fees</Text>
                 ) : (
                   <div className="pl-2 space-y-2 mt-1">
-                    {formData.deal_deductions.map(d => (
+                    {formData.deal_deductions.map((d, idx) => {
+                      // Deal-level deductions start after partner deductions in the engine details
+                      const engineIdx = partnerDeductions.length + idx;
+                      const engineDetail = commissionBreakdown.deductionDetails[engineIdx];
+                      return (
                       <div key={d.id}>
                         {isEditing ? (
                           <>
@@ -1250,16 +1403,24 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                             ) : (
                               <Text variant="muted" className="text-[11px] font-medium mb-0.5">{d.name || 'Fee'}</Text>
                             )}
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleDeductionType(d.id)}
+                                className="flex-shrink-0 w-8 h-8 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-semibold text-[#42526e] hover:bg-gray-100 transition"
+                                title={d.type === 'flat' ? 'Switch to percentage' : 'Switch to fixed amount'}
+                              >
+                                {d.type === 'flat' ? '$' : '%'}
+                              </button>
                               <input 
                                 type="number" 
                                 value={d.value || ''} 
                                 onChange={e => updateDeductionValue(d.id, parseFloat(e.target.value) || 0)} 
                                 className="hig-input w-full" 
-                                placeholder="0" 
+                                placeholder={d.type === 'flat' ? '0' : '0.00'}
                               />
                               {d.deduction_id === 'custom' && (
-                                <button type="button" onClick={() => removeDeduction(d.id)} className="text-gray-400 hover:text-red-500 text-lg leading-none">
+                                <button type="button" onClick={() => removeDeduction(d.id)} className="flex-shrink-0 text-gray-400 hover:text-red-500 text-lg leading-none">
                                   ×
                                 </button>
                               )}
@@ -1268,7 +1429,77 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                         ) : (
                           <div className="flex items-center justify-between">
                             <Text variant="muted" className="text-[12px]">{d.name || 'Fee'}</Text>
-                            <Text variant="body" className="text-[13px] font-medium">{d.type === 'flat' ? `-$${d.value.toLocaleString()}` : `-${d.value}%`}</Text>
+                            <Text variant="body" className="text-[13px] font-medium">
+                              {d.type === 'flat'
+                                ? `-$${(engineDetail?.amount ?? d.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : `-$${(engineDetail?.amount ?? (grossCommission * (d.value / 100))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(d.value)}%)`
+                              }
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Credits sub-section */}
+              <div className="py-2">
+                <div className="flex items-center justify-between mb-1">
+                  <Text variant="micro">CREDITS</Text>
+                  {isEditing && (
+                    <button type="button" onClick={addCredit} className="text-[11px] text-[#D4883A] hover:underline">
+                      + Add
+                    </button>
+                  )}
+                </div>
+
+                {formData.deal_credits.length === 0 ? (
+                  <Text variant="muted" className="text-[13px]">No credits</Text>
+                ) : (
+                  <div className="pl-2 space-y-2 mt-1">
+                    {formData.deal_credits.map(c => (
+                      <div key={c.id}>
+                        {isEditing ? (
+                          <>
+                            <input
+                              type="text"
+                              value={c.name}
+                              onChange={e => updateCreditName(c.id, e.target.value)}
+                              className="text-[11px] font-medium text-[rgba(30,58,95,0.45)] bg-transparent border-0 border-b border-dashed border-gray-300 focus:border-gray-400 focus:outline-none w-full mb-1 p-0 placeholder:font-normal placeholder:text-gray-400"
+                              placeholder="Enter credit name (e.g., Referral Bonus)"
+                            />
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleCreditType(c.id)}
+                                className="flex-shrink-0 w-8 h-8 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-semibold text-[#42526e] hover:bg-gray-100 transition"
+                                title={c.type === 'flat' ? 'Switch to percentage' : 'Switch to fixed amount'}
+                              >
+                                {c.type === 'flat' ? '$' : '%'}
+                              </button>
+                              <input
+                                type="number"
+                                value={c.value || ''}
+                                onChange={e => updateCreditValue(c.id, parseFloat(e.target.value) || 0)}
+                                className="hig-input w-full"
+                                placeholder={c.type === 'flat' ? '0' : '0.00'}
+                              />
+                              <button type="button" onClick={() => removeCredit(c.id)} className="flex-shrink-0 text-gray-400 hover:text-red-500 text-lg leading-none">
+                                ×
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <Text variant="muted" className="text-[12px]">{c.name || 'Credit'}</Text>
+                            <Text variant="body" className="text-[13px] font-medium text-emerald-600">
+                              {c.type === 'flat'
+                                ? `+$${c.value.toLocaleString()}`
+                                : `+$${(grossCommission * (c.value / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${fmtPct(c.value)}%)`
+                              }
+                            </Text>
                           </div>
                         )}
                       </div>
@@ -1281,7 +1512,7 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               <div className="mt-4 py-3 border-t border-gray-100">
                 <Text variant="micro" className="mb-1">NET TO AGENT</Text>
                 <Text variant="h2">
-                  ${netBeforeTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${netWithCredits.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </div>
 

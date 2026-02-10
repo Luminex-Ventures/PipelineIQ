@@ -39,6 +39,14 @@ export interface DealDeduction {
   is_waived: boolean;       // If true, this deduction is skipped for this deal
 }
 
+// Deal-level credit (bonus, referral credit, etc.)
+export interface DealCredit {
+  id: string;
+  name: string;             // Display name (e.g., "Referral Bonus", "Volume Credit")
+  type: 'percentage' | 'flat';
+  value: number;            // The dollar amount or percentage
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -129,6 +137,7 @@ export interface Database {
           updated_at: string;
           // Deal-level deduction overrides (agents can waive/modify defaults)
           deal_deductions: DealDeduction[] | null;
+          deal_credits: DealCredit[] | null;
         };
         Insert: {
           id?: string;
@@ -160,6 +169,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
           deal_deductions?: DealDeduction[] | null;
+          deal_credits?: DealCredit[] | null;
         };
         Update: {
           id?: string;
@@ -191,6 +201,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
           deal_deductions?: DealDeduction[] | null;
+          deal_credits?: DealCredit[] | null;
         };
       };
       // Workspace-level default deductions (set by admins, applied to all deals)
