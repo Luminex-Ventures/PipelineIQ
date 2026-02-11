@@ -39,8 +39,8 @@ export default function Login({ onToggle }: LoginProps) {
         {/* Left Panel - Login Form */}
         <div className="w-full lg:w-1/2 p-8 lg:p-12 xl:p-16">
           {/* Logo */}
-          <div className="mb-10">
-            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-12" />
+          <div className="mb-10 flex justify-center">
+            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-10" />
           </div>
 
           {/* Header */}
@@ -69,15 +69,17 @@ export default function Login({ onToggle }: LoginProps) {
             </button>
             <button
               type="button"
-              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 border border-gray-200 rounded-xl transition-all hover:border-[rgba(212,136,58,0.3)] hover:bg-[rgba(212,136,58,0.03)]"
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-black text-white rounded-xl transition-all border border-black hover:bg-[#333] active:bg-[#555]"
+              style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
+              {/* Official Apple logo per HIG */}
+              <svg className="w-[18px] h-[18px]" viewBox="0 0 17 20" fill="none" aria-hidden="true">
                 <path
-                  fill="#111827"
-                  d="M16.365 1.43c0 1.14-.465 2.2-1.225 3.02-.78.86-2.07 1.52-3.2 1.44-.15-1.09.38-2.22 1.13-3.02.83-.88 2.19-1.55 3.3-1.44zm3.92 17.06c-.59 1.33-.87 1.92-1.63 3.1-1.06 1.62-2.56 3.64-4.42 3.66-1.64.02-2.07-1.07-4.33-1.07-2.26 0-2.74 1.05-4.32 1.09-1.86.03-3.28-1.83-4.34-3.45-2.95-4.51-3.26-9.8-1.44-12.59 1.29-1.98 3.34-3.16 5.29-3.16 1.92 0 3.13 1.07 4.32 1.07 1.15 0 2.74-1.31 4.73-1.12.83.03 3.16.34 4.65 2.56-.12.08-2.78 1.62-2.78 4.81 0 3.81 3.34 5.07 3.37 5.09z"
+                  d="M12.82 5.58C11.81 5.58 11.02 6.07 10.47 6.07C9.88 6.07 9.17 5.61 8.31 5.61C6.54 5.61 4.71 7.01 4.71 9.93C4.71 11.73 5.39 13.62 6.23 14.85C6.95 15.9 7.57 16.74 8.45 16.74C9.28 16.74 9.63 16.19 10.64 16.19C11.67 16.19 11.91 16.72 12.82 16.72C13.74 16.72 14.37 15.82 14.99 14.87C15.46 14.15 15.66 13.45 15.67 13.42C15.64 13.41 13.76 12.65 13.76 10.5C13.76 8.63 15.25 7.79 15.33 7.73C14.38 6.33 12.94 5.58 12.82 5.58ZM12.2 3.72C12.72 3.09 13.08 2.22 13.08 1.35C13.08 1.22 13.07 1.09 13.05 1C12.21 1.03 11.21 1.56 10.61 2.27C10.11 2.84 9.68 3.72 9.68 4.6C9.68 4.74 9.7 4.88 9.71 4.93C9.78 4.94 9.89 4.96 10 4.96C10.76 4.96 11.68 4.36 12.2 3.72Z"
+                  fill="white"
                 />
               </svg>
-              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }}>Apple</span>
+              <span className="text-sm font-medium">Sign in with Apple</span>
             </button>
           </div>
 
