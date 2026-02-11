@@ -1594,243 +1594,240 @@ export default function Dashboard() {
   };
 
   const renderLumaInsights = () => (
-    <WidgetCard
-      className={[ui.border.card, 'bg-gradient-to-br from-blue-50 via-white to-sky-50'].join(' ')}
-      style={{ borderColor: 'rgba(191,219,254,0.7)' }}
-    >
+    <WidgetCard className={`${ui.pad.card} luma-insights-card bg-[rgba(30,58,95,0.015)]`}>
       <div className="space-y-4">
-        <WidgetHeader
-          icon={<Sparkles className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
-          title="Luma Insights"
-          subtitle="AI-generated highlights from your latest activity."
-          rightSlot={
-            showInsightsSpinner ? (
-              <div
-                className={['ml-auto animate-spin h-4 w-4', ui.radius.pill].join(' ')}
-                style={{ borderBottomWidth: 2, borderBottomStyle: 'solid', borderBottomColor: 'var(--app-accent)' }}
-              />
-            ) : null
-          }
-        />
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="relative flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-[#1e3a5f] to-[rgba(30,58,95,0.7)]">
+              <Sparkles className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <Text as="span" variant="body" className="font-semibold">Luma Insights</Text>
+              {showInsightsList && (
+                <span className="text-[11px] font-medium tracking-wide uppercase text-[rgba(30,58,95,0.35)]">AI</span>
+              )}
+            </div>
+          </div>
+          {showInsightsSpinner && (
+            <div
+              className="h-3.5 w-3.5 rounded-full animate-spin"
+              style={{ border: '2px solid rgba(30,58,95,0.08)', borderBottomColor: '#1e3a5f' }}
+            />
+          )}
+        </div>
+
+        {/* Content */}
         {showInsightsSkeleton ? (
-          <div className="space-y-2">
-            <div className={['h-4 w-5/6 bg-blue-100/70 animate-pulse', ui.radius.pill].join(' ')} />
-            <div className={['h-4 w-4/5 bg-blue-100/70 animate-pulse', ui.radius.pill].join(' ')} />
-            <div className={['h-4 w-3/4 bg-blue-100/70 animate-pulse', ui.radius.pill].join(' ')} />
+          <div className="space-y-2.5">
+            <div className="h-4 w-5/6 rounded-full bg-[rgba(30,58,95,0.05)] animate-pulse" />
+            <div className="h-4 w-4/5 rounded-full bg-[rgba(30,58,95,0.05)] animate-pulse" style={{ animationDelay: '150ms' }} />
+            <div className="h-4 w-3/4 rounded-full bg-[rgba(30,58,95,0.05)] animate-pulse" style={{ animationDelay: '300ms' }} />
           </div>
         ) : showInsightsError ? (
-          <Text variant="muted">
-            Luma insights are unavailable right now. Please try again in a moment.
-          </Text>
+          <div className="flex items-center justify-center h-[80px]">
+            <Text variant="muted">
+              Insights unavailable right now. Try again in a moment.
+            </Text>
+          </div>
         ) : showInsightsList ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {aiInsightsState.insights.slice(0, 3).map((insight, index) => (
-              <div key={index} className="flex items-start gap-2.5">
-                <div className="w-4 flex justify-center">
-                  <span
-                    className={['block w-1.5 h-1.5 bg-[var(--app-accent)]', ui.radius.pill].join(' ')}
-                    style={{ marginTop: '0.45em' }}
-                  />
-                </div>
-                <Text variant="body" className="flex-1">
+              <div key={index} className="flex items-start gap-3 animate-fade-in" style={{ animationDelay: `${index * 120}ms` }}>
+                <span
+                  className="flex-shrink-0 mt-[7px] w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: 'linear-gradient(135deg, #1e3a5f 0%, rgba(212,136,58,0.6) 100%)'
+                  }}
+                />
+                <Text variant="body" className="flex-1 text-[14px] leading-relaxed">
                   {insight}
                 </Text>
               </div>
             ))}
           </div>
         ) : (
-          <Text variant="muted">
-            No Luma insights yet. Try adjusting filters or refreshing.
-          </Text>
+          <div className="flex items-center justify-center h-[80px]">
+            <Text variant="muted">
+              No insights yet. Adjust filters or refresh to generate.
+            </Text>
+          </div>
         )}
       </div>
     </WidgetCard>
   );
 
-  const renderPipelineHealth = () => (
-    <WidgetCard className={ui.pad.cardTight}>
-      <div className="space-y-3">
-        <WidgetHeader
-          icon={<Target className={`w-4 h-4 ${ui.tone.accent}`} strokeWidth={2} />}
-          title="Pipeline Distribution"
-          rightSlot={
-            <div className={ui.align.right}>
-              <Text as="div" variant="h2">
-                {totalActiveDeals}
-              </Text>
-              <Text as="div" variant="muted">
-                Deals
-              </Text>
+  const renderPipelineHealth = () => {
+    const activeStatuses = pipelineHealth.filter(s => s.count > 0);
+    const totalGci = activeStatuses.reduce((sum, s) => sum + s.expectedGCI, 0);
+
+    return (
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+              <Text as="span" variant="body" className="font-semibold">Pipeline Distribution</Text>
             </div>
-          }
-        />
+            {activeStatuses.length > 0 && (
+              <span className="text-[12px] text-[rgba(30,58,95,0.5)] tabular-nums">
+                {totalActiveDeals} deals · {formatCurrency(totalGci)}
+              </span>
+            )}
+          </div>
 
-        {pipelineHealth.length === 0 ? (
-          <Text variant="muted">No active deals in your pipeline yet.</Text>
-        ) : (
-          <>
+          {/* Stage rows */}
+          {activeStatuses.length === 0 ? (
+            <div className="flex items-center justify-center h-[120px]">
+              <Text variant="muted">No active deals in your pipeline yet.</Text>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {activeStatuses.map(status => {
+                  const pct = totalActiveDeals > 0 ? (status.count / totalActiveDeals) * 100 : 0;
+                  const barColor = getColorValue(status.color) || '#1e3a5f';
+
+                  return (
+                    <div
+                      key={status.id}
+                      className="group cursor-pointer transition-all"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handlePipelineStatusClick(status)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handlePipelineStatusClick(status);
+                        }
+                      }}
+                    >
+                      {/* Label row */}
+                      <div className="flex items-baseline justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: barColor }}
+                          />
+                          <span className="text-[14px] font-medium text-[#1e3a5f] group-hover:text-[#1e3a5f]/80 transition-colors">
+                            {status.name}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums">
+                            {status.count} {status.count === 1 ? 'deal' : 'deals'}
+                          </span>
+                          <span className="text-[13px] font-medium text-[#1e3a5f] tabular-nums">
+                            {formatCurrency(status.expectedGCI)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="relative h-[6px] w-full rounded-full bg-[rgba(30,58,95,0.06)] overflow-hidden">
+                        <div
+                          className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: barColor }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Stalled deals alert */}
+              {totalStalledCount > 0 && (
+                <div className="flex items-center gap-2 rounded-lg bg-[rgba(30,58,95,0.04)] px-3 py-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-[rgba(30,58,95,0.45)] flex-shrink-0" strokeWidth={2} />
+                  <span className="text-[12px] text-[rgba(30,58,95,0.5)]">
+                    {totalStalledCount} {totalStalledCount === 1 ? 'deal' : 'deals'} stalled 30+ days
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </WidgetCard>
+    );
+  };
+
+  const renderAlertsActions = () => (
+    <div className="space-y-3">
+      {/* Alerts card */}
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+              <Text as="span" variant="body" className="font-semibold">Alerts</Text>
+            </div>
+            {stalledDeals.length > 0 && (
+              <span className="text-[12px] text-[rgba(30,58,95,0.5)] tabular-nums">
+                {stalledDeals.length} stalled
+              </span>
+            )}
+          </div>
+
+          {stalledDeals.length > 0 ? (
             <div className="space-y-2">
-              {pipelineHealth.map(status => {
-                if (status.count === 0) return null;
-
+              {stalledDeals.slice(0, 3).map(deal => {
+                const days = getDaysInStage(deal.stage_entered_at);
                 return (
                   <div
-                    key={status.id}
-                    className={[
-                      ui.pad.cardTight,
-                      ui.radius.control,
-                      ui.border.subtle,
-                      'transition-all cursor-pointer'
-                    ].join(' ')}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => handlePipelineStatusClick(status)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        handlePipelineStatusClick(status);
-                      }
-                    }}
+                    key={deal.id}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-[rgba(30,58,95,0.03)] cursor-pointer hover:bg-[rgba(30,58,95,0.06)] transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={['w-2 h-2', ui.radius.pill].join(' ')}
-                          style={{ backgroundColor: getColorValue(status.color) }}
-                        />
-                        <Text as="span" variant="body" className="font-medium">
-                          {status.name}
-                        </Text>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-medium text-[#1e3a5f] truncate">
+                        {deal.client_name}
                       </div>
-                      <Text as="span" variant="body" className="font-semibold">
-                        {status.count} deals
-                      </Text>
+                      <div className="text-[13px] text-[rgba(30,58,95,0.5)] truncate">
+                        {deal.property_address || 'No address'}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-end">
-                      <Text as="span" variant="muted">
-                        {formatCurrency(status.expectedGCI)}
-                      </Text>
-                    </div>
+                    <span className="flex-shrink-0 text-[13px] font-semibold text-[rgba(30,58,95,0.6)] tabular-nums">
+                      {days}d
+                    </span>
                   </div>
                 );
               })}
             </div>
-
-            {totalStalledCount > 0 && (
-              <div className="space-y-2">
-                <div className="h-px bg-gray-200/60" />
-                <div className={['flex items-center gap-2 bg-orange-50', ui.radius.control, ui.pad.cardTight].join(' ')}>
-                  <AlertCircle className={`w-4 h-4 ${ui.tone.warning}`} strokeWidth={2} />
-                  <Text as="span" variant="muted" className={ui.tone.warningStrong}>
-                    {totalStalledCount} deals stalled 30+ days
-                  </Text>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </WidgetCard>
-  );
-
-  const renderAlertsActions = () => (
-    <div className="space-y-2">
-      <WidgetCard className={ui.pad.cardTight}>
-        <div className="space-y-3">
-          <WidgetHeader
-            icon={<AlertCircle className={`w-4 h-4 ${ui.tone.warning}`} strokeWidth={2} />}
-            title="Alerts"
-          />
-
-          {stalledDeals.length > 0 ? (
-            <div className="space-y-2">
-              <Text variant="muted" className="font-medium">
-                Stalled Deals
-              </Text>
-              <div className="space-y-2">
-              {stalledDeals.slice(0, 3).map(deal => (
-                <div
-                  key={deal.id}
-                  className={[
-                    ui.pad.cardTight,
-                    ui.radius.control,
-                    'bg-orange-50 transition-all cursor-pointer'
-                  ].join(' ')}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <Text as="div" variant="body" className="font-medium truncate">
-                        {deal.client_name}
-                      </Text>
-                      <Text as="div" variant="muted" className="truncate">
-                        {deal.property_address}
-                      </Text>
-                    </div>
-                    <div className={[ui.radius.control, ui.pad.cardTight, 'bg-orange-100 flex-shrink-0'].join(' ')}>
-                      <Text as="div" variant="body" className={`${ui.tone.warningStrong} font-semibold`}>
-                        {getDaysInStage(deal.stage_entered_at)}d
-                      </Text>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              </div>
-            </div>
           ) : (
-            <div className={[ui.pad.cardTight, ui.radius.control, 'bg-green-50'].join(' ')}>
-              <div className="flex items-center gap-2">
-                <CheckCircle className={`w-4 h-4 ${ui.tone.success}`} strokeWidth={2} />
-                <Text as="span" variant="muted" className={ui.tone.successStrong}>
-                  All deals moving smoothly
-                </Text>
-              </div>
+            <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 bg-[rgba(30,58,95,0.03)]">
+              <CheckCircle className="w-4 h-4 text-[rgba(30,58,95,0.4)]" strokeWidth={2} />
+              <span className="text-[13px] text-[rgba(30,58,95,0.5)]">
+                All deals moving smoothly
+              </span>
             </div>
           )}
         </div>
       </WidgetCard>
 
+      {/* Quick Actions card */}
       <WidgetCard className={ui.pad.card}>
         <div className="space-y-4">
-          <WidgetHeader
-            icon={<Sparkles className="w-4 h-4" style={{ color: '#D4883A' }} strokeWidth={2} />}
-            title="Quick Actions"
-          />
-          <div className="space-y-3">
+          {/* Header */}
+          <div className="flex items-center gap-2">
+            <Target className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+            <Text as="span" variant="body" className="font-semibold">Quick Actions</Text>
+          </div>
+
+          <div className="space-y-2">
             <button
-              className="w-full py-3 px-4 rounded-lg border border-gray-200 flex items-center justify-center gap-2 transition-all"
-              style={{ color: '#1e3a5f', backgroundColor: '#ffffff' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#D4883A';
-                e.currentTarget.style.backgroundColor = 'rgba(212, 136, 58, 0.05)';
-                e.currentTarget.style.color = '#D4883A';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#e5e7eb';
-                e.currentTarget.style.backgroundColor = '#ffffff';
-                e.currentTarget.style.color = '#1e3a5f';
-              }}
+              className="w-full py-2.5 px-4 rounded-lg border border-[rgba(30,58,95,0.12)] flex items-center justify-center gap-2 text-[#1e3a5f] bg-white hover:border-[#1e3a5f] hover:bg-[rgba(30,58,95,0.03)] transition-all"
               onClick={handleAddClient}
             >
               <Users className="w-4 h-4" strokeWidth={2} />
-              <span className="font-medium text-[15px]" style={{ color: 'inherit' }}>
-                New Client
-              </span>
+              <span className="font-medium text-[14px]">New Client</span>
             </button>
             <button
-              className="w-full py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm"
-              style={{ backgroundColor: '#1e3a5f', color: '#ffffff' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#D4883A';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#1e3a5f';
-              }}
+              className="w-full py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 bg-[#1e3a5f] text-white hover:bg-[#2a4d75] transition-all"
               onClick={handleOpenLuma}
             >
               <Sparkles className="w-4 h-4" strokeWidth={2} />
-              <span className="font-medium text-[15px] text-white">
-                Ask Luma
-              </span>
+              <span className="font-medium text-[14px]">Ask Luma</span>
             </button>
           </div>
         </div>
@@ -1864,241 +1861,431 @@ export default function Dashboard() {
       trend: trendValues[idx] ?? entry.gci
     }));
 
+    // -- Chart palette (brand-aligned, neutral) --
+    const CHART_NAVY = '#1e3a5f';
+    const CHART_NAVY_40 = 'rgba(30,58,95,0.4)';
+    const CHART_NAVY_15 = 'rgba(30,58,95,0.15)';
+    const CHART_NAVY_06 = 'rgba(30,58,95,0.06)';
+    const CHART_TREND = '#D4883A';
+
+    const CustomTooltip = ({ active, payload, label }: any) => {
+      if (!active || !payload?.length) return null;
+      return (
+        <div
+          className="rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 shadow-lg"
+          style={{ minWidth: 160 }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[rgba(30,58,95,0.5)] mb-1.5">
+            {label}
+          </p>
+          {payload.map((entry: any) => (
+            <div key={entry.dataKey} className="flex items-center justify-between gap-4 py-0.5">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor: entry.dataKey === 'gci' ? CHART_NAVY : 'transparent',
+                    border: entry.dataKey === 'trend' ? `1.5px dashed ${CHART_TREND}` : 'none'
+                  }}
+                />
+                <span className="text-[13px] text-[rgba(30,58,95,0.6)]">
+                  {entry.dataKey === 'gci' ? 'GCI' : '3-mo avg'}
+                </span>
+              </div>
+              <span className="text-[13px] font-medium text-[#1e3a5f] tabular-nums">
+                {formatCurrency(Number(entry.value))}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
     return (
-      <WidgetCard className={ui.pad.cardTight}>
-        <div className="space-y-3">
-        <WidgetHeader
-          icon={<TrendingUp className={`w-4 h-4 ${ui.tone.success}`} strokeWidth={2} />}
-          title="Monthly Momentum"
-          rightSlot={
-            change !== null ? (
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+              <Text as="span" variant="body" className="font-semibold">Monthly Momentum</Text>
+            </div>
+            {change !== null && (
               <div
                 className={[
-                  'flex items-center gap-1',
-                  change >= 0 ? 'bg-emerald-50' : 'bg-rose-50',
-                  ui.radius.control,
-                  ui.pad.cardTight,
-                  change >= 0 ? ui.tone.success : ui.tone.rose
+                  'flex items-center gap-1 px-2 py-1',
+                  ui.radius.pill,
+                  change >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
                 ].join(' ')}
               >
-                {change >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                <Text as="span" variant="muted" className="font-semibold">
+                {change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                <span className="text-[12px] font-semibold tabular-nums">
                   {change >= 0 ? '+' : ''}{change.toFixed(1)}%
-                </Text>
+                </span>
               </div>
-            ) : null
-          }
-        />
-        {hasData ? (
-          <>
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  stroke="#94a3b8"
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-                />
-                <Tooltip
-                  formatter={(value: number) => formatCurrency(Number(value))}
-                  labelFormatter={(label) => `Month: ${label}`}
-                  contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="gci"
-                  name="GCI"
-                  stroke="#0ea5e9"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: '#0ea5e9' }}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="trend"
-                  name="Trend"
-                  stroke="#ef4444"
-                  strokeWidth={1.5}
-                  dot={false}
-                  strokeDasharray="4 4"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-            <div className="space-y-2">
-              <div className="h-px bg-gray-200/60" />
-              <div className="flex items-center justify-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <span className={['h-1 w-4 bg-[#0ea5e9]', ui.radius.pill].join(' ')} />
-                <Text as="span" variant="muted">
-                  Monthly GCI
-                </Text>
+            )}
+          </div>
+
+          {/* Chart */}
+          {hasData ? (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 8, right: 8, bottom: 0, left: -8 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="none"
+                    stroke={CHART_NAVY_06}
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="month"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: CHART_NAVY_40 }}
+                    dy={8}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: CHART_NAVY_40 }}
+                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                    dx={-4}
+                    width={48}
+                  />
+                  <Tooltip
+                    content={<CustomTooltip />}
+                    cursor={{ stroke: CHART_NAVY_15, strokeWidth: 1 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="gci"
+                    name="GCI"
+                    stroke={CHART_NAVY}
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#fff', stroke: CHART_NAVY, strokeWidth: 2 }}
+                    activeDot={{ r: 5, fill: CHART_NAVY, stroke: '#fff', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="trend"
+                    name="3-mo avg"
+                    stroke={CHART_TREND}
+                    strokeWidth={1.5}
+                    dot={false}
+                    strokeDasharray="6 4"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+
+              {/* Legend + best month */}
+              <div className="flex items-center justify-center gap-5 pt-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-[2px] rounded-full bg-[#1e3a5f]" />
+                  <span className="text-[12px] text-[rgba(30,58,95,0.5)]">GCI</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block w-4 h-0 rounded-full"
+                    style={{ borderTop: `1.5px dashed ${CHART_TREND}` }}
+                  />
+                  <span className="text-[12px] text-[rgba(30,58,95,0.5)]">3-mo avg</span>
+                </div>
+                {bestMonth && (
+                  <>
+                    <span className="w-px h-3 bg-gray-200" />
+                    <span className="text-[12px] text-[rgba(30,58,95,0.4)]">
+                      Peak: {bestMonth.month}
+                    </span>
+                  </>
+                )}
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className={['h-1 w-4 bg-[#ef4444]', ui.radius.pill].join(' ')} />
-                <Text as="span" variant="muted">
-                  Trend
-                </Text>
-              </div>
-              {bestMonth && (
-                <Text as="span" variant="muted" className={ui.tone.faint}>
-                  Best: {bestMonth.month}
-                </Text>
-              )}
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-[200px]">
+              <Text variant="muted">No closed deals yet in this period.</Text>
             </div>
-            </div>
-          </>
-        ) : (
-          <Text variant="muted">No closed deals yet in this period.</Text>
-        )}
+          )}
         </div>
       </WidgetCard>
     );
   };
 
-  const renderDealTypeMix = () => (
-    <WidgetCard className={ui.pad.cardTight}>
-      <div className="space-y-3">
-        <WidgetHeader
-          icon={<Activity className={`w-4 h-4 ${ui.tone.purple}`} strokeWidth={2} />}
-          title="Deal Type Mix"
-        />
-        {dealTypeStats.length > 0 ? (
-          <div className="space-y-2">
-            {dealTypeStats.map((stat) => (
-              <div
-                key={stat.dealType}
-                className={[
-                  ui.pad.cardTight,
-                  ui.radius.control,
-                  ui.border.subtle,
-                  'bg-gray-50/50 space-y-1'
-                ].join(' ')}
-              >
-                <div className="flex items-center justify-between">
-                  <Text as="span" variant="body" className="font-semibold">
-                    {DEAL_TYPE_LABELS[stat.dealType]}
-                  </Text>
-                  <Text as="span" variant="body" className="font-semibold">
-                    {formatPercent(stat.percentage)}
-                  </Text>
-                </div>
-                <Text variant="muted">
-                  {stat.count} {stat.count === 1 ? 'deal' : 'deals'} · {formatCurrency(stat.gci)}
-                </Text>
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(stat.statusCounts)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([status, count]) => (
-                      <Text
-                        key={status}
-                        as="span"
-                        variant="muted"
-                        className={[
-                          'inline-flex items-center bg-white',
-                          ui.radius.pill,
-                          ui.pad.chip,
-                          ui.tone.primary
-                        ].join(' ')}
-                      >
-                        {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')} ({count})
-                      </Text>
-                    ))}
-                </div>
-              </div>
-            ))}
+  const renderDealTypeMix = () => {
+    const totalDeals = dealTypeStats.reduce((sum, s) => sum + s.count, 0);
+    const totalGci = dealTypeStats.reduce((sum, s) => sum + s.gci, 0);
+
+    return (
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+              <Text as="span" variant="body" className="font-semibold">Deal Type Mix</Text>
+            </div>
+            {dealTypeStats.length > 0 && (
+              <span className="text-[12px] text-[rgba(30,58,95,0.5)] tabular-nums">
+                {totalDeals} deals · {formatCurrency(totalGci)}
+              </span>
+            )}
           </div>
-        ) : (
-          <Text variant="muted">No active deals in your pipeline.</Text>
-        )}
-      </div>
-    </WidgetCard>
-  );
 
-  const renderLeadSource = () => (
-    <WidgetCard className={ui.pad.cardTight}>
-      <div className="space-y-3">
-        <WidgetHeader
-          icon={<Users className={`w-4 h-4 ${ui.tone.info}`} strokeWidth={2} />}
-          title="Lead Source Performance"
-        />
-        {leadSourceData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={leadSourceData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                type="number"
-                tick={{ fontSize: 11 }}
-                stroke="#6b7280"
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fontSize: 11 }}
-                stroke="#6b7280"
-                width={100}
-              />
-              <Tooltip
-                formatter={(value: number) => formatCurrency(Number(value))}
-                contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
-              />
-              <Bar dataKey="gci" fill="#0ea5e9" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <Text variant="muted">No closed deals in this period.</Text>
-        )}
-      </div>
-    </WidgetCard>
-  );
+          {/* Deal type rows */}
+          {dealTypeStats.length > 0 ? (
+            <div className="space-y-3">
+              {dealTypeStats.map((stat) => {
+                const pct = stat.percentage;
+                return (
+                  <div key={stat.dealType} className="space-y-1.5">
+                    {/* Label row */}
+                    <div className="flex items-baseline justify-between">
+                      <Text as="span" variant="body" className="text-[14px] font-medium">
+                        {DEAL_TYPE_LABELS[stat.dealType]}
+                      </Text>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[13px] text-[rgba(30,58,95,0.5)] tabular-nums">
+                          {stat.count} {stat.count === 1 ? 'deal' : 'deals'}
+                        </span>
+                        <span className="text-[13px] font-medium text-[#1e3a5f] tabular-nums">
+                          {formatCurrency(stat.gci)}
+                        </span>
+                      </div>
+                    </div>
 
-  const renderUpcomingDeals = () => (
-    <WidgetCard className={ui.pad.cardTight}>
-      <div className="space-y-3">
-        <WidgetHeader
-          icon={<Calendar className={`w-4 h-4 ${ui.tone.infoStrong}`} strokeWidth={2} />}
-          title="Forecasted Closings"
-          rightSlot={
-            <div className={ui.align.right}>
-              <Text as="div" variant="body" className="font-semibold">
-                {formatCurrency(projectedGCI)}
-              </Text>
-              <Text as="div" variant="muted">
-                30-day
-              </Text>
+                    {/* Progress bar */}
+                    <div className="relative h-[6px] w-full rounded-full bg-[rgba(30,58,95,0.06)] overflow-hidden">
+                      <div
+                        className="absolute inset-y-0 left-0 rounded-full bg-[#1e3a5f] transition-all duration-500"
+                        style={{ width: `${Math.max(pct, 1)}%` }}
+                      />
+                    </div>
+
+                    {/* Status chips */}
+                    {Object.keys(stat.statusCounts).length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {Object.entries(stat.statusCounts)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([status, count]) => (
+                            <span
+                              key={status}
+                              className="inline-flex items-center text-[11px] text-[rgba(30,58,95,0.5)] bg-[rgba(30,58,95,0.04)] rounded-full px-2 py-0.5"
+                            >
+                              {STATUS_LABELS[status as DealRow['status']] ?? status.replace(/_/g, ' ')} ({count})
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          }
-        />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {filteredUpcomingDeals.map(deal => (
-            <div
-              key={deal.id}
-              className={[
-                ui.pad.cardTight,
-                ui.radius.control,
-                ui.border.subtle,
-                'transition-all cursor-pointer space-y-2'
-              ].join(' ')}
-            >
-              <Text as="div" variant="body" className="font-medium truncate">
-                {deal.client_name}
-              </Text>
-              <Text as="div" variant="muted" className="truncate">
-                {deal.property_address}
-              </Text>
-              <div className="flex items-center justify-between">
-                <Text as="span" variant="body" className={`font-semibold ${ui.tone.accent}`}>
-                  {formatCurrency(calculateExpectedGCI(deal))}
-                </Text>
-                <ChevronRight className={`w-4 h-4 ${ui.tone.faint}`} strokeWidth={2} />
-              </div>
+          ) : (
+            <div className="flex items-center justify-center h-[120px]">
+              <Text variant="muted">No active deals in your pipeline.</Text>
             </div>
-          ))}
+          )}
         </div>
-      </div>
-    </WidgetCard>
-  );
+      </WidgetCard>
+    );
+  };
+
+  const renderLeadSource = () => {
+    const LSP_NAVY = '#1e3a5f';
+    const LSP_NAVY_40 = 'rgba(30,58,95,0.4)';
+    const LSP_NAVY_06 = 'rgba(30,58,95,0.06)';
+    const LSP_NAVY_15 = 'rgba(30,58,95,0.15)';
+
+    // Sort by GCI descending, take top entries that fit
+    const sortedData = [...leadSourceData].sort((a, b) => b.gci - a.gci);
+    const chartHeight = Math.max(180, sortedData.length * 36 + 24);
+
+    const topSource = sortedData.length > 0 ? sortedData[0] : null;
+    const totalGci = sortedData.reduce((sum, s) => sum + s.gci, 0);
+    const totalDeals = sortedData.reduce((sum, s) => sum + s.deals, 0);
+
+    const LeadSourceTooltip = ({ active, payload, label }: any) => {
+      if (!active || !payload?.length) return null;
+      const data = payload[0]?.payload as LeadSourcePerformance | undefined;
+      if (!data) return null;
+      return (
+        <div
+          className="rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 shadow-lg"
+          style={{ minWidth: 170 }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[rgba(30,58,95,0.5)] mb-1.5">
+            {label}
+          </p>
+          <div className="flex items-center justify-between gap-4 py-0.5">
+            <span className="text-[13px] text-[rgba(30,58,95,0.6)]">GCI</span>
+            <span className="text-[13px] font-medium text-[#1e3a5f] tabular-nums">
+              {formatCurrency(data.gci)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4 py-0.5">
+            <span className="text-[13px] text-[rgba(30,58,95,0.6)]">Deals</span>
+            <span className="text-[13px] font-medium text-[#1e3a5f] tabular-nums">
+              {data.deals}
+            </span>
+          </div>
+          {totalGci > 0 && (
+            <div className="flex items-center justify-between gap-4 pt-1 mt-1 border-t border-gray-100">
+              <span className="text-[12px] text-[rgba(30,58,95,0.45)]">Share</span>
+              <span className="text-[12px] font-medium text-[rgba(30,58,95,0.6)] tabular-nums">
+                {((data.gci / totalGci) * 100).toFixed(1)}%
+              </span>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+              <Text as="span" variant="body" className="font-semibold">Lead Source Performance</Text>
+            </div>
+            {sortedData.length > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-[12px] text-[rgba(30,58,95,0.5)] tabular-nums">{totalDeals} deals</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Chart */}
+          {sortedData.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={chartHeight}>
+                <BarChart
+                  data={sortedData}
+                  layout="vertical"
+                  margin={{ top: 4, right: 12, bottom: 0, left: 0 }}
+                  barCategoryGap="28%"
+                >
+                  <CartesianGrid
+                    strokeDasharray="none"
+                    stroke={LSP_NAVY_06}
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: LSP_NAVY_40 }}
+                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                    dy={4}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 12, fill: LSP_NAVY_40 }}
+                    width={96}
+                    dx={-4}
+                  />
+                  <Tooltip
+                    content={<LeadSourceTooltip />}
+                    cursor={{ fill: LSP_NAVY_06 }}
+                  />
+                  <Bar
+                    dataKey="gci"
+                    fill={LSP_NAVY}
+                    radius={[0, 4, 4, 0]}
+                    maxBarSize={20}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+
+              {/* Footer — top source callout */}
+              {topSource && (
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <span className="text-[12px] text-[rgba(30,58,95,0.4)]">
+                    Top: {topSource.name} — {formatCurrency(topSource.gci)}
+                  </span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-[180px]">
+              <Text variant="muted">No closed deals in this period.</Text>
+            </div>
+          )}
+        </div>
+      </WidgetCard>
+    );
+  };
+
+  const renderUpcomingDeals = () => {
+    const formatCloseDate = (deal: Deal) => {
+      const raw = deal.close_date || deal.closed_at;
+      if (!raw) return null;
+      const d = new Date(raw + (raw.length === 10 ? 'T00:00:00' : ''));
+      const now = new Date();
+      const diffDays = Math.round((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays <= 0) return 'Today';
+      if (diffDays === 1) return 'Tomorrow';
+      if (diffDays <= 7) return `${diffDays}d`;
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+
+    return (
+      <WidgetCard className={ui.pad.card}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[#1e3a5f]" strokeWidth={2} />
+              <Text as="span" variant="body" className="font-semibold">Forecasted Closings</Text>
+            </div>
+            <span className="text-[12px] text-[rgba(30,58,95,0.5)] tabular-nums">
+              {filteredUpcomingDeals.length} deals · {formatCurrency(projectedGCI)}
+            </span>
+          </div>
+
+          {/* Deal list */}
+          <div className="space-y-1.5">
+            {filteredUpcomingDeals.map(deal => {
+              const closeLabel = formatCloseDate(deal);
+              return (
+                <div
+                  key={deal.id}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-[rgba(30,58,95,0.03)] cursor-pointer hover:bg-[rgba(30,58,95,0.06)] transition-colors group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] font-medium text-[#1e3a5f] truncate">
+                      {deal.client_name}
+                    </div>
+                    <div className="text-[13px] text-[rgba(30,58,95,0.5)] truncate">
+                      {deal.property_address || 'No address'}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {closeLabel && (
+                      <span className="text-[12px] text-[rgba(30,58,95,0.4)] tabular-nums">
+                        {closeLabel}
+                      </span>
+                    )}
+                    <span className="text-[13px] font-medium text-[#1e3a5f] tabular-nums">
+                      {formatCurrency(calculateExpectedGCI(deal))}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-[rgba(30,58,95,0.25)] group-hover:text-[rgba(30,58,95,0.5)] transition-colors" strokeWidth={2} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </WidgetCard>
+    );
+  };
 
   const isInitialLoading = showInitialLoading;
   const headerTitle = isInitialLoading ? (
