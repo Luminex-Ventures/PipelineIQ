@@ -1,11 +1,6 @@
-import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true // Note: For production, consider using a backend proxy
-});
+const OPENAI_CHAT_API = '/api/openai-chat';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -81,17 +76,26 @@ Only include the metrics that are relevant to the user's query. If no metrics ar
       { role: 'user', content: userQuery }
     ];
 
-    // Call OpenAI API
-    const completion = await openai.chat.completions.create(
-      {
-        model: 'gpt-4o-mini',
+    // Call Vercel API route (key stays server-side)
+    const res = await fetch(OPENAI_CHAT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         messages,
+        model: 'gpt-4o-mini',
         temperature: 0.7,
         max_tokens: 1000,
-      },
-      options?.signal ? { signal: options.signal } : undefined
-    );
+      }),
+      signal: options?.signal,
+    });
 
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[openai] API error:', res.status, errText);
+      throw new Error('Failed to get response from Luma. Please try again.');
+    }
+
+    const completion = (await res.json()) as { choices: Array<{ message?: { content?: string } }> };
     const responseContent = completion.choices[0]?.message?.content || 
       'Sorry, I encountered an error processing your request.';
 

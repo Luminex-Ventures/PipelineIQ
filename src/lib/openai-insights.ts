@@ -1,10 +1,4 @@
-import OpenAI from 'openai';
-
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true
-});
+const OPENAI_CHAT_API = '/api/openai-chat';
 
 export interface DashboardStats {
   ytdGCI: number;
@@ -54,22 +48,33 @@ export async function generateDashboardInsights(data: InsightsRequest): Promise<
   try {
     const prompt = buildInsightsPrompt(data);
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are Luma, an AI assistant for real estate agents. Address the audience based on the provided audience instructions. Avoid phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, risks, opportunities, and next steps. Do NOT restate dashboard metrics or repeat numbers that are already visible elsewhere; avoid raw counts, dollar amounts, or percentages unless absolutely necessary to make a recommendation. Keep each insight to 1-2 sentences. Return 2-4 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 500,
+    const res = await fetch(OPENAI_CHAT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'system',
+            content: 'You are Luma, an AI assistant for real estate agents. Address the audience based on the provided audience instructions. Avoid phrasing like "the agent" or "the agent\'s". Provide concise, actionable insights based on the dashboard data. Focus on trends, risks, opportunities, and next steps. Do NOT restate dashboard metrics or repeat numbers that are already visible elsewhere; avoid raw counts, dollar amounts, or percentages unless absolutely necessary to make a recommendation. Keep each insight to 1-2 sentences. Return 2-4 insights as a JSON array of strings. Do not wrap your response in markdown code blocks.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
     });
 
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[openai-insights] API error:', res.status, errText);
+      throw new Error('Failed to generate insights. Please try again.');
+    }
+
+    const completion = (await res.json()) as { choices: Array<{ message?: { content?: string } }> };
     let content = completion.choices[0]?.message?.content || '';
 
     // Remove markdown code block formatting if present

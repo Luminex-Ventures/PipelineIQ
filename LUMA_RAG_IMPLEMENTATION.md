@@ -34,8 +34,8 @@ Fetches comprehensive context from Supabase database:
 The context is formatted as a structured text document that provides the AI with all the information it needs to answer queries.
 
 ### 2. **OpenAI Service** (`src/lib/openai.ts`)
-Handles communication with OpenAI API:
-- Sends user query with RAG context
+Handles communication with OpenAI via the server-side proxy:
+- Sends user query with RAG context to `/api/openai-chat` (Vercel serverless function; API key never exposed to client)
 - Manages conversation history (last 6 messages)
 - Parses AI responses
 - Extracts structured supporting data for UI cards
@@ -69,8 +69,9 @@ Add to your `.env` file:
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# New OpenAI configuration
-VITE_OPENAI_API_KEY=your_openai_api_key
+# OpenAI (server-side only — set in Vercel project env vars as OPENAI_API_KEY)
+# Do NOT use VITE_ prefix; the key must never be exposed to the client.
+# OPENAI_API_KEY=sk-...
 ```
 
 ### Getting an OpenAI API Key
@@ -79,7 +80,7 @@ VITE_OPENAI_API_KEY=your_openai_api_key
 2. Sign up or log in
 3. Navigate to API Keys
 4. Create a new secret key
-5. Copy the key and add it to your `.env` file
+5. Add it in the Vercel project dashboard under **Settings → Environment Variables** as `OPENAI_API_KEY` (or in `.env` when running `vercel dev`)
 
 ## Features
 
@@ -182,13 +183,13 @@ The following Supabase Edge Functions are **no longer needed** and can be remove
 
 ### Breaking Changes
 - None for end users - the UI and UX remain identical
-- Requires new environment variable: `VITE_OPENAI_API_KEY`
-- Requires OpenAI npm package (already added to package.json)
+- Requires `OPENAI_API_KEY` set in Vercel (or in `.env` for `vercel dev`) — never expose the key to the client
+- OpenAI chat is proxied via Vercel API route `api/openai-chat.ts`
 
 ## Future Enhancements
 
 Potential improvements:
-1. **Backend Proxy**: Move OpenAI calls to a secure backend endpoint
+1. ~~**Backend Proxy**: Move OpenAI calls to a secure backend endpoint~~ ✅ Done via Vercel API route
 2. **Caching**: Cache common queries to reduce API costs
 3. **Streaming**: Implement streaming responses for better UX
 4. **Fine-tuning**: Fine-tune a custom model on your data
@@ -220,7 +221,8 @@ To verify permissions are working correctly, test with different user roles:
 ## Troubleshooting
 
 ### "Failed to get response from Luma"
-- Check that `VITE_OPENAI_API_KEY` is set correctly
+- Ensure `OPENAI_API_KEY` is set in your Vercel project (Settings → Environment Variables)
+- For local dev, run `vercel dev` so the `/api/openai-chat` route is available, and set `OPENAI_API_KEY` in `.env`
 - Verify your OpenAI account has available credits
 - Check browser console for detailed error messages
 
