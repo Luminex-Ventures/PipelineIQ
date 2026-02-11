@@ -40,7 +40,7 @@ export default function Login({ onToggle }: LoginProps) {
         <div className="w-full lg:w-1/2 p-8 lg:p-12 xl:p-16">
           {/* Logo */}
           <div className="mb-10">
-            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-[75px]" />
+            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-12" />
           </div>
 
           {/* Header */}
@@ -71,13 +71,13 @@ export default function Login({ onToggle }: LoginProps) {
               type="button"
               className="flex-1 flex items-center justify-center gap-2 py-3 px-4 border border-gray-200 rounded-xl transition-all hover:border-[rgba(212,136,58,0.3)] hover:bg-[rgba(212,136,58,0.03)]"
             >
-              <svg className="w-5 h-5" viewBox="0 0 23 23">
-                <path fill="#f35325" d="M1 1h10v10H1z"/>
-                <path fill="#81bc06" d="M12 1h10v10H12z"/>
-                <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-                <path fill="#ffba08" d="M12 12h10v10H12z"/>
+              <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="#111827"
+                  d="M16.365 1.43c0 1.14-.465 2.2-1.225 3.02-.78.86-2.07 1.52-3.2 1.44-.15-1.09.38-2.22 1.13-3.02.83-.88 2.19-1.55 3.3-1.44zm3.92 17.06c-.59 1.33-.87 1.92-1.63 3.1-1.06 1.62-2.56 3.64-4.42 3.66-1.64.02-2.07-1.07-4.33-1.07-2.26 0-2.74 1.05-4.32 1.09-1.86.03-3.28-1.83-4.34-3.45-2.95-4.51-3.26-9.8-1.44-12.59 1.29-1.98 3.34-3.16 5.29-3.16 1.92 0 3.13 1.07 4.32 1.07 1.15 0 2.74-1.31 4.73-1.12.83.03 3.16.34 4.65 2.56-.12.08-2.78 1.62-2.78 4.81 0 3.81 3.34 5.07 3.37 5.09z"
+                />
               </svg>
-              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }}>Microsoft</span>
+              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }}>Apple</span>
             </button>
           </div>
 
