@@ -1378,13 +1378,17 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
               <DetailField label="PHONE" isEditing={isEditing} editComponent={
                 <input type="tel" value={formData.client_phone} onChange={e => setFormData(prev => ({ ...prev, client_phone: e.target.value }))} className="hig-input w-full" />
               }>
-                {formData.client_phone || '—'}
+                {formData.client_phone
+                  ? <a href={`tel:${formData.client_phone}`} className="hover:text-[#D4883A] hover:underline transition-colors">{formData.client_phone}</a>
+                  : '—'}
               </DetailField>
 
               <DetailField label="EMAIL" isEditing={isEditing} editComponent={
                 <input type="email" value={formData.client_email} onChange={e => setFormData(prev => ({ ...prev, client_email: e.target.value }))} className="hig-input w-full" />
               }>
-                {formData.client_email || '—'}
+                {formData.client_email
+                  ? <a href={`mailto:${formData.client_email}`} className="hover:text-[#D4883A] hover:underline transition-colors">{formData.client_email}</a>
+                  : '—'}
               </DetailField>
 
               <div className="border-t border-gray-100 my-4" />

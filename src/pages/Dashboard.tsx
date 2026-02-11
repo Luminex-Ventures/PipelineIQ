@@ -445,7 +445,7 @@ export default function Dashboard() {
   const [stalledDeals, setStalledDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<number>(0);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const [aiInsightsState, setAiInsightsState] = useState<AiInsightsState>({
     key: '',
     insights: [],
@@ -933,8 +933,6 @@ export default function Dashboard() {
     [filteredUpcomingDeals]
   );
   const formatLastUpdated = useCallback((timestamp: number) => {
-    const elapsedMs = Date.now() - timestamp;
-    if (elapsedMs < 60_000) return 'just now';
     return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }, []);
 
@@ -2308,12 +2306,17 @@ export default function Dashboard() {
       </Text>
     </div>
   );
-  const headerActions = (refreshing || lastRefreshedAt > 0) && (
+  const headerActions = (refreshing || lastRefreshedAt) ? (
     <LastUpdatedStatus
       refreshing={refreshing}
-      label={lastRefreshedAt > 0 ? `Last updated ${formatLastUpdated(lastRefreshedAt)}` : null}
+      label={
+        lastRefreshedAt
+          ? `Last updated ${formatLastUpdated(lastRefreshedAt)}`
+          : null
+      }
+      className="md:justify-end"
     />
-  );
+  ) : null;
 
   return (
     <PageShell title={headerTitle} actions={headerActions}>

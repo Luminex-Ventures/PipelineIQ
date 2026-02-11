@@ -206,7 +206,7 @@ export default function Analytics() {
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [closingThisMonthStats, setClosingThisMonthStats] =
     useState<ClosingThisMonthStats>({ count: 0, gci: 0 });
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const [gciGoal, setGciGoal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -688,7 +688,7 @@ export default function Analytics() {
     );
 
     setGciGoal(summary.annual_gci_goal ?? 0);
-    setLastRefreshedAt(new Date());
+    setLastRefreshedAt(Date.now());
     // Note: We intentionally exclude availableLeadSources from deps to avoid infinite loop
     // The lead source lookup is built from the query response instead
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -715,16 +715,8 @@ export default function Analytics() {
   const formatNumber = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
 
-  const formatLastUpdated = (value: Date | null) => {
-    if (!value) return null;
-    const nowLocal = new Date();
-    const isToday = value.toDateString() === nowLocal.toDateString();
-    return new Intl.DateTimeFormat('en-US', {
-      month: isToday ? undefined : 'short',
-      day: isToday ? undefined : 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(value);
+  const formatLastUpdated = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   };
 
   const downloadCsv = (filename: string, rows: Array<Record<string, string | number>>) => {
@@ -937,32 +929,29 @@ export default function Analytics() {
       subtitle="A cohesive digest of production, pace, and lead-source efficiency for your selected year."
     />
   );
-  const headerActions = (
-    <div className="flex flex-col gap-3 items-start sm:items-end">
-      <LastUpdatedStatus
-        refreshing={isRefreshing}
-        label={lastRefreshedAt ? `Last updated ${formatLastUpdated(lastRefreshedAt)}` : null}
-        className="min-h-[20px]"
-        reserveSpace
-      />
-      <div className={['space-y-1', ui.align.right].join(' ')}>
-        <Text as="span" variant="micro" className={ui.tone.faint}>
-          Timeframe
-        </Text>
-        <Text variant="muted">{timeframeDescription}</Text>
-      </div>
-      <SegmentedControl
-        options={yearOptions}
-        value={String(selectedYear)}
-        onChange={(value) => setSelectedYear(parseInt(value, 10))}
-        className="self-start sm:self-end w-max"
-      />
-    </div>
-  );
+  const headerActions = (isRefreshing || lastRefreshedAt) ? (
+    <LastUpdatedStatus
+      refreshing={isRefreshing}
+      label={lastRefreshedAt ? `Last updated ${formatLastUpdated(lastRefreshedAt)}` : null}
+      className="md:justify-end"
+    />
+  ) : null;
 
   return (
-    <PageShell title={headerTitle} actions={headerActions} headerClassName="lg:items-start">
+    <PageShell title={headerTitle} actions={headerActions}>
       <div className="space-y-8">
+      {/* Year selector */}
+      <div className="flex flex-col items-end gap-1 self-end ml-auto">
+        <Text as="span" variant="micro" className={ui.tone.faint}>
+          Timeframe — {timeframeDescription}
+        </Text>
+        <SegmentedControl
+          options={yearOptions}
+          value={String(selectedYear)}
+          onChange={(value) => setSelectedYear(parseInt(value, 10))}
+          className="w-max"
+        />
+      </div>
       {canShowFilterPanel && (
         <ScopePanel
           scopeDescription={scopeDescription}

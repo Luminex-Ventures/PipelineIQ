@@ -1298,12 +1298,12 @@ export default function Tasks() {
           subtitle="Triage today’s priorities, assign follow-ups, and keep every client on track without leaving this view."
         />
       )}
-      actions={(refreshing || lastRefreshedAt) ? (
+      actions={(refreshing || tasksQuery.dataUpdatedAt) ? (
         <LastUpdatedStatus
           refreshing={refreshing}
           label={
-            lastRefreshedAt
-              ? `Last updated ${new Date(lastRefreshedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+            tasksQuery.dataUpdatedAt
+              ? `Last updated ${new Date(tasksQuery.dataUpdatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
               : null
           }
           className="md:justify-end"

@@ -1,4 +1,4 @@
-import { Home, TrendingUp, Clock } from 'lucide-react';
+import { TrendingUp, Clock, Phone, Mail } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
 type Deal = Database['public']['Tables']['deals']['Row'] & {
@@ -49,14 +49,43 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
           style={{ backgroundColor: dealTypeColor }}
         />
         <div className="flex-1 min-w-0 p-2.5">
-          {/* Client name */}
-          <h4 className="text-[13px] font-medium text-[#172b4d] leading-tight mb-1">{deal.client_name}</h4>
-
-          {/* Property address */}
-          <div className="flex items-center text-[12px] text-[#6b778c] mb-2">
-            <Home className="w-3 h-3 mr-1 text-[#a5adba] flex-shrink-0" />
-            <span className="truncate">{deal.property_address || 'No address'}</span>
+          {/* Name - Address */}
+          <div className="flex items-center gap-1 text-[13px] leading-tight mb-1.5 min-w-0">
+            <span className="font-medium text-[#172b4d] flex-shrink-0">{deal.client_name}</span>
+            {deal.property_address && (
+              <>
+                <span className="text-[#a5adba] flex-shrink-0">–</span>
+                <span className="text-[#6b778c] truncate">{deal.property_address}</span>
+              </>
+            )}
           </div>
+
+          {/* Phone */}
+          {deal.client_phone && (
+            <a
+              href={`tel:${deal.client_phone}`}
+              onClick={e => e.stopPropagation()}
+              className="flex items-center gap-1 text-[11px] text-[#6b778c] hover:text-[#172b4d] transition-colors mb-0.5"
+            >
+              <Phone className="w-2.5 h-2.5 text-[#a5adba] flex-shrink-0" />
+              <span className="truncate">{deal.client_phone}</span>
+            </a>
+          )}
+
+          {/* Email */}
+          {deal.client_email && (
+            <a
+              href={`mailto:${deal.client_email}`}
+              onClick={e => e.stopPropagation()}
+              className="flex items-center gap-1 text-[11px] text-[#6b778c] hover:text-[#172b4d] transition-colors mb-0.5"
+            >
+              <Mail className="w-2.5 h-2.5 text-[#a5adba] flex-shrink-0" />
+              <span className="truncate">{deal.client_email}</span>
+            </a>
+          )}
+
+          {/* Spacer before price row */}
+          <div className="mb-1" />
 
           {/* Price + Commission row */}
           <div className="flex items-center justify-between mb-2">
