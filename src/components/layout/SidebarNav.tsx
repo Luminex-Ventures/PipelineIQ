@@ -13,6 +13,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ui } from '../../ui/tokens';
 import { Text } from '../../ui/Text';
+import { usePrefetch } from '../../hooks/useQueryCache';
 
 interface NavItem {
   icon: LucideIcon;
@@ -45,9 +46,10 @@ interface NavItemButtonProps {
   isActive: boolean;
   isCollapsed: boolean;
   onClick: () => void;
+  onHover?: () => void;
 }
 
-function NavItemButton({ item, isActive, isCollapsed, onClick }: NavItemButtonProps) {
+function NavItemButton({ item, isActive, isCollapsed, onClick, onHover }: NavItemButtonProps) {
   const [showTooltip, setShowTooltip] = useState(false);
   const Icon = item.icon;
 
@@ -58,6 +60,7 @@ function NavItemButton({ item, isActive, isCollapsed, onClick }: NavItemButtonPr
         onMouseEnter={(e) => {
           if (isCollapsed) setShowTooltip(true);
           if (!isActive) e.currentTarget.style.color = '#D4883A';
+          onHover?.();
         }}
         onMouseLeave={(e) => {
           setShowTooltip(false);
@@ -128,6 +131,7 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [showCollapseTooltip, setShowCollapseTooltip] = useState(false);
+  const { prefetchRoute } = usePrefetch();
 
   const renderNavItems = (items: NavItem[]) => (
     <div className="space-y-0.5">
@@ -138,6 +142,7 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
           isActive={location.pathname === item.path}
           isCollapsed={isCollapsed}
           onClick={() => navigate(item.path)}
+          onHover={() => prefetchRoute(item.path)}
         />
       ))}
     </div>

@@ -600,6 +600,7 @@ export default function Analytics() {
     staleTime: 2 * 60 * 1000, // 2 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes cache
     refetchOnWindowFocus: true,
+    placeholderData: (previousData) => previousData, // Show stale data instantly while refetching
   });
 
   // Process analytics data when it changes
@@ -984,7 +985,7 @@ export default function Analytics() {
         {isInitialLoading ? (
           <StatCardsSkeleton />
         ) : (
-          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
+          <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 animate-content-in ${isRefreshing ? 'opacity-80 transition-opacity' : ''}`}>
             <MetricTile
               label="Pipeline"
               value={formatNumber(yearlyStats.closedDeals)}
@@ -1067,7 +1068,7 @@ export default function Analytics() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-content-in">
               <div className={tileClass}>
                 <Text as="span" variant="micro">Top Month</Text>
                 {bestMonth ? (
@@ -1169,7 +1170,7 @@ export default function Analytics() {
               {isInitialLoading ? (
                 <TableSkeleton rows={6} cols={5} />
               ) : (
-                <table className="analytics-table">
+                <table className="analytics-table animate-content-in">
                   <thead>
                     <tr className="analytics-table-head-row">
                       <th className="analytics-table-head-cell">Month</th>
@@ -1242,7 +1243,7 @@ export default function Analytics() {
               </Card>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-4 animate-content-in">
               <Card className="analytics-card-gradient space-y-4">
                 <Text as="span" variant="micro">Year-over-year pace</Text>
                 <div className="analytics-mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1339,7 +1340,7 @@ export default function Analytics() {
           {isInitialLoading ? (
             <TableSkeleton rows={3} cols={4} />
           ) : (
-            <table className="analytics-table">
+            <table className="analytics-table animate-content-in">
               <thead>
                 <tr className="analytics-table-head-row analytics-table-head-row--bordered">
                   <th className="analytics-table-head-cell">From → To</th>
@@ -1411,7 +1412,7 @@ export default function Analytics() {
             </Text>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 analytics-mt-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 analytics-mt-4 animate-content-in">
             {archiveStats.reasons.map((item) => (
               <Card key={item.reason} padding="cardTight">
                 <div className="flex items-center justify-between">
@@ -1453,7 +1454,7 @@ export default function Analytics() {
             <TableSkeleton rows={6} cols={6} />
           </div>
         ) : (
-          <table className="analytics-table analytics-table-divider">
+          <table className="analytics-table analytics-table-divider animate-content-in">
             <thead className="analytics-table-head">
               <tr className="analytics-table-head-row">
                 <th className="analytics-table-head-cell">Source</th>
@@ -1534,7 +1535,7 @@ export default function Analytics() {
             <ListSkeleton lines={4} />
           </div>
         ) : (
-          <>
+          <div className="animate-content-in">
             {focusAreas.length > 0 ? (
               <ol className="space-y-3 analytics-mt-4">
                 {focusAreas.map((item, index) => (
@@ -1558,7 +1559,7 @@ export default function Analytics() {
                 Add a few deals to surface more specific focus recommendations.
               </Text>
             )}
-          </>
+          </div>
         )}
       </Card>
       </div>

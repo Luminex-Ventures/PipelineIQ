@@ -547,7 +547,17 @@
   }
 
   .animate-fade-in {
-    animation: fade-in 0.45s ease forwards;
+    animation: fade-in 0.3s ease forwards;
+  }
+
+  /* Skeleton-to-content crossfade (opacity only, no layout shift) */
+  @keyframes content-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .animate-content-in {
+    animation: content-in 0.25s ease forwards;
   }
 
   /* Luma Insights — subtle AI shimmer on top border */

@@ -1680,7 +1680,7 @@ export default function Pipeline() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 animate-content-in">
             {summaryPills.map((pill) => {
               const isNet = pill.label === 'Net Commission';
               return (
@@ -1785,7 +1785,7 @@ export default function Pipeline() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="overflow-x-auto px-4 py-4">
+          <div className="overflow-x-auto px-4 py-4 animate-content-in">
             <div
               style={{
                 display: 'grid',
@@ -1826,7 +1826,7 @@ export default function Pipeline() {
           </DragOverlay>
         </DndContext>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto animate-content-in">
           <PipelineTable
             deals={filteredTableRows}
             statuses={combinedStatuses}

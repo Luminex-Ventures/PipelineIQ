@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Database } from '../lib/database.types';
 import { getVisibleUserIds } from '../lib/rbac';
 import { Card } from '../ui/Card';
+import { Skeleton } from '../components/ui/Skeleton';
 import { FormField } from '../ui/FormField';
 import { LastUpdatedStatus } from '../ui/LastUpdatedStatus';
 import { PageShell } from '../ui/PageShell';
@@ -469,6 +470,7 @@ export default function Tasks() {
     staleTime: 1 * 60 * 1000, // 1 minute
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
+    placeholderData: (previousData) => previousData, // Show stale data instantly while refetching
   });
 
   // React Query for cached deals
@@ -1576,8 +1578,19 @@ export default function Tasks() {
               />
             )}
             {loading ? (
-              <div className="tasks-empty">
-                <Text variant="muted">Loading tasks…</Text>
+              <div className="space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Card key={`task-skeleton-${i}`} padding="cardTight" className="bg-white/70">
+                    <div className="flex items-start gap-3 p-3">
+                      <Skeleton className="h-4 w-4 rounded-full flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                      <Skeleton className="h-3 w-16 flex-shrink-0" />
+                    </div>
+                  </Card>
+                ))}
               </div>
             ) : filteredTasks.length === 0 ? (
               <div className="tasks-empty">
@@ -1588,19 +1601,23 @@ export default function Tasks() {
                 </Text>
               </div>
             ) : groupedTasks && groupedTasks.length > 0 ? (
-              groupedTasks.map((group) => (
-                <div key={group.agentId} className="space-y-3">
-                  <div className="tasks-sticky">
-                    <Text as="span" variant="micro" className={ui.tone.muted}>
-                      {group.agentName} • {group.tasks.length} task
-                      {group.tasks.length === 1 ? '' : 's'}
-                    </Text>
+              <div className="animate-content-in space-y-3">
+                {groupedTasks.map((group) => (
+                  <div key={group.agentId} className="space-y-3">
+                    <div className="tasks-sticky">
+                      <Text as="span" variant="micro" className={ui.tone.muted}>
+                        {group.agentName} • {group.tasks.length} task
+                        {group.tasks.length === 1 ? '' : 's'}
+                      </Text>
+                    </div>
+                    {group.tasks.map((task) => renderTaskCard(task))}
                   </div>
-                  {group.tasks.map((task) => renderTaskCard(task))}
-                </div>
-              ))
+                ))}
+              </div>
             ) : (
-              filteredTasks.map((task) => renderTaskCard(task))
+              <div className="animate-content-in">
+                {filteredTasks.map((task) => renderTaskCard(task))}
+              </div>
             )}
 
             {showCompleted && (

@@ -1399,6 +1399,7 @@ export default function Dashboard() {
     gcTime: 15 * 60 * 1000, // Cache for 15 minutes
     refetchOnWindowFocus: false, // Don't refetch on every window focus
     refetchOnMount: 'always', // But do refetch when component mounts
+    placeholderData: (previousData) => previousData, // Show stale data instantly while refetching
   });
 
   // Process cached data when it changes
@@ -2348,7 +2349,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <RefreshOverlay active={showRefreshingOverlay}>
-          <div className="space-y-4">
+          <div className="space-y-4 animate-content-in">
             <Text variant="micro" className={ui.tone.subtle}>PIPELINE (ACTIVE DEALS)</Text>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricTile
@@ -2447,7 +2448,7 @@ export default function Dashboard() {
             onDragEnd={handleDragEnd}
           >
             <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
-              <div className="columns-1 lg:columns-2 gap-2 space-y-2">
+              <div className="columns-1 lg:columns-2 gap-2 space-y-2 animate-content-in">
                 {widgetOrder.map((widgetId) => {
                   const content = renderWidget(widgetId);
                   if (!content) return null;
