@@ -152,9 +152,9 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
         isCollapsed ? 'justify-center px-2' : 'px-4',
       ].join(' ')}>
         {isCollapsed ? (
-          <img src="/PipelineIQ-icon-white.png" alt="PipelineIQ" className="h-8 w-8" />
+          <img src="/LumaIQ-icon-white.png" alt="Luma-IQ" className="h-8 w-8" />
         ) : (
-          <img src="/PipelineIQ-header-white.png" alt="PipelineIQ" className="h-7" />
+          <img src="/LumaIQ-header-white.png" alt="Luma-IQ" className="h-7" />
         )}
       </div>
 
