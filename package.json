@@ -19,7 +19,10 @@
   
     
   "dev": "node ./node_modules/vite/dist/node/cli.js",
-  
+
+    
+  "dev:api": "npx tsx scripts/local-openai-proxy.ts",
+
     
   "build": "node ./node_modules/vite/dist/node/cli.js build",
   
