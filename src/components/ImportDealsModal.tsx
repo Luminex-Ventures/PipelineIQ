@@ -3,7 +3,7 @@ import { X, Upload, Download, CheckCircle, AlertCircle, Loader } from 'lucide-re
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { generateExampleCSV, downloadCSV, parseCSV, validateDealRow, csvRowToObject, parseFlexibleDate } from '../lib/csv-utils';
-import type { Database } from '../lib/database.types';
+import type { Database, AdditionalContact } from '../lib/database.types';
 
 type LeadSource = Database['public']['Tables']['lead_sources']['Row'];
 type PipelineStatus = Database['public']['Tables']['pipeline_statuses']['Row'];
@@ -177,6 +177,19 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           }
         }
 
+        // Build additional contacts from CSV columns (one contact per row)
+        let additionalContacts: AdditionalContact[] | null = null;
+        const contactName = rowData.additional_contact_name?.trim();
+        if (contactName) {
+          additionalContacts = [{
+            id: Math.random().toString(36).substring(2, 11),
+            name: contactName,
+            email: rowData.additional_contact_email?.trim() || '',
+            phone: rowData.additional_contact_phone?.trim() || '',
+            relationship: rowData.additional_contact_relationship?.trim() || 'Other'
+          }];
+        }
+
         const dealData: DealInsert = {
           user_id: user.id,
           client_name: rowData.client_name.trim(),
@@ -213,7 +226,8 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
             : 0,
           close_date: parsedCloseDate,
           stage_entered_at: new Date().toISOString(),
-          closed_at: status === 'closed' ? new Date().toISOString() : null
+          closed_at: status === 'closed' ? new Date().toISOString() : null,
+          additional_contacts: additionalContacts
         };
 
         const { error } = await supabase
@@ -394,13 +408,26 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <h4 className="font-semibold text-gray-900 mb-2">Required Fields</h4>
             <ul className="text-sm text-gray-700 space-y-1">
-              <li><span className="font-medium">client_name:</span> Client's full name</li>
+              <li><span className="font-medium">client_name:</span> Client&apos;s full name</li>
               <li><span className="font-medium">lead_source_name:</span> Must match one of your configured lead sources</li>
               <li><span className="font-medium">deal_type:</span> buyer, seller, buyer_and_seller, renter, or landlord</li>
               <li><span className="font-medium">pipeline_status:</span> Must match one of your configured pipeline statuses</li>
             </ul>
+            <h4 className="font-semibold text-gray-900 mt-4 mb-2">Optional Fields</h4>
+            <ul className="text-sm text-gray-700 space-y-1">
+              <li><span className="font-medium">client_phone, client_email:</span> Client contact info</li>
+              <li><span className="font-medium">property_address, city, state, zip:</span> Property location</li>
+              <li><span className="font-medium">expected_sale_price, actual_sale_price:</span> Deal pricing</li>
+              <li><span className="font-medium">gross_commission_rate, brokerage_split_rate:</span> Commission rates (decimals, e.g. 0.03)</li>
+              <li><span className="font-medium">referral_out_rate, referral_in_rate:</span> Referral rates (decimals)</li>
+              <li><span className="font-medium">transaction_fee:</span> Flat transaction fee</li>
+              <li><span className="font-medium">close_date:</span> Expected close date (YYYY-MM-DD, MM/DD/YYYY, etc.)</li>
+              <li><span className="font-medium">additional_contact_name:</span> Additional person (e.g. spouse, co-buyer)</li>
+              <li><span className="font-medium">additional_contact_email, additional_contact_phone:</span> Their contact info</li>
+              <li><span className="font-medium">additional_contact_relationship:</span> Spouse, Co-Buyer, Attorney, Lender, etc.</li>
+            </ul>
             <div className="mt-3 text-xs text-gray-600">
-              Note: Property address and price are optional. Lead source and pipeline status names must match exactly or the import will fail.
+              Note: Lead source and pipeline status names must match exactly or the import will fail. All other fields are optional.
             </div>
           </div>
         </div>

@@ -301,26 +301,25 @@ export function AppHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-30 h-16 border-b border-gray-200 bg-white">
+    <header className="sticky top-0 z-30 h-16 border-b border-white/10 bg-[#1e3a5f]">
       <div className="flex h-full w-full items-center gap-4 px-4 sm:px-6">
         <div className="flex items-center gap-3 flex-1">
           <div className="hidden lg:flex w-80" ref={searchRef}>
             <div className="relative w-full">
               <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
-                <Search className="h-4 w-4" style={{ color: '#1e3a5f' }} />
+                <Search className="h-4 w-4 text-white/50" />
               </div>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search deals, people, addresses..."
-                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-10 text-sm placeholder:text-gray-400 focus:border-[var(--app-accent)] focus:bg-white focus:ring-2 focus:ring-[rgba(212,136,58,0.2)] focus:outline-none transition-colors"
-                style={{ color: '#1e3a5f' }}
+                className="w-full rounded-lg border border-white/20 bg-white/10 py-2 pl-10 pr-10 text-sm text-white placeholder:text-white/40 focus:border-[var(--app-accent)] focus:bg-white/15 focus:ring-2 focus:ring-[rgba(212,136,58,0.3)] focus:outline-none transition-colors"
               />
               {searchQuery && (
                 <button
                   onClick={clearSearch}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -372,10 +371,10 @@ export function AppHeader() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleGlobalNewDeal}
-            className="hidden sm:inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md"
-            style={{ backgroundColor: '#1e3a5f' }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#D4883A')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1e3a5f')}
+            className="hidden sm:inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold shadow-sm transition-all hover:shadow-md"
+            style={{ backgroundColor: 'rgba(255,255,255,0.15)', color: '#ffffff' }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#D4883A'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.15)'; }}
           >
             <Plus className="h-4 w-4" />
             New deal
@@ -392,10 +391,10 @@ export function AppHeader() {
                   setHasUnread(false);
                   setLastViewedAt(new Date());
                 }}
-                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg transition hover:bg-gray-100"
-                style={{ color: '#1e3a5f' }}
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg transition hover:bg-white/10"
+                style={{ color: 'rgba(255,255,255,0.8)' }}
                 onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.8)'}
                 aria-label="Notifications"
               >
                 <Bell className="h-5 w-5" />
@@ -453,7 +452,7 @@ export function AppHeader() {
           <div className="relative">
             <button
               onClick={() => setShowUserMenu((prev) => !prev)}
-              className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-gray-100"
+              className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-white/10"
               aria-label="User menu"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)] text-white text-sm font-medium">

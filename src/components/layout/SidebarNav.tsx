@@ -64,7 +64,7 @@ function NavItemButton({ item, isActive, isCollapsed, onClick, onHover }: NavIte
         }}
         onMouseLeave={(e) => {
           setShowTooltip(false);
-          if (!isActive) e.currentTarget.style.color = '#1e3a5f';
+          if (!isActive) e.currentTarget.style.color = 'rgba(255,255,255,0.8)';
         }}
         onFocus={() => isCollapsed && setShowTooltip(true)}
         onBlur={() => setShowTooltip(false)}
@@ -73,13 +73,13 @@ function NavItemButton({ item, isActive, isCollapsed, onClick, onHover }: NavIte
           'group relative flex w-full items-center transition-colors duration-150',
           isCollapsed ? 'justify-center px-3 py-2.5' : 'gap-3 px-3 py-2.5',
           isActive
-            ? 'bg-[rgba(212,136,58,0.08)]'
-            : 'hover:bg-gray-100',
+            ? 'bg-white/10'
+            : 'hover:bg-white/10',
           ui.radius.control,
         ].join(' ')}
-        style={{ color: isActive ? '#D4883A' : '#1e3a5f' }}
+        style={{ color: isActive ? '#D4883A' : 'rgba(255,255,255,0.8)' }}
       >
-        {/* Active indicator bar (Jira-style left border) */}
+        {/* Active indicator bar */}
         {isActive && (
           <span
             className={[
@@ -95,13 +95,9 @@ function NavItemButton({ item, isActive, isCollapsed, onClick, onHover }: NavIte
         />
         
         {!isCollapsed && (
-          <Text
-            as="span"
-            variant="body"
-            className="whitespace-nowrap font-medium"
-          >
+          <span className="whitespace-nowrap font-medium text-sm" style={{ color: 'inherit' }}>
             {item.label}
-          </Text>
+          </span>
         )}
       </button>
 
@@ -149,16 +145,16 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
   );
 
   return (
-    <nav className="flex h-full flex-col bg-white border-r border-gray-200">
+    <nav className="flex h-full flex-col bg-[#1e3a5f]">
       {/* Logo/Brand area */}
       <div className={[
-        'flex items-center border-b border-gray-200 h-16',
+        'flex items-center border-b border-white/10 h-16',
         isCollapsed ? 'justify-center px-2' : 'px-4',
       ].join(' ')}>
         {isCollapsed ? (
-          <img src="/LumaIQ-icon.png" alt="Luma-IQ" className="h-8 w-8" />
+          <img src="/PipelineIQ-icon-white.png" alt="PipelineIQ" className="h-8 w-8" />
         ) : (
-          <img src="/LumaIQ-header.png" alt="Luma-IQ" className="h-10" />
+          <img src="/PipelineIQ-header-white.png" alt="PipelineIQ" className="h-7" />
         )}
       </div>
 
@@ -171,32 +167,24 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
           {/* Main section */}
           <div className="space-y-1">
             {!isCollapsed && (
-              <Text
-                as="div"
-                variant="micro"
-                className={[ui.tone.faint, 'px-3 mb-2'].join(' ')}
-              >
+              <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
                 MAIN
-              </Text>
+              </div>
             )}
             {renderNavItems(mainNavItems)}
           </div>
 
           {/* Divider */}
           <div className={isCollapsed ? 'mx-2' : 'mx-3'}>
-            <div className="h-px bg-gray-200" />
+            <div className="h-px bg-white/10" />
           </div>
 
           {/* AI section */}
           <div className="space-y-1">
             {!isCollapsed && (
-              <Text
-                as="div"
-                variant="micro"
-                className={[ui.tone.faint, 'px-3 mb-2'].join(' ')}
-              >
+              <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
                 AI
-              </Text>
+              </div>
             )}
             {renderNavItems(aiNavItems)}
           </div>
@@ -205,7 +193,7 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
 
       {/* Bottom section (Settings + Collapse) */}
       <div className={[
-        'border-t border-gray-200 py-3',
+        'border-t border-white/10 py-3',
         isCollapsed ? 'px-2' : 'px-3',
       ].join(' ')}>
         <div className="space-y-1">
@@ -222,7 +210,7 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
               }}
               onMouseLeave={(e) => {
                 setShowCollapseTooltip(false);
-                e.currentTarget.style.color = '#1e3a5f';
+                e.currentTarget.style.color = 'rgba(255,255,255,0.8)';
               }}
               onFocus={() => isCollapsed && setShowCollapseTooltip(true)}
               onBlur={() => setShowCollapseTooltip(false)}
@@ -232,19 +220,19 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
               className={[
                 'group flex w-full items-center transition-colors duration-150',
                 isCollapsed ? 'justify-center px-3 py-2.5' : 'gap-3 px-3 py-2.5',
-                'hover:bg-gray-100',
+                'hover:bg-white/10',
                 ui.radius.control,
               ].join(' ')}
-              style={{ color: '#1e3a5f' }}
+              style={{ color: 'rgba(255,255,255,0.8)' }}
             >
               {isCollapsed ? (
                 <ChevronRight className="h-5 w-5" strokeWidth={2} />
               ) : (
                 <>
                   <ChevronLeft className="h-5 w-5" strokeWidth={2} />
-                  <Text as="span" variant="body" className="font-medium">
+                  <span className="font-medium text-sm" style={{ color: 'inherit' }}>
                     Collapse
-                  </Text>
+                  </span>
                 </>
               )}
             </button>

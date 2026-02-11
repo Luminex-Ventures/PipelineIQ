@@ -19,6 +19,10 @@ export interface CSVDealRow {
   referral_in_rate?: number;
   transaction_fee?: number;
   close_date?: string;
+  additional_contact_name?: string;
+  additional_contact_email?: string;
+  additional_contact_phone?: string;
+  additional_contact_relationship?: string;
 }
 
 const MONTH_MAP: Record<string, number> = {
@@ -144,7 +148,11 @@ export function generateExampleCSV(statusNames: string[] = []): string {
     'referral_out_rate',
     'referral_in_rate',
     'transaction_fee',
-    'close_date'
+    'close_date',
+    'additional_contact_name',
+    'additional_contact_email',
+    'additional_contact_phone',
+    'additional_contact_relationship'
   ].join(',');
 
   const defaultStatuses = ['New Lead', 'Contacted', 'Under Contract'];
@@ -169,7 +177,11 @@ export function generateExampleCSV(statusNames: string[] = []): string {
       referral_out_rate: '',
       referral_in_rate: '',
       transaction_fee: '500',
-      close_date: ''
+      close_date: '',
+      additional_contact_name: 'Jane Smith',
+      additional_contact_email: 'jane.smith@example.com',
+      additional_contact_phone: '555-123-4568',
+      additional_contact_relationship: 'Spouse'
     },
     {
       client_name: 'Sarah Johnson',
@@ -189,7 +201,11 @@ export function generateExampleCSV(statusNames: string[] = []): string {
       referral_out_rate: '0.25',
       referral_in_rate: '',
       transaction_fee: '500',
-      close_date: '2024-12-15'
+      close_date: '2024-12-15',
+      additional_contact_name: '',
+      additional_contact_email: '',
+      additional_contact_phone: '',
+      additional_contact_relationship: ''
     },
     {
       client_name: 'Mike Davis',
@@ -209,7 +225,11 @@ export function generateExampleCSV(statusNames: string[] = []): string {
       referral_out_rate: '',
       referral_in_rate: '',
       transaction_fee: '0',
-      close_date: ''
+      close_date: '',
+      additional_contact_name: 'Lisa Davis',
+      additional_contact_email: 'lisa.d@example.com',
+      additional_contact_phone: '555-456-7891',
+      additional_contact_relationship: 'Co-Buyer'
     }
   ];
 

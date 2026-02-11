@@ -47,6 +47,15 @@ export interface DealDeduction {
   percent_of?: PercentBasis; // For percentage type: which base to apply against (default: 'gross')
 }
 
+// Additional contact on a deal (spouse, co-buyer, attorney, lender, etc.)
+export interface AdditionalContact {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  relationship: string;   // e.g., "Spouse", "Co-Buyer", "Attorney", "Lender"
+}
+
 // Deal-level credit (bonus, referral credit, etc.)
 export interface DealCredit {
   id: string;
@@ -148,6 +157,7 @@ export interface Database {
           // Deal-level deduction overrides (agents can waive/modify defaults)
           deal_deductions: DealDeduction[] | null;
           deal_credits: DealCredit[] | null;
+          additional_contacts: AdditionalContact[] | null;
         };
         Insert: {
           id?: string;
@@ -180,6 +190,7 @@ export interface Database {
           updated_at?: string;
           deal_deductions?: DealDeduction[] | null;
           deal_credits?: DealCredit[] | null;
+          additional_contacts?: AdditionalContact[] | null;
         };
         Update: {
           id?: string;
@@ -212,6 +223,7 @@ export interface Database {
           updated_at?: string;
           deal_deductions?: DealDeduction[] | null;
           deal_credits?: DealCredit[] | null;
+          additional_contacts?: AdditionalContact[] | null;
         };
       };
       // Workspace-level default deductions (set by admins, applied to all deals)

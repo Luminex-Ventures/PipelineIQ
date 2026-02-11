@@ -17,10 +17,11 @@ import {
   MoreHorizontal,
   TrendingUp,
   ChevronDown,
-  Sparkles
+  Sparkles,
+  UserPlus
 } from 'lucide-react';
 import QuickAddTask from './QuickAddTask';
-import type { Database, DealDeduction, DealCredit, PercentBasis } from '../lib/database.types';
+import type { Database, DealDeduction, DealCredit, AdditionalContact, PercentBasis } from '../lib/database.types';
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getVisibleUserIds } from '../lib/rbac';
 import DealNotes from './DealNotes';
@@ -72,6 +73,7 @@ type FormState = {
   close_date: string | null;
   deal_deductions: DealDeduction[];
   deal_credits: DealCredit[];
+  additional_contacts: AdditionalContact[];
 };
 
 interface DealModalProps {
@@ -113,7 +115,8 @@ const buildFormState = (deal: Deal | null): FormState => ({
     value: c.type === 'percentage' ? c.value * 100 : c.value,
     include_in_gci: !!c.include_in_gci,
     percent_of: (c.percent_of as PercentBasis) || 'gross'
-  }))
+  })),
+  additional_contacts: (deal?.additional_contacts || []).map(c => ({ ...c }))
 });
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -593,6 +596,37 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
     }));
   };
 
+  // --- Additional Contact CRUD ---
+  const addAdditionalContact = () => {
+    const newContact: AdditionalContact = {
+      id: generateId(),
+      name: '',
+      email: '',
+      phone: '',
+      relationship: 'Spouse'
+    };
+    setFormData(prev => ({
+      ...prev,
+      additional_contacts: [...prev.additional_contacts, newContact]
+    }));
+  };
+
+  const updateAdditionalContact = (contactId: string, field: keyof AdditionalContact, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      additional_contacts: prev.additional_contacts.map(c =>
+        c.id === contactId ? { ...c, [field]: value } : c
+      )
+    }));
+  };
+
+  const removeAdditionalContact = (contactId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      additional_contacts: prev.additional_contacts.filter(c => c.id !== contactId)
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -642,6 +676,9 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
         percent_of: c.type === 'percentage' ? (c.percent_of || 'gross') : undefined
       }));
 
+    const contactsForDb: AdditionalContact[] = formData.additional_contacts
+      .filter(c => c.name.trim() !== '');
+
     const dealData: DealInsert & DealUpdate = {
       ...formData,
       user_id: user.id,
@@ -660,7 +697,8 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
           : null,
       archived_reason: archived ? archivedReason : null,
       deal_deductions: deductionsForDb.length > 0 ? deductionsForDb : null,
-      deal_credits: creditsForDb.length > 0 ? creditsForDb : null
+      deal_credits: creditsForDb.length > 0 ? creditsForDb : null,
+      additional_contacts: contactsForDb.length > 0 ? contactsForDb : null
     };
 
     let dealId = deal?.id || null;
@@ -1390,6 +1428,98 @@ export default function DealModal({ deal, onClose, onDelete, onSaved, onDeleted 
                   ? <a href={`mailto:${formData.client_email}`} className="hover:text-[#D4883A] hover:underline transition-colors">{formData.client_email}</a>
                   : '—'}
               </DetailField>
+
+              {/* Additional Contacts */}
+              <div className="pt-3 mt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <Text variant="micro" className="font-semibold">ADDITIONAL PEOPLE</Text>
+                  {isEditing && (
+                    <button type="button" onClick={addAdditionalContact} className="text-[11px] text-[#D4883A] hover:underline flex items-center gap-1">
+                      <UserPlus className="w-3 h-3" />
+                      Add
+                    </button>
+                  )}
+                </div>
+
+                {formData.additional_contacts.length === 0 ? (
+                  <Text variant="muted" className="text-[13px]">
+                    {isEditing ? 'Add a spouse, co-buyer, or other contact' : 'None'}
+                  </Text>
+                ) : (
+                  <div className="space-y-3">
+                    {formData.additional_contacts.map(contact => (
+                      <div key={contact.id}>
+                        {isEditing ? (
+                          <div className="bg-gray-50 rounded-lg p-3 space-y-2 relative group/contact">
+                            <button
+                              type="button"
+                              onClick={() => removeAdditionalContact(contact.id)}
+                              className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover/contact:opacity-100 transition text-lg leading-none"
+                              title="Remove contact"
+                            >
+                              ×
+                            </button>
+                            <select
+                              value={contact.relationship}
+                              onChange={e => updateAdditionalContact(contact.id, 'relationship', e.target.value)}
+                              className="hig-input w-full text-sm"
+                            >
+                              <option value="Spouse">Spouse</option>
+                              <option value="Co-Buyer">Co-Buyer</option>
+                              <option value="Co-Seller">Co-Seller</option>
+                              <option value="Attorney">Attorney</option>
+                              <option value="Lender">Lender</option>
+                              <option value="Title Agent">Title Agent</option>
+                              <option value="Inspector">Inspector</option>
+                              <option value="Other">Other</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={contact.name}
+                              onChange={e => updateAdditionalContact(contact.id, 'name', e.target.value)}
+                              className="hig-input w-full text-sm"
+                              placeholder="Name"
+                            />
+                            <input
+                              type="email"
+                              value={contact.email}
+                              onChange={e => updateAdditionalContact(contact.id, 'email', e.target.value)}
+                              className="hig-input w-full text-sm"
+                              placeholder="Email"
+                            />
+                            <input
+                              type="tel"
+                              value={contact.phone}
+                              onChange={e => updateAdditionalContact(contact.id, 'phone', e.target.value)}
+                              className="hig-input w-full text-sm"
+                              placeholder="Phone"
+                            />
+                          </div>
+                        ) : (
+                          <div className="py-1.5">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="text-[9px] font-medium text-[rgba(30,58,95,0.5)] bg-[rgba(30,58,95,0.06)] px-1.5 py-0.5 rounded">
+                                {contact.relationship}
+                              </span>
+                            </div>
+                            <Text variant="body" className="text-sm font-medium">{contact.name || '—'}</Text>
+                            {contact.phone && (
+                              <a href={`tel:${contact.phone}`} className="block text-sm text-gray-600 hover:text-[#D4883A] hover:underline transition-colors">
+                                {contact.phone}
+                              </a>
+                            )}
+                            {contact.email && (
+                              <a href={`mailto:${contact.email}`} className="block text-sm text-gray-600 hover:text-[#D4883A] hover:underline transition-colors truncate">
+                                {contact.email}
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="border-t border-gray-100 my-4" />
 
