@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Send, RotateCcw, RefreshCw, ChevronDown } from 'lucide-react';
+import { Sparkles, Plus, ArrowUp, RefreshCw, ChevronDown, MessageSquare, RotateCcw } from 'lucide-react';
 import { queryLuma } from '../lib/openai';
 import { buildRAGContext } from '../lib/rag-context';
-import '../lib/rag-debug'; // Enable debug helper in console
-import { PageShell } from '../ui/PageShell';
+import '../lib/rag-debug';
 import { MetricTile } from '../ui/MetricTile';
-import { Text } from '../ui/Text';
 import { ui } from '../ui/tokens';
 
 interface SupportingData {
@@ -72,10 +70,21 @@ export default function Luma() {
   } = useLumaChat();
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
+    try {
+      const stored = sessionStorage.getItem('luma-conversations');
+      if (stored) {
+        const parsed = JSON.parse(stored) as Conversation[];
+        if (parsed.length > 0) return parsed;
+      }
+    } catch { /* ignore parse errors */ }
     const now = Date.now();
     return [{ id: createMessageId(), title: 'New chat', messages: [], updatedAt: now }];
   });
-  const [activeConversationId, setActiveConversationId] = useState(conversations[0].id);
+  const [activeConversationId, setActiveConversationId] = useState<string>(() => {
+    const stored = sessionStorage.getItem('luma-active-conversation');
+    if (stored && conversations.some((c) => c.id === stored)) return stored;
+    return conversations[0].id;
+  });
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -90,10 +99,10 @@ export default function Luma() {
   }, [setInput]);
 
   const buildTitle = useCallback((nextMessages: Message[]) => {
-    const firstUser = nextMessages.find((message) => message.role === 'user');
+    const firstUser = nextMessages.find((m) => m.role === 'user');
     if (!firstUser) return 'New chat';
-    return firstUser.content.length > 40
-      ? `${firstUser.content.slice(0, 40).trim()}…`
+    return firstUser.content.length > 36
+      ? `${firstUser.content.slice(0, 36).trim()}…`
       : firstUser.content;
   }, []);
 
@@ -114,23 +123,43 @@ export default function Luma() {
     });
   }, [clearChat]);
 
+  // Persist conversations to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('luma-conversations', JSON.stringify(conversations));
+    } catch { /* storage full or unavailable */ }
+  }, [conversations]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('luma-active-conversation', activeConversationId);
+    } catch { /* storage full or unavailable */ }
+  }, [activeConversationId]);
+
+  // Sync messages into the active conversation
   useEffect(() => {
     setConversations((prev) =>
-      prev.map((conversation) => {
-        if (conversation.id !== activeConversationId) return conversation;
-        return {
-          ...conversation,
-          messages,
-          title: buildTitle(messages),
-          updatedAt: Date.now()
-        };
+      prev.map((c) => {
+        if (c.id !== activeConversationId) return c;
+        return { ...c, messages, title: buildTitle(messages), updatedAt: Date.now() };
       })
     );
   }, [activeConversationId, buildTitle, messages]);
 
+  // Load conversation when switching
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.id === activeConversationId) ?? conversations[0],
+    [activeConversationId, conversations]
+  );
+
+  useEffect(() => {
+    if (!activeConversation) return;
+    loadConversation(activeConversation.messages);
+  }, [activeConversationId, loadConversation]);
+
   useEffect(() => {
     if (!scrollRef.current) return;
-    scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
 
   useEffect(() => {
@@ -143,250 +172,171 @@ export default function Luma() {
       : 'Context not ready';
     if (contextMeta.dealCount !== undefined || contextMeta.taskCount !== undefined) {
       const parts: string[] = [];
-      if (contextMeta.dealCount !== undefined) {
-        parts.push(`${contextMeta.dealCount} deals`);
-      }
-      if (contextMeta.taskCount !== undefined) {
-        parts.push(`${contextMeta.taskCount} tasks`);
-      }
-      return `Based on: ${parts.join(', ')} • ${updatedLabel}`;
+      if (contextMeta.dealCount !== undefined) parts.push(`${contextMeta.dealCount} deals`);
+      if (contextMeta.taskCount !== undefined) parts.push(`${contextMeta.taskCount} tasks`);
+      return `${parts.join(', ')} · ${updatedLabel}`;
     }
-    return `Context updated • ${updatedLabel}`;
+    return updatedLabel;
   }, [contextMeta, lastUpdatedAt]);
 
-  const activeConversation = useMemo(
-    () => conversations.find((conversation) => conversation.id === activeConversationId) ?? conversations[0],
-    [activeConversationId, conversations]
-  );
-
-  useEffect(() => {
-    if (!activeConversation) return;
-    loadConversation(activeConversation.messages);
-  }, [activeConversationId, loadConversation]);
-
   return (
-    <PageShell
-      title={
-        <div className="space-y-2">
-          <Text variant="micro">Luma AI</Text>
-          <Text as="h1" variant="h1">Chat with your data-aware copilot</Text>
+    <div className="flex h-[calc(100vh-4rem)]">
+      {/* Chat history sidebar */}
+      <aside className="w-64 flex-shrink-0 border-r border-gray-200 bg-gray-50/50 flex flex-col">
+        <div className="px-4 py-4 flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Chats</span>
+          <button
+            type="button"
+            onClick={handleNewChat}
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#D4883A] transition"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            New
+          </button>
         </div>
-      }
-      subtitle={
-        <Text variant="muted">
-          Ask natural questions about deals, tasks, lead sources, or performance. Luma keeps context from your workspace.
-        </Text>
-      }
-      actions={
-        <button
-          type="button"
-          onClick={handleNewChat}
-          className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
-        >
-          <div className="inline-flex items-center gap-2">
-            <RotateCcw className="h-4 w-4" />
-            <Text as="span" variant="micro" className={ui.tone.muted}>
-              New chat
-            </Text>
-          </div>
-        </button>
-      }
-    >
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className={[ui.radius.card, ui.border.card, ui.shadow.card, ui.pad.cardTight, 'bg-white/90 space-y-4'].join(' ')}>
-          <div className="flex items-center justify-between">
-            <Text variant="micro" className={ui.tone.subtle}>Chats</Text>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className={[ui.radius.pill, ui.border.subtle, ui.pad.chipTight, 'bg-white transition'].join(' ')}
-            >
-              <Text as="span" variant="micro" className={ui.tone.muted}>+ New Chat</Text>
-            </button>
-          </div>
-          <div className="space-y-2">
-            {conversations.map((conversation) => {
-              const isActive = conversation.id === activeConversationId;
-              const updatedLabel = new Date(conversation.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-              return (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  onClick={() => setActiveConversationId(conversation.id)}
-                  className={[
-                    'w-full text-left transition',
-                    ui.radius.control,
-                    ui.pad.cardTight,
-                    isActive ? 'bg-[var(--app-accent)]/10' : 'hover:bg-gray-50/80'
-                  ].join(' ')}
-                >
-                  <Text as="div" variant="body" className="font-medium">
-                    {conversation.title}
-                  </Text>
-                  <Text as="div" variant="muted">
-                    Today • {updatedLabel}
-                  </Text>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-
-        <section className={[ui.radius.card, ui.border.card, ui.shadow.card, 'bg-white/90 flex flex-col min-h-[520px] overflow-hidden'].join(' ')}>
-          <div className={[ui.border.subtle, ui.pad.cardTight].join(' ')}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <Text variant="micro">Conversation</Text>
-                <Text variant="muted">
-                  Bring up deals, follow-ups, or performance goals. Luma replies with grounded insight.
-                </Text>
-              </div>
+        <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
+          {conversations.map((conversation) => {
+            const isActive = conversation.id === activeConversationId;
+            return (
               <button
+                key={conversation.id}
                 type="button"
-                onClick={refreshContext}
-                disabled={contextStatus === 'updating'}
-                className={[ui.radius.pill, ui.border.subtle, ui.pad.chip, 'bg-white transition'].join(' ')}
+                onClick={() => setActiveConversationId(conversation.id)}
+                className={`w-full text-left rounded-lg px-3 py-2.5 transition ${
+                  isActive
+                    ? 'bg-white shadow-sm border border-gray-200'
+                    : 'hover:bg-white/60'
+                }`}
               >
-                <div className="inline-flex items-center gap-2">
-                  <RefreshCw className={`h-4 w-4 ${contextStatus === 'updating' ? 'animate-spin' : ''}`} />
-                  <Text as="span" variant="micro" className={ui.tone.muted}>
-                    Refresh context
-                  </Text>
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageSquare className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? 'text-[#D4883A]' : 'text-gray-400'}`} />
+                  <span className={`text-sm truncate ${isActive ? 'font-medium text-[#1e3a5f]' : 'text-gray-600'}`}>
+                    {conversation.title}
+                  </span>
                 </div>
               </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* Main chat area */}
+      <div className="flex-1 flex flex-col min-w-0">
+      {/* Scrollable messages area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {!hasMessages ? (
+          /* Empty state — centered */
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(212,136,58,0.1)] mb-5">
+              <Sparkles className="h-7 w-7 text-[#D4883A]" />
+            </div>
+            <h1 className="text-2xl font-semibold text-[#1e3a5f] mb-2">Luma AI</h1>
+            <p className="text-sm text-gray-500 max-w-md mb-8">
+              Ask anything about your deals, pipeline, tasks, or performance. Luma has full context of your workspace.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 max-w-lg w-full">
+              {suggestedQueries.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => handleSelectPrompt(prompt)}
+                  className="text-left text-sm text-gray-600 rounded-xl border border-gray-200 px-4 py-3 transition hover:border-[#D4883A]/30 hover:bg-[rgba(212,136,58,0.04)]"
+                >
+                  {prompt}
+                </button>
+              ))}
             </div>
           </div>
+        ) : (
+          /* Messages */
+          <div className="max-w-3xl mx-auto w-full px-6 py-6 space-y-5">
+            {messages.map((message) => (
+              <MessageBubble key={message.id} message={message} />
+            ))}
 
-          <div ref={scrollRef} className={['flex-1 overflow-y-auto', ui.pad.card].join(' ')}>
-            {!hasMessages ? (
-              <div className="flex h-full flex-col items-center justify-center text-center space-y-4">
-                <div className="space-y-2">
-                  <Text as="h2" variant="h2">Start a conversation with Luma</Text>
-                  <Text variant="muted">
-                    Ask questions about deals, tasks, performance, or your pipeline.
-                  </Text>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {suggestedQueries.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => handleSelectPrompt(prompt)}
-                      className={[
-                        'text-left bg-white transition hover:bg-gray-50/80',
-                        ui.radius.card,
-                        ui.border.subtle,
-                        ui.pad.cardTight
-                      ].join(' ')}
-                    >
-                      <Text as="span" variant="body">{prompt}</Text>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
-                ))}
-
-                {loading && (
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={[
-                        'flex h-8 w-8 items-center justify-center bg-[var(--app-accent)]/10',
-                        ui.radius.pill,
-                        ui.tone.accent
-                      ].join(' ')}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                    </div>
-                    <div className={[ui.radius.card, ui.border.subtle, ui.pad.cardTight, 'bg-white'].join(' ')}>
-                      <div className="flex items-center gap-1.5" role="status" aria-live="polite">
-                        <span className="sr-only">Luma is typing</span>
-                        <div className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')} />
-                        <div
-                          className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
-                          style={{ animationDelay: '0.1s' }}
-                        />
-                        <div
-                          className={['h-2 w-2 animate-bounce bg-gray-400', ui.radius.pill].join(' ')}
-                          style={{ animationDelay: '0.2s' }}
-                        />
-                      </div>
+            {loading && (
+              <div className="flex justify-start">
+                <div className="flex items-start gap-3 max-w-[80%]">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[rgba(212,136,58,0.1)] flex-shrink-0 mt-0.5">
+                    <Sparkles className="h-4 w-4 text-[#D4883A]" />
+                  </div>
+                  <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+                    <div className="flex items-center gap-1.5" role="status" aria-live="polite">
+                      <span className="sr-only">Luma is typing</span>
+                      <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
+                      <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: '0.1s' }} />
+                      <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: '0.2s' }} />
                     </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>
-
-          <div className="mt-auto bg-white/95 backdrop-blur">
-            <div className="h-px bg-gray-200/60" />
-            <form onSubmit={submitMessage} className={ui.pad.cardTight}>
-              <div className="flex flex-col gap-3">
-                <div
-                  className={[
-                    ui.radius.card,
-                    ui.border.card,
-                    ui.pad.cardTight,
-                    'bg-white focus-within:ring-2 focus-within:ring-[var(--app-accent)]/20'
-                  ].join(' ')}
-                >
-                  <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onInput={(e) => resizeTextarea(e.currentTarget)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        submitMessage(e);
-                      }
-                    }}
-                    placeholder="Ask Luma anything about your pipeline..."
-                    aria-label="Message Luma"
-                    rows={1}
-                    className={['w-full resize-none bg-transparent outline-none', ui.tone.primary].join(' ')}
-                    style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <Text as="span" variant="muted" aria-live="polite">
-                    {contextStatus === 'error'
-                      ? 'Context failed to update.'
-                      : contextStatus === 'updating'
-                      ? 'Updating context...'
-                      : contextLine}
-                  </Text>
-                  <button
-                    type="submit"
-                    aria-label="Send message"
-                    disabled={!input.trim()}
-                    className={[
-                      'relative inline-flex items-center justify-center bg-[var(--app-accent)] transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40 min-w-[92px]',
-                      ui.radius.pill,
-                      ui.pad.chip
-                    ].join(' ')}
-                  >
-                    {loading ? (
-                      <Text as="span" variant="micro" className={[ui.tone.inverse, 'flex-1 text-center'].join(' ')}>
-                        Sending
-                      </Text>
-                    ) : (
-                      <Text as="span" variant="micro" className={[ui.tone.inverse, 'flex-1 text-center'].join(' ')}>
-                        Send
-                      </Text>
-                    )}
-                    <Send className="h-4 w-4 absolute right-3" />
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </section>
+        )}
       </div>
-    </PageShell>
+
+      {/* Bottom input area */}
+      <div className="flex-shrink-0 px-6 pb-5 pt-2">
+        <div className="max-w-3xl mx-auto w-full">
+          <form onSubmit={submitMessage}>
+            <div className="relative flex items-end gap-3 rounded-full border border-gray-200 bg-white pl-4 pr-1.5 py-1.5 shadow-sm focus-within:border-gray-300 focus-within:shadow-md transition-shadow">
+              <button
+                type="button"
+                onClick={handleNewChat}
+                className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition mb-0.5"
+                title="New chat"
+              >
+                <Plus className="h-5 w-5" strokeWidth={1.5} />
+              </button>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onInput={(e) => resizeTextarea(e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    submitMessage(e);
+                  }
+                }}
+                placeholder="Ask Luma anything about your pipeline..."
+                aria-label="Message Luma"
+                rows={1}
+                className="flex-1 resize-none bg-transparent outline-none text-sm text-[#1e3a5f] placeholder:text-gray-400 py-1.5"
+                style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
+              />
+              <button
+                type="submit"
+                aria-label="Send message"
+                disabled={!input.trim()}
+                className="flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-full bg-[#1e3a5f] text-white transition disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#162d4a] mb-0.5"
+              >
+                <ArrowUp className="h-5 w-5" strokeWidth={2} />
+              </button>
+            </div>
+          </form>
+          {/* Context status line */}
+          <div className="flex items-center justify-center gap-2 mt-2.5">
+            <button
+              type="button"
+              onClick={refreshContext}
+              disabled={contextStatus === 'updating'}
+              className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition"
+            >
+              <RefreshCw className={`h-3 w-3 ${contextStatus === 'updating' ? 'animate-spin' : ''}`} />
+              <span>
+                {contextStatus === 'error'
+                  ? 'Context failed — click to retry'
+                  : contextStatus === 'updating'
+                  ? 'Updating context...'
+                  : contextLine}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
   );
 }
 
@@ -542,10 +492,7 @@ function useLumaChat() {
     setInput,
     clearChat,
     loadConversation,
-    refreshContext,
-    contextRef,
-    requestIdRef,
-    abortControllerRef
+    refreshContext
   };
 }
 
@@ -553,43 +500,34 @@ function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
 
   return (
-    <div className="flex justify-start">
-      <div
-        className={[
-          'max-w-3xl',
-          ui.radius.card,
-          ui.pad.cardTight,
-          isUser ? 'bg-gray-50' : 'bg-white',
-          isUser ? ui.border.subtle : ui.border.subtle
-        ].join(' ')}
-      >
-        <div className="flex items-center gap-2">
-          {!isUser && (
-            <div
-              className={[
-                'flex h-7 w-7 items-center justify-center bg-[var(--app-accent)]/10',
-                ui.radius.pill,
-                ui.tone.accent
-              ].join(' ')}
-            >
-              <Sparkles className="h-4 w-4" strokeWidth={2} />
-            </div>
-          )}
-          <Text as="span" variant="micro">{isUser ? 'You' : 'Luma'}</Text>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {isUser ? (
+        /* User message — right side, light gray bubble */
+        <div className="max-w-[80%]">
+          <div className="bg-gray-100 text-[#1e3a5f] rounded-2xl rounded-tr-md px-4 py-3">
+            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          </div>
         </div>
-
-        <Text
-          as="div"
-          variant="body"
-          className={[ui.tone.primary, 'whitespace-pre-wrap'].join(' ')}
-        >
-          {renderMessageContent(message.content)}
-        </Text>
-
-        {message.supportingData && (
-          <SupportingStatsBlock data={message.supportingData} />
-        )}
-      </div>
+      ) : (
+        /* Assistant message — left side, with avatar */
+        <div className="flex items-start gap-3 max-w-[80%]">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[rgba(212,136,58,0.1)] flex-shrink-0 mt-0.5">
+            <Sparkles className="h-4 w-4 text-[#D4883A]" />
+          </div>
+          <div>
+            <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
+              <div className="text-sm text-[#1e3a5f] whitespace-pre-wrap">
+                {renderMessageContent(message.content)}
+              </div>
+            </div>
+            {message.supportingData && (
+              <div className="mt-2">
+                <SupportingStatsBlock data={message.supportingData} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -605,8 +543,8 @@ function SupportingStatsBlock({ data }: { data: SupportingData }) {
   if (knownStats.length === 0 && extraStats.length === 0) return null;
 
   return (
-    <div className={[ui.pad.cardTight, 'space-y-3'].join(' ')}>
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         {knownStats.map((stat) => (
           <MetricTile
             key={stat.key}
@@ -621,13 +559,13 @@ function SupportingStatsBlock({ data }: { data: SupportingData }) {
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            className="inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition"
           >
-            <Text as="span" variant="micro" className={ui.tone.muted}>More stats</Text>
-            <ChevronDown className={`h-4 w-4 transition ${expanded ? 'rotate-180' : ''}`} />
+            <span>More stats</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition ${expanded ? 'rotate-180' : ''}`} />
           </button>
           {expanded && (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {extraStats.map(([key, value]) => (
                 <MetricTile
                   key={key}
@@ -640,46 +578,6 @@ function SupportingStatsBlock({ data }: { data: SupportingData }) {
         </div>
       )}
     </div>
-  );
-}
-
-function StarterPrompts({
-  prompts,
-  onSelect,
-  onDismiss
-}: {
-  prompts: string[];
-  onSelect: (prompt: string) => void;
-  onDismiss: () => void;
-}) {
-  return (
-    <Card className="bg-gray-50/70" padding="cardTight" style={{ borderStyle: 'dashed' }}>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Text variant="micro">Starter prompts</Text>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40"
-          >
-            <Text as="span" variant="micro" className={ui.tone.subtle}>Hide</Text>
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-        {prompts.map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            onClick={() => onSelect(prompt)}
-            className={suggestionPillClass}
-          >
-            <span className={['h-1.5 w-1.5 bg-[var(--app-accent)]/40', ui.radius.pill].join(' ')} />
-            <Text as="span" variant="micro" className={ui.tone.muted}>{prompt}</Text>
-          </button>
-        ))}
-        </div>
-      </div>
-    </Card>
   );
 }
 
@@ -701,7 +599,7 @@ function renderMessageContent(content: string) {
   return parts.map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return (
-        <strong key={`${part}-${index}`} className={['font-semibold', ui.tone.primary].join(' ')}>
+        <strong key={`${part}-${index}`} className="font-semibold text-[#1e3a5f]">
           {part.slice(2, -2)}
         </strong>
       );

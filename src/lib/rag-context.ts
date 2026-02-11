@@ -63,6 +63,28 @@ export async function buildRAGContext(): Promise<RAGContextResult> {
 
     // Get visible user IDs based on role (uses RPC call to backend)
     const visibleUserIds = await getVisibleUserIds(roleInfo);
+
+    // Fetch user's personal settings (goals, defaults)
+    const { data: userSettings } = await supabase
+      .from('user_settings')
+      .select('annual_gci_goal, annual_gross_sales_goal, default_tax_rate, default_brokerage_split_rate')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    // Fetch team name (real estate agency) if user belongs to a team
+    let teamName: string | null = null;
+    if (roleInfo.teamId) {
+      const { data: teamRow } = await supabase
+        .from('teams')
+        .select('name')
+        .eq('id', roleInfo.teamId)
+        .single();
+      teamName = teamRow?.name || null;
+    }
+
+    const userName = user.user_metadata?.name || user.email || 'Unknown';
+    const userEmail = user.email || 'Unknown';
+    const userPhone = user.user_metadata?.phone || user.phone || null;
     
     console.log('RAG Context Debug:', {
       userId: user.id,
@@ -137,6 +159,10 @@ export async function buildRAGContext(): Promise<RAGContextResult> {
 
     // Build context string
     let context = `=== USER PROFILE & PERMISSIONS ===
+Name: ${userName}
+Email: ${userEmail}
+${userPhone ? `Phone: ${userPhone}` : ''}
+${teamName ? `Real Estate Agency / Brokerage: ${teamName}` : ''}
 Role: ${roleInfo.globalRole}
 ${roleInfo.teamRole ? `Team Role: ${roleInfo.teamRole}` : ''}
 Workspace ID: ${roleInfo.workspaceId || 'N/A'}
@@ -147,6 +173,12 @@ Data Access: ${
     ? `TEAM ACCESS - ${visibleUserIds.length} team member${visibleUserIds.length !== 1 ? 's' : ''} (Team Lead)`
     : `PERSONAL ACCESS - Own data only (Agent)`
 }
+
+=== USER SETTINGS & GOALS ===
+Annual GCI Goal: $${(userSettings?.annual_gci_goal ?? 0).toLocaleString()}
+Annual Gross Sales Goal: $${(userSettings?.annual_gross_sales_goal ?? 0).toLocaleString()}
+Default Tax Rate: ${((userSettings?.default_tax_rate ?? 0) * 100).toFixed(1)}%
+Default Brokerage Split Rate: ${((userSettings?.default_brokerage_split_rate ?? 0) * 100).toFixed(1)}%
 
 IMPORTANT: All data below is filtered based on this user's role and permissions. 
 Only answer questions about the data provided in this context.
@@ -173,16 +205,27 @@ ${yearlyClosedCounts
     dealList.slice(0, 20).forEach((deal, idx) => {
       const dealValue = deal.actual_sale_price || deal.expected_sale_price || 0;
       const gci = calculateDealGCI(deal);
+      const addressParts = [deal.property_address, deal.city, deal.state, deal.zip].filter(Boolean);
+      const addressLine = addressParts.length > 0 ? addressParts.join(', ') : 'No address';
+      const contacts = (deal.additional_contacts ?? []);
+      const contactLines = contacts.map(
+        (c: { name: string; relationship?: string; phone?: string; email?: string }) =>
+          `     - ${c.relationship || 'Contact'}: ${c.name}${c.phone ? ` | Phone: ${c.phone}` : ''}${c.email ? ` | Email: ${c.email}` : ''}`
+      );
+
       context += `${idx + 1}. ${deal.client_name || 'Unnamed Deal'}
+   Address: ${addressLine}
+   Deal Type: ${deal.deal_type}
    Status: ${deal.status}
    Value: $${dealValue.toLocaleString()}
    GCI: $${gci.toLocaleString('en-US', { maximumFractionDigits: 2 })}
    Lead Source: ${deal.lead_sources?.name || 'Unknown'}
-   ${deal.expected_close_date ? `Expected Close: ${deal.expected_close_date}` : ''}
-   ${deal.closed_at ? `Closed: ${deal.closed_at}` : ''}
+   Client Phone: ${deal.client_phone || 'N/A'}
+   Client Email: ${deal.client_email || 'N/A'}
+   ${deal.close_date ? `Close Date: ${deal.close_date}` : ''}
+   ${deal.closed_at ? `Closed At: ${deal.closed_at}` : ''}
    Days in Stage: ${deal.stage_entered_at ? Math.floor((Date.now() - new Date(deal.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)) : 'N/A'}
-   ${deal.notes ? `Notes: ${deal.notes.substring(0, 100)}${deal.notes.length > 100 ? '...' : ''}` : ''}
-
+${contactLines.length > 0 ? `   Additional Contacts:\n${contactLines.join('\n')}\n` : ''}
 `;
     });
 

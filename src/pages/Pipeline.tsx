@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
-import { Plus, LayoutGrid, List, Settings } from 'lucide-react';
+import { LayoutGrid, List, Settings } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import PipelineColumn from '../components/PipelineColumn';
 import PipelineTable from '../components/PipelineTable';
@@ -1652,16 +1652,6 @@ export default function Pipeline() {
                 </button>
               )}
             </div>
-            <button
-              onClick={() => {
-                setSelectedDeal(null);
-                setShowModal(true);
-              }}
-              className={['hig-btn-primary', 'gap-2'].join(' ')}
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Deal</span>
-            </button>
           </div>
         </div>
       )}
