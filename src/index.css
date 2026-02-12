@@ -36,6 +36,11 @@
     --app-shadow-diffused: 0 25px 80px rgba(30, 58, 95, 0.08);
   }
 
+  html {
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -44,8 +49,6 @@
     color: var(--app-text-primary);
     min-height: 100vh;
     overflow-x: hidden;
-    overflow-y: scroll;
-    scrollbar-gutter: stable;
   }
 }
 
@@ -535,10 +538,11 @@
 }
 
 @layer utilities {
+  /* Page-level entrance — used by individual page components */
   @keyframes fade-in {
     from {
       opacity: 0;
-      transform: translateY(4px);
+      transform: translateY(3px);
     }
     to {
       opacity: 1;
@@ -547,7 +551,7 @@
   }
 
   .animate-fade-in {
-    animation: fade-in 0.3s ease forwards;
+    animation: fade-in 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
   }
 
   /* Skeleton-to-content crossfade (opacity only, no layout shift) */
@@ -557,7 +561,7 @@
   }
 
   .animate-content-in {
-    animation: content-in 0.25s ease forwards;
+    animation: content-in 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
   }
 
   /* Luma Insights — subtle AI shimmer on top border */

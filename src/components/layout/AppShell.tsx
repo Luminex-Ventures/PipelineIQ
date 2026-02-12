@@ -1,5 +1,4 @@
 import { ReactNode, useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import { AppHeader } from './AppHeader';
 import { SidebarNav } from './SidebarNav';
 
@@ -9,10 +8,9 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-gray-50 text-[var(--app-text-primary)] overflow-hidden">
+    <div className="min-h-screen bg-gray-50 text-[var(--app-text-primary)] overflow-x-hidden">
       {/* Fixed Sidebar (Jira-style) */}
       <aside
         className={[
@@ -37,7 +35,7 @@ export function AppShell({ children }: AppShellProps) {
       >
         <AppHeader />
         <main className="flex-1 overflow-x-hidden">
-          <div key={location.pathname} className="min-h-[calc(100vh-4rem)] bg-white animate-fade-in">
+          <div className="min-h-[calc(100vh-4rem)] bg-white">
             {children}
           </div>
         </main>

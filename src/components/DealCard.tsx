@@ -62,26 +62,18 @@ export default function DealCard({ deal, netCommission, daysInStage, onClick, is
 
           {/* Phone */}
           {deal.client_phone && (
-            <a
-              href={`tel:${deal.client_phone}`}
-              onClick={e => e.stopPropagation()}
-              className="flex items-center gap-1 text-[11px] text-[#6b778c] hover:text-[#172b4d] transition-colors mb-0.5"
-            >
+            <div className="flex items-center gap-1 text-[11px] text-[#6b778c] mb-0.5">
               <Phone className="w-2.5 h-2.5 text-[#a5adba] flex-shrink-0" />
               <span className="truncate">{deal.client_phone}</span>
-            </a>
+            </div>
           )}
 
           {/* Email */}
           {deal.client_email && (
-            <a
-              href={`mailto:${deal.client_email}`}
-              onClick={e => e.stopPropagation()}
-              className="flex items-center gap-1 text-[11px] text-[#6b778c] hover:text-[#172b4d] transition-colors mb-0.5"
-            >
+            <div className="flex items-center gap-1 text-[11px] text-[#6b778c] mb-0.5">
               <Mail className="w-2.5 h-2.5 text-[#a5adba] flex-shrink-0" />
               <span className="truncate">{deal.client_email}</span>
-            </a>
+            </div>
           )}
 
           {/* Spacer before price row */}
