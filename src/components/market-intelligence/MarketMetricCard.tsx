@@ -11,16 +11,16 @@ interface MarketMetricCardProps {
 
 /** Insight text shown on the back of each card when flipped. */
 const METRIC_INSIGHTS: Record<string, string> = {
-  median_price: 'Middle sale price in this area — half of homes sold for more, half for less. A key benchmark for pricing.',
-  avg_price: 'Average sale price. Can be pulled up by a few very high-priced sales; median is often more representative.',
-  dom: 'How long listings typically sit before selling. Lower means a faster-moving market.',
-  active_listings: 'Homes currently for sale in the area. More listings usually means more choices and sometimes softer prices.',
-  new_listings: 'New listings added in the last 30 days. Shows how much fresh inventory is coming onto the market.',
-  closed_sales: 'Number of homes that sold in the last 30 days. Indicates sales velocity and buyer activity.',
-  price_reductions: 'Listings that had a price cut. High numbers can signal overpricing or a cooling market.',
-  list_to_sale: 'Final sale price as % of list price. Near 100% means sellers are getting close to asking.',
-  months_supply: 'How long current inventory would last at recent sales pace. Under 6 often favors sellers; over 6 favors buyers.',
-  pending_active: 'Ratio of pending sales to active listings. Higher means strong demand relative to supply.',
+  median_price: 'Middle sale price. Half sold higher, half lower. Key pricing benchmark.',
+  avg_price: 'Average sale price. Can be skewed by high-end sales; median is often more accurate.',
+  dom: 'Typical time to sell. Lower means a faster market.',
+  active_listings: 'Homes currently for sale. More supply can soften prices.',
+  new_listings: 'Homes listed in the past 30 days. Shows incoming inventory.',
+  closed_sales: 'Homes sold in the last 30 days. Indicates buyer activity.',
+  price_reductions: 'Listings with price cuts. High levels may signal overpricing or cooling demand.',
+  list_to_sale: 'Sale price as % of list price. Near 100% means strong seller leverage.',
+  months_supply: 'Inventory at current sales pace. Under 6 favors sellers; over 6 favors buyers.',
+  pending_active: 'Pending vs active ratio. Higher means stronger demand.',
 };
 
 const TREND_STYLES = {
