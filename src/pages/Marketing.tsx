@@ -147,11 +147,11 @@ export default function Marketing() {
       actions={
         <div className="flex items-center gap-2">
           <Link
-            to="/marketing/connected-accounts"
+            to="/workspace-settings?section=integrations"
             className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white px-4 py-2.5 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 transition-colors"
           >
             <Link2 className="h-4 w-4" />
-            Connected accounts
+            Connections
           </Link>
           <button
             type="button"
@@ -234,7 +234,7 @@ export default function Marketing() {
             CHANNEL ALLOCATION
           </Text>
           <p className="mt-1 text-sm text-gray-600">
-            Set monthly budget per connected channel. Connect accounts in Connected accounts to enable allocation.
+            Set monthly budget per connected channel. Connect accounts in Integrations to enable allocation.
           </p>
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
             {channels.map((ch) => {
@@ -252,7 +252,7 @@ export default function Marketing() {
                   >
                     <span className="font-medium text-gray-700">{ch.name}</span>
                     <Link
-                      to="/marketing/connected-accounts"
+                      to="/workspace-settings?section=integrations"
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e3a5f] text-[#1e3a5f] text-sm font-medium hover:bg-[#1e3a5f]/5"
                     >
                       <Link2 className="h-4 w-4" />

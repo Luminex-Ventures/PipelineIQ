@@ -497,6 +497,23 @@ export async function createIntegration(
   return data as import('../types/marketing').MarketingIntegration;
 }
 
+export interface MarketingOAuthStartResult {
+  auth_url: string;
+  state: string;
+}
+
+export async function startMarketingOAuth(
+  provider: 'google_ads' | 'meta_ads'
+): Promise<MarketingOAuthStartResult> {
+  const { data, error } = await supabase.functions.invoke<MarketingOAuthStartResult>(
+    'marketing-oauth-start',
+    { body: { provider } }
+  );
+  if (error) throw new Error(error.message ?? 'Failed to start marketing OAuth');
+  if (!data?.auth_url) throw new Error('Invalid marketing OAuth start response');
+  return data;
+}
+
 export async function listCampaigns(walletId: string): Promise<import('../types/marketing').MarketingCampaign[]> {
   const { data, error } = await supabase
     .from(CAMPAIGNS)

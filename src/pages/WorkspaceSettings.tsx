@@ -13,7 +13,11 @@ import {
 import PipelineStatusesSettings from './settings/PipelineStatusesSettings';
 import LeadSourcesSettings from './settings/LeadSourcesSettings';
 import WorkspaceInfoSettings from './settings/workspace/WorkspaceInfoSettings';
-import IntegrationsSettings from './settings/workspace/IntegrationsSettings';
+import { MessagingConnectionsSection } from '../components/integrations/MessagingConnectionsSection';
+import { MarketingConnectionsSection } from '../components/integrations/MarketingConnectionsSection';
+import { TransactionConnectionsSection } from '../components/integrations/TransactionConnectionsSection';
+import { CrmConnectionsSection } from '../components/integrations/CrmConnectionsSection';
+import { Building2, MessageSquare, Megaphone, FileSignature } from 'lucide-react';
 import WorkspaceConfigurationSettings from './settings/workspace/WorkspaceConfigurationSettings';
 import WorkspaceMembersSettings from './settings/workspace/WorkspaceMembersSettings';
 import WorkspaceInvitesSettings from './settings/workspace/WorkspaceInvitesSettings';
@@ -21,7 +25,9 @@ import WorkspaceTeamsSettings from './settings/workspace/WorkspaceTeamsSettings'
 import WorkspaceDeductionsSettings from './settings/workspace/WorkspaceDeductionsSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { canInviteAgents, canManageTeams, canManageWorkspaceMembers, getRoleLabel, isAdmin, isTeamLead, isSalesManagerOrAdmin } from '../lib/rbac';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
 const baseSections = [
   { id: 'workspace.info' as const, label: 'Workspace Info', description: 'Identity, locale, and defaults', icon: Building },
@@ -43,8 +49,11 @@ type WorkspaceSectionId =
   | 'workspace.members'
   | 'workspace.invites';
 
+const INTEGRATIONS_SECTION_PARAM = 'section=integrations';
+
 export default function WorkspaceSettings() {
   const { roleInfo } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const roleLabel = getRoleLabel(roleInfo?.globalRole);
   const canEditWorkspace = isAdmin(roleInfo);
   const canEditTeamScoped = isAdmin(roleInfo) || isSalesManagerOrAdmin(roleInfo) || isTeamLead(roleInfo);
@@ -52,6 +61,23 @@ export default function WorkspaceSettings() {
   const canInvite = canInviteAgents(roleInfo);
   const canEditTeams = canManageTeams(roleInfo);
   const [activeSection, setActiveSection] = useState<WorkspaceSectionId>('workspace.info');
+  const [integrationTab, setIntegrationTab] = useState<'crm' | 'messaging' | 'marketing' | 'transaction'>('crm');
+
+  useEffect(() => {
+    if (searchParams.get('section') === 'integrations') {
+      setActiveSection('workspace.integrations');
+      const connected = searchParams.get('connected');
+      const error = searchParams.get('error');
+      if (connected) {
+        const label = connected === 'docusign' ? 'DocuSign' : connected === 'dotloop' ? 'Dotloop' : connected === 'google_ads' ? 'Google Ads' : connected === 'meta_ads' ? 'Meta Ads' : connected;
+        toast.success(`${label} connected`);
+      }
+      if (error) {
+        toast.error(error === 'oauth_not_configured' ? 'OAuth is not configured for this integration.' : error === 'token_exchange_failed' ? 'Could not complete sign-in.' : error === 'save_failed' ? 'Could not save connection.' : `Connection failed: ${error}`);
+      }
+      setSearchParams({ section: 'integrations' }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const workspaceSections = useMemo(() => {
     const sections = [...baseSections];
@@ -93,7 +119,47 @@ export default function WorkspaceSettings() {
       case 'workspace.deductions':
         return <WorkspaceDeductionsSettings />;
       case 'workspace.integrations':
-        return <IntegrationsSettings canEdit={canEditWorkspace} />;
+        return (
+          <div className="space-y-6">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-[#1e3a5f] mb-1">Integrations</h2>
+              <p className="text-sm text-gray-500">
+                Connect your CRM, messaging, marketing, and transaction tools so deals stay in sync.
+              </p>
+              {!canEditWorkspace && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Only workspace admins can manage integrations.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1 p-1 border-b border-gray-200 bg-gray-50/50 rounded-t-xl">
+              {[
+                { id: 'crm' as const, label: 'CRM', icon: Building2 },
+                { id: 'messaging' as const, label: 'Messaging & Inbox', icon: MessageSquare },
+                { id: 'marketing' as const, label: 'Marketing', icon: Megaphone },
+                { id: 'transaction' as const, label: 'Transaction & E-sign', icon: FileSignature },
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setIntegrationTab(id)}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    integrationTab === id ? 'bg-[#1e3a5f] text-white' : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="pt-2">
+              {integrationTab === 'crm' && <CrmConnectionsSection canEdit={canEditWorkspace} />}
+              {integrationTab === 'messaging' && <MessagingConnectionsSection />}
+              {integrationTab === 'marketing' && <MarketingConnectionsSection />}
+              {integrationTab === 'transaction' && <TransactionConnectionsSection />}
+            </div>
+          </div>
+        );
       case 'workspace.teams':
         return <WorkspaceTeamsSettings />;
       case 'workspace.members':

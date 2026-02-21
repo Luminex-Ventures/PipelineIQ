@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useWorkspaceSettings } from '../../../hooks/useWorkspaceSettings';
-import { ToggleLeft, ToggleRight } from 'lucide-react';
+import { useWorkspaceSettings } from '../../hooks/useWorkspaceSettings';
+import { Link2, Unplug } from 'lucide-react';
 
-interface IntegrationsSettingsProps {
+interface CrmConnectionsSectionProps {
   canEdit: boolean;
 }
 
@@ -18,20 +18,10 @@ const defaultIntegrations: Record<string, IntegrationState> = {
     provider: 'Follow Up Boss',
     description: 'Sync contacts + deals bi-directionally.',
     status: 'not_connected'
-  },
-  email: {
-    provider: 'Google Workspace',
-    description: 'Log emails to deals and trigger automations.',
-    status: 'not_connected'
-  },
-  marketing: {
-    provider: 'Zapier',
-    description: 'Push new leads into Luma-IQ automatically.',
-    status: 'not_connected'
   }
 };
 
-export default function IntegrationsSettings({ canEdit }: IntegrationsSettingsProps) {
+export function CrmConnectionsSection({ canEdit }: CrmConnectionsSectionProps) {
   const { workspace, updateWorkspace } = useWorkspaceSettings();
   const [integrations, setIntegrations] = useState<Record<string, IntegrationState>>(defaultIntegrations);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -39,7 +29,8 @@ export default function IntegrationsSettings({ canEdit }: IntegrationsSettingsPr
   useEffect(() => {
     if (workspace?.integration_settings) {
       const stored = workspace.integration_settings as Record<string, IntegrationState>;
-      setIntegrations({ ...defaultIntegrations, ...stored });
+      const { email: _e, marketing: _m, ...rest } = stored;
+      setIntegrations({ ...defaultIntegrations, ...rest });
     }
   }, [workspace?.integration_settings]);
 
@@ -61,68 +52,58 @@ export default function IntegrationsSettings({ canEdit }: IntegrationsSettingsPr
   };
 
   return (
-    <div>
+    <section className="space-y-4">
       <div className="mb-6">
-        <h2 className="hig-text-heading mb-2">Integrations</h2>
-        <p className="text-sm text-gray-600">
-          Connect your CRM, email, and marketing tools so deals stay in sync.
+        <h2 className="text-2xl font-bold text-[#1e3a5f] mb-1">CRM</h2>
+        <p className="text-sm text-gray-500">
+          Sync contacts and deals with your CRM.
         </p>
-        {!canEdit && (
-          <p className="text-xs text-gray-500 mt-1">
-            Only workspace admins can manage integrations.
-          </p>
-        )}
       </div>
-
       <div className="space-y-4">
         {Object.entries(integrations).map(([key, integration]) => (
           <div
             key={key}
-            className="flex items-center justify-between rounded-2xl border border-gray-200/70 bg-white/80 px-4 py-4"
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
           >
             <div>
-              <p className="text-sm font-semibold text-gray-900">{integration.provider}</p>
-              <p className="text-xs text-gray-500">{integration.description}</p>
+              <p className="text-base font-semibold text-[#1e3a5f]">{integration.provider}</p>
+              <p className="text-sm text-gray-500 mt-0.5">{integration.description}</p>
               {integration.lastSync && (
-                <p className="text-[11px] text-gray-400 mt-1">
+                <p className="text-xs text-gray-400 mt-1">
                   Last sync {new Date(integration.lastSync).toLocaleString()}
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-4">
-              <span
-                className={`text-xs font-semibold ${
-                  integration.status === 'connected' ? 'text-emerald-600' : 'text-gray-500'
-                }`}
-              >
+            <div className="flex items-center gap-4 flex-shrink-0">
+              <span className="text-sm text-gray-500">
                 {integration.status === 'connected' ? 'Connected' : 'Not connected'}
               </span>
               <button
                 type="button"
                 onClick={() => toggleIntegration(key)}
                 disabled={!canEdit || savingKey === key}
-                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition ${
                   integration.status === 'connected'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-gray-50 text-gray-600 border-gray-200'
+                    ? 'border-rose-200 text-rose-600 bg-white hover:bg-rose-50'
+                    : 'border-gray-200 text-[#1e3a5f] bg-gray-50 hover:bg-gray-100'
                 } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {integration.status === 'connected' ? (
-                  <span className="flex items-center gap-2">
-                    <ToggleRight className="w-4 h-4" />
+                  <>
+                    <Unplug className="w-4 h-4" />
                     Disconnect
-                  </span>
+                  </>
                 ) : (
-                  <span className="flex items-center gap-2">
-                    <ToggleLeft className="w-4 h-4" />
+                  <>
+                    <Link2 className="w-4 h-4" />
                     Connect
-                  </span>
+                  </>
                 )}
               </button>
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

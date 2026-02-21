@@ -20,11 +20,9 @@ const PropertyValuationPage = lazy(() => import('./pages/PropertyValuation'));
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'));
 const ConversationsLayout = lazy(() => import('./pages/Conversations'));
 const ConversationsInbox = lazy(() => import('./features/conversations/InboxPage').then((m) => ({ default: m.InboxPage })));
-const ConversationsConnectedAccounts = lazy(() => import('./features/conversations/ConnectedAccountsPage').then((m) => ({ default: m.ConnectedAccountsPage })));
 const ConversationsCampaigns = lazy(() => import('./features/conversations/CampaignsPage').then((m) => ({ default: m.CampaignsPage })));
 const Marketing = lazy(() => import('./pages/Marketing'));
 const MarketingLayout = lazy(() => import('./pages/MarketingLayout'));
-const MarketingConnectedAccounts = lazy(() => import('./pages/MarketingConnectedAccounts'));
 
 /* ─── Skeleton that mirrors the AppShell layout ─── */
 function AppShellSkeleton() {
@@ -246,7 +244,7 @@ export default function App() {
           >
             <Route index element={<Navigate to="/conversations/inbox" replace />} />
             <Route path="inbox" element={<ConversationsInbox />} />
-            <Route path="connected-accounts" element={<ConversationsConnectedAccounts />} />
+            <Route path="connected-accounts" element={<Navigate to="/workspace-settings?section=integrations" replace />} />
           </Route>
           <Route
             path="/campaigns"
@@ -265,7 +263,7 @@ export default function App() {
             }
           >
             <Route index element={<Marketing />} />
-            <Route path="connected-accounts" element={<MarketingConnectedAccounts />} />
+            <Route path="connected-accounts" element={<Navigate to="/workspace-settings?section=integrations" replace />} />
           </Route>
           <Route path="/home-value-estimator" element={<Navigate to="/property-valuation" replace />} />
           <Route path="/lead-sources" element={<Navigate to="/workspace-settings" replace />} />
