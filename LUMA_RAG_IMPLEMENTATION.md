@@ -23,13 +23,15 @@ The Luma AI chat interface has been completely reworked to use a **Smart RAG (Re
 ## Architecture
 
 ### 1. **RAG Context Builder** (`src/lib/rag-context.ts`)
-Fetches comprehensive context from Supabase database:
+Fetches comprehensive context from Supabase and Market Intelligence:
 - User profile and role information
 - Recent deals with full details
 - Upcoming tasks
 - Lead source performance
 - Monthly statistics
 - Team data (based on role permissions)
+- **Conversations / messages to clients**: recent Luma Conversations threads (email/SMS) and message content so Luma can answer questions about what was said to leads and clients
+- **Market intelligence**: market snapshot for the agent’s last-selected area (from Market Intelligence page): median price, days on market, active listings, closed sales, trends, etc.
 
 The context is formatted as a structured text document that provides the AI with all the information it needs to answer queries.
 

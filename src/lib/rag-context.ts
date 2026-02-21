@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getUserRoleInfo, getVisibleUserIds } from './rbac';
 import { calculateActualGCI, calculateExpectedGCI } from './commission';
+import { getLastSelectedArea, fetchMarketSnapshot } from '../services/marketIntelligence';
 import type { UserRoleInfo } from './rbac';
 import type { Database } from './database.types';
 
@@ -292,6 +293,109 @@ ${contactLines.length > 0 ? `   Additional Contacts:\n${contactLines.join('\n')}
         context += `${stat.month}: ${stat.deals} deals, $${stat.gci.toLocaleString('en-US', { maximumFractionDigits: 2 })} GCI\n`;
       });
       context += '\n';
+    }
+
+    // --- Conversations / messages to clients (agent's own threads) ---
+    const { data: convThreads } = await supabase
+      .from('conversation_threads')
+      .select('id, subject, channel, last_message_at, primary_contact_id')
+      .eq('user_id', user.id)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(20);
+
+    const threadList = convThreads ?? [];
+    if (threadList.length > 0) {
+      const threadIds = threadList.map((t: { id: string }) => t.id);
+      const contactIds = threadList
+        .map((t: { primary_contact_id?: string | null }) => t.primary_contact_id)
+        .filter((id): id is string => !!id);
+      const uniqContactIds = [...new Set(contactIds)];
+
+      const [messagesRes, contactsRes] = await Promise.all([
+        supabase
+          .from('conversation_messages')
+          .select('id, thread_id, direction, subject, body_text, sent_at, created_at')
+          .in('thread_id', threadIds)
+          .order('created_at', { ascending: true })
+          .limit(300),
+        uniqContactIds.length > 0
+          ? supabase
+              .from('conversation_contacts')
+              .select('id, name, email, phone')
+              .in('id', uniqContactIds)
+          : { data: [] as { id: string; name: string | null; email: string | null; phone: string | null }[] }
+      ]);
+
+      const messagesByThread = (messagesRes.data ?? []).reduce((acc, m: { thread_id: string }) => {
+        const tid = m.thread_id;
+        if (!acc[tid]) acc[tid] = [];
+        acc[tid].push(m);
+        return acc;
+      }, {} as Record<string, typeof messagesRes.data>);
+      const contactMap = (contactsRes.data ?? []).reduce(
+        (acc, c: { id: string; name: string | null; email: string | null; phone: string | null }) => {
+          acc[c.id] = c;
+          return acc;
+        },
+        {} as Record<string, { id: string; name: string | null; email: string | null; phone: string | null }>
+      );
+
+      context += `=== CONVERSATIONS / MESSAGES TO CLIENTS ===
+Recent threads and messages (email/SMS) for this agent. Use this to answer questions about client communication, what was said, and follow-ups.
+
+`;
+
+      threadList.slice(0, 15).forEach((thread: { id: string; subject: string | null; channel: string; primary_contact_id?: string | null; last_message_at?: string | null }, idx: number) => {
+        const contact = thread.primary_contact_id ? contactMap[thread.primary_contact_id] : null;
+        const contactLine = contact
+          ? `${contact.name ?? 'Unknown'} (${contact.email ?? contact.phone ?? 'no contact info'})`
+          : 'No contact';
+        const messages = (messagesByThread[thread.id] ?? []).slice(-12);
+        context += `Thread ${idx + 1}: ${thread.subject ?? 'No subject'} | Channel: ${thread.channel} | Contact: ${contactLine}
+   Last activity: ${thread.last_message_at ?? 'N/A'}
+`;
+        messages.forEach((msg: { direction: string; subject?: string | null; body_text?: string | null; sent_at?: string | null; created_at?: string | null }) => {
+          const when = msg.sent_at ?? msg.created_at ?? '';
+          const dir = msg.direction === 'inbound' ? 'FROM CLIENT' : 'TO CLIENT';
+          const preview = (msg.body_text ?? msg.subject ?? '').slice(0, 200);
+          context += `   - ${dir} ${when}: ${preview}${(msg.body_text ?? '').length > 200 ? '…' : ''}\n`;
+        });
+        context += '\n';
+      });
+      context += '\n';
+    } else {
+      context += `=== CONVERSATIONS / MESSAGES TO CLIENTS ===
+No conversation threads yet. When the agent uses the Inbox to message clients, those threads and messages will appear here for Luma to reference.
+
+`;
+    }
+
+    // --- Market intelligence (agent's selected area) ---
+    const selectedArea = getLastSelectedArea();
+    if (selectedArea) {
+      try {
+        const snapshot = await fetchMarketSnapshot(selectedArea);
+        context += `=== MARKET INTELLIGENCE ===
+Area: ${snapshot.area.label} (${snapshot.area.type}: ${snapshot.area.value})
+Last updated: ${snapshot.lastUpdated}
+
+`;
+        (snapshot.metrics ?? []).forEach((m: { label: string; formattedValue: string; trendDirection: string; timeWindow: string }) => {
+          context += `  ${m.label}: ${m.formattedValue} (${m.timeWindow}) trend: ${m.trendDirection}\n`;
+        });
+        context += '\n';
+      } catch (e) {
+        console.warn('RAG: could not fetch market snapshot:', e);
+        context += `=== MARKET INTELLIGENCE ===
+Market area was selected (${selectedArea.label}) but snapshot could not be loaded. User can refresh Market Intelligence page and try again.
+
+`;
+      }
+    } else {
+      context += `=== MARKET INTELLIGENCE ===
+No market area selected. The user can go to Market Intelligence, select a zip/city/county/state, and that data will be included in Luma's context for questions about market stats, inventory, or pricing.
+
+`;
     }
 
     return {

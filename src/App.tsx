@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppShell } from './components/layout/AppShell';
 import { lazy, Suspense, useState } from 'react';
@@ -17,6 +18,11 @@ const ContractScribeComingSoon = lazy(() => import('./pages/ContractScribeComing
 const MarketIntelligence = lazy(() => import('./pages/MarketIntelligence'));
 const PropertyValuationPage = lazy(() => import('./pages/PropertyValuation'));
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'));
+const ConversationsLayout = lazy(() => import('./pages/Conversations'));
+const ConversationsInbox = lazy(() => import('./features/conversations/InboxPage').then((m) => ({ default: m.InboxPage })));
+const ConversationsConnectedAccounts = lazy(() => import('./features/conversations/ConnectedAccountsPage').then((m) => ({ default: m.ConnectedAccountsPage })));
+const ConversationsCampaigns = lazy(() => import('./features/conversations/CampaignsPage').then((m) => ({ default: m.CampaignsPage })));
+const Marketing = lazy(() => import('./pages/Marketing'));
 
 /* ─── Skeleton that mirrors the AppShell layout ─── */
 function AppShellSkeleton() {
@@ -137,6 +143,7 @@ function AuthPages() {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-center" />
       <BrowserRouter>
         <Routes>
           <Route
@@ -224,6 +231,34 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <PropertyValuationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/conversations"
+            element={
+              <ProtectedRoute>
+                <ConversationsLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/conversations/inbox" replace />} />
+            <Route path="inbox" element={<ConversationsInbox />} />
+            <Route path="connected-accounts" element={<ConversationsConnectedAccounts />} />
+          </Route>
+          <Route
+            path="/campaigns"
+            element={
+              <ProtectedRoute>
+                <ConversationsCampaigns />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/marketing"
+            element={
+              <ProtectedRoute>
+                <Marketing />
               </ProtectedRoute>
             }
           />

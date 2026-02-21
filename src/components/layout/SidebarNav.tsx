@@ -8,6 +8,9 @@ import {
   BarChart3,
   Globe,
   Home,
+  MessageSquare,
+  Megaphone,
+  CircleDollarSign,
   ChevronLeft,
   ChevronRight,
   LucideIcon,
@@ -21,6 +24,8 @@ interface NavItem {
   icon: LucideIcon;
   label: string;
   path: string;
+  /** If true, active when pathname starts with path (for section roots like /conversations) */
+  prefixMatch?: boolean;
 }
 
 const mainNavItems: NavItem[] = [
@@ -32,7 +37,16 @@ const mainNavItems: NavItem[] = [
 
 const marketNavItems: NavItem[] = [
   { icon: Globe, label: 'Market Intel', path: '/market-intelligence' },
-  { icon: Home, label: 'Property Valuation', path: '/property-valuation' },
+  { icon: Home, label: 'Property Insights', path: '/property-valuation' },
+];
+
+const marketingNavItems: NavItem[] = [
+  { icon: CircleDollarSign, label: 'Growth Engine', path: '/marketing' },
+];
+
+const messagingNavItems: NavItem[] = [
+  { icon: MessageSquare, label: 'Inbox / Text', path: '/conversations', prefixMatch: true },
+  { icon: Megaphone, label: 'Campaigns', path: '/campaigns' },
 ];
 
 const aiNavItems: NavItem[] = [
@@ -142,7 +156,11 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
         <NavItemButton
           key={item.path}
           item={item}
-          isActive={location.pathname === item.path}
+          isActive={
+            item.prefixMatch
+              ? location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+              : location.pathname === item.path
+          }
           isCollapsed={isCollapsed}
           onClick={() => navigate(item.path)}
           onHover={() => prefetchRoute(item.path)}
@@ -186,7 +204,7 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
             <div className="h-px bg-white/10" />
           </div>
 
-          {/* Market section */}
+          {/* Market: area data and property insights */}
           <div className="space-y-1">
             {!isCollapsed && (
               <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
@@ -194,6 +212,36 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
               </div>
             )}
             {renderNavItems(marketNavItems)}
+          </div>
+
+          {/* Divider */}
+          <div className={isCollapsed ? 'mx-2' : 'mx-3'}>
+            <div className="h-px bg-white/10" />
+          </div>
+
+          {/* Messaging section */}
+          <div className="space-y-1">
+            {!isCollapsed && (
+              <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                MESSAGING
+              </div>
+            )}
+            {renderNavItems(messagingNavItems)}
+          </div>
+
+          {/* Divider */}
+          <div className={isCollapsed ? 'mx-2' : 'mx-3'}>
+            <div className="h-px bg-white/10" />
+          </div>
+
+          {/* Marketing section */}
+          <div className="space-y-1">
+            {!isCollapsed && (
+              <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                MARKETING
+              </div>
+            )}
+            {renderNavItems(marketingNavItems)}
           </div>
 
           {/* Divider */}
