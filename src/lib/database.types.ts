@@ -698,6 +698,15 @@ export interface Database {
       marketing_transactions: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
       marketing_allocations: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
       marketing_spend: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      // Marketing Engine Phase 2
+      marketing_integrations: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      marketing_campaigns: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      marketing_actions: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      lead_attribution_touchpoints: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      marketing_attribution_settings: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      marketing_tracking_events: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      marketing_recommendations: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
+      marketing_automation_rules: { Row: Record<string, unknown>; Insert: Record<string, unknown>; Update: Record<string, unknown> };
     };
   };
 }

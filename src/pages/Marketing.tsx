@@ -14,8 +14,10 @@ import {
   setAllocation,
   getPerformance,
   getInsights,
+  listIntegrations,
 } from '../services/marketing.service';
 import type { MarketingAllocation as AllocationType } from '../types/marketing';
+import { Link } from 'react-router-dom';
 import {
   Wallet,
   Lightbulb,
@@ -24,6 +26,7 @@ import {
   Play,
   ArrowUpRight,
   ArrowDownRight,
+  Link2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -58,6 +61,12 @@ export default function Marketing() {
   const { data: channels = [] } = useQuery({
     queryKey: ['marketing', 'channels'],
     queryFn: getChannels,
+  });
+
+  const { data: integrations = [] } = useQuery({
+    queryKey: ['marketing', 'integrations', userId],
+    queryFn: () => listIntegrations(userId),
+    enabled: !!userId,
   });
 
   const { data: allocations = [], isLoading: allocLoading } = useQuery({
@@ -136,14 +145,23 @@ export default function Marketing() {
     <PageShell
       title={header}
       actions={
-        <button
-          type="button"
-          onClick={() => setShowFundModal(true)}
-          className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white px-4 py-2.5 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Add funds
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/marketing/connected-accounts"
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white px-4 py-2.5 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 transition-colors"
+          >
+            <Link2 className="h-4 w-4" />
+            Connected accounts
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowFundModal(true)}
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-white px-4 py-2.5 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Add funds
+          </button>
+        </div>
       }
     >
       <div className="space-y-8 animate-fade-in">
@@ -210,20 +228,40 @@ export default function Marketing() {
           </div>
         </section>
 
-        {/* Allocation */}
+        {/* Allocation — only connected channels get budget controls */}
         <section>
           <Text as="span" variant="micro" className={ui.tone.subtle}>
             CHANNEL ALLOCATION
           </Text>
           <p className="mt-1 text-sm text-gray-600">
-            Set monthly budget per channel. Pause to stop funding.
+            Set monthly budget per connected channel. Connect accounts in Connected accounts to enable allocation.
           </p>
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
             {channels.map((ch) => {
+              const isConnected = integrations.some((i) => i.provider === ch.slug);
               const alloc = allocationByChannel[ch.id];
               const budgetCents = alloc?.monthly_budget_cents ?? 0;
               const isPaused = alloc?.is_paused ?? false;
               const budgetStr = (budgetCents / 100).toFixed(0);
+
+              if (!isConnected) {
+                return (
+                  <div
+                    key={ch.id}
+                    className="rounded-xl border border-dashed border-gray-200 bg-gray-50/50 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <span className="font-medium text-gray-700">{ch.name}</span>
+                    <Link
+                      to="/marketing/connected-accounts"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e3a5f] text-[#1e3a5f] text-sm font-medium hover:bg-[#1e3a5f]/5"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Connect account
+                    </Link>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={ch.id}

@@ -23,6 +23,8 @@ const ConversationsInbox = lazy(() => import('./features/conversations/InboxPage
 const ConversationsConnectedAccounts = lazy(() => import('./features/conversations/ConnectedAccountsPage').then((m) => ({ default: m.ConnectedAccountsPage })));
 const ConversationsCampaigns = lazy(() => import('./features/conversations/CampaignsPage').then((m) => ({ default: m.CampaignsPage })));
 const Marketing = lazy(() => import('./pages/Marketing'));
+const MarketingLayout = lazy(() => import('./pages/MarketingLayout'));
+const MarketingConnectedAccounts = lazy(() => import('./pages/MarketingConnectedAccounts'));
 
 /* ─── Skeleton that mirrors the AppShell layout ─── */
 function AppShellSkeleton() {
@@ -258,10 +260,13 @@ export default function App() {
             path="/marketing"
             element={
               <ProtectedRoute>
-                <Marketing />
+                <MarketingLayout />
               </ProtectedRoute>
             }
-          />
+          >
+            <Route index element={<Marketing />} />
+            <Route path="connected-accounts" element={<MarketingConnectedAccounts />} />
+          </Route>
           <Route path="/home-value-estimator" element={<Navigate to="/property-valuation" replace />} />
           <Route path="/lead-sources" element={<Navigate to="/workspace-settings" replace />} />
           <Route path="/pipeline-settings" element={<Navigate to="/workspace-settings" replace />} />

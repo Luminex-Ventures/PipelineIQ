@@ -440,3 +440,197 @@ export async function getInsights(userId: string): Promise<MarketingInsight[]> {
 
   return insights;
 }
+
+// ─── Phase 2: Integrations ───────────────────────────────────────────────────
+const INTEGRATIONS = 'marketing_integrations';
+const CAMPAIGNS = 'marketing_campaigns';
+const ACTIONS = 'marketing_actions';
+const TOUCHPOINTS = 'lead_attribution_touchpoints';
+const ATTRIBUTION_SETTINGS = 'marketing_attribution_settings';
+const TRACKING_EVENTS = 'marketing_tracking_events';
+const RECOMMENDATIONS = 'marketing_recommendations';
+const AUTOMATION_RULES = 'marketing_automation_rules';
+
+export async function listIntegrations(userId: string): Promise<import('../types/marketing').MarketingIntegration[]> {
+  const { data, error } = await supabase
+    .from(INTEGRATIONS)
+    .select('*')
+    .eq('user_id', userId)
+    .in('status', ['connected', 'error'])
+    .order('provider');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types/marketing').MarketingIntegration[];
+}
+
+export async function disconnectIntegration(
+  userId: string,
+  integrationId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from(INTEGRATIONS)
+    .update({ status: 'disconnected' })
+    .eq('id', integrationId)
+    .eq('user_id', userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function createIntegration(
+  userId: string,
+  params: {
+    provider: import('../types/marketing').MarketingIntegrationProvider;
+    external_account_name?: string | null;
+  }
+): Promise<import('../types/marketing').MarketingIntegration> {
+  const external_account_id = `manual-${crypto.randomUUID()}`;
+  const { data, error } = await supabase
+    .from(INTEGRATIONS)
+    .insert({
+      user_id: userId,
+      provider: params.provider,
+      external_account_id,
+      external_account_name: params.external_account_name ?? null,
+      status: 'connected',
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as import('../types/marketing').MarketingIntegration;
+}
+
+export async function listCampaigns(walletId: string): Promise<import('../types/marketing').MarketingCampaign[]> {
+  const { data, error } = await supabase
+    .from(CAMPAIGNS)
+    .select('*')
+    .eq('wallet_id', walletId)
+    .order('updated_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types/marketing').MarketingCampaign[];
+}
+
+export async function getOrCreateAttributionSettings(
+  userId: string
+): Promise<import('../types/marketing').MarketingAttributionSettings> {
+  const { data: existing, error: fetchErr } = await supabase
+    .from(ATTRIBUTION_SETTINGS)
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if (existing) return existing as import('../types/marketing').MarketingAttributionSettings;
+  const { data: created, error: insertErr } = await supabase
+    .from(ATTRIBUTION_SETTINGS)
+    .insert({ user_id: userId, attribution_model: 'last_touch' })
+    .select()
+    .single();
+  if (insertErr) throw new Error(insertErr.message);
+  return created as import('../types/marketing').MarketingAttributionSettings;
+}
+
+export async function updateAttributionModel(
+  userId: string,
+  model: 'first_touch' | 'last_touch' | 'linear'
+): Promise<void> {
+  const { error } = await supabase
+    .from(ATTRIBUTION_SETTINGS)
+    .update({ attribution_model: model })
+    .eq('user_id', userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function listRecommendations(
+  userId: string,
+  options?: { status?: 'pending' | 'applied' | 'dismissed' }
+): Promise<import('../types/marketing').MarketingRecommendation[]> {
+  let q = supabase.from(RECOMMENDATIONS).select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  if (options?.status) q = q.eq('status', options.status);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types/marketing').MarketingRecommendation[];
+}
+
+export async function applyRecommendation(
+  recommendationId: string,
+  userId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from(RECOMMENDATIONS)
+    .update({ status: 'applied', applied_at: new Date().toISOString() })
+    .eq('id', recommendationId)
+    .eq('user_id', userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function dismissRecommendation(
+  recommendationId: string,
+  userId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from(RECOMMENDATIONS)
+    .update({ status: 'dismissed', dismissed_at: new Date().toISOString() })
+    .eq('id', recommendationId)
+    .eq('user_id', userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function listAutomationRules(userId: string): Promise<import('../types/marketing').MarketingAutomationRule[]> {
+  const { data, error } = await supabase
+    .from(AUTOMATION_RULES)
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as import('../types/marketing').MarketingAutomationRule[];
+}
+
+export async function createAutomationRule(
+  userId: string,
+  params: {
+    name: string;
+    rule_type: import('../types/marketing').MarketingAutomationRuleType;
+    config: Record<string, unknown>;
+    is_active?: boolean;
+  }
+): Promise<import('../types/marketing').MarketingAutomationRule> {
+  const { data, error } = await supabase
+    .from(AUTOMATION_RULES)
+    .insert({
+      user_id: userId,
+      name: params.name,
+      rule_type: params.rule_type,
+      config: params.config,
+      is_active: params.is_active ?? true,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as import('../types/marketing').MarketingAutomationRule;
+}
+
+export async function logTrackingEvent(
+  userId: string,
+  params: {
+    event_type: string;
+    gclid?: string | null;
+    fbclid?: string | null;
+    utm_source?: string | null;
+    utm_medium?: string | null;
+    utm_campaign?: string | null;
+    landing_url?: string | null;
+    deal_id?: string | null;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const { error } = await supabase.from(TRACKING_EVENTS).insert({
+    user_id: userId,
+    event_type: params.event_type,
+    gclid: params.gclid ?? null,
+    fbclid: params.fbclid ?? null,
+    utm_source: params.utm_source ?? null,
+    utm_medium: params.utm_medium ?? null,
+    utm_campaign: params.utm_campaign ?? null,
+    landing_url: params.landing_url ?? null,
+    deal_id: params.deal_id ?? null,
+    metadata: params.metadata ?? {},
+  });
+  if (error) throw new Error(error.message);
+}

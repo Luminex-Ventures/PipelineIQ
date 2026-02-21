@@ -106,6 +106,7 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
             .from('pipeline_statuses')
             .select('id, name, lifecycle_stage')
             .eq('team_id', teamId)
+            .order('sort_order', { ascending: true })
         : { data: null };
 
       const { data: pipelineStatuses } = teamPipelineStatuses?.length
@@ -113,10 +114,13 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
         : await supabase
             .from('pipeline_statuses')
             .select('id, name, lifecycle_stage')
-            .eq('user_id', user.id);
+            .eq('user_id', user.id)
+            .order('sort_order', { ascending: true });
 
+      const orderedStatuses = (pipelineStatuses ?? []) as PipelineStatus[];
+      const earliestStatus = orderedStatuses[0] ?? null;
       const pipelineStatusMap = new Map(
-        ((pipelineStatuses ?? []) as PipelineStatus[]).map((ps) => [
+        orderedStatuses.map((ps) => [
           ps.name.toLowerCase(),
           { id: ps.id, lifecycle_stage: ps.lifecycle_stage }
         ])
@@ -160,6 +164,11 @@ export default function ImportDealsModal({ onClose, onSuccess }: ImportDealsModa
           if (mappedStatus?.lifecycle_stage) {
             status = mappedStatus.lifecycle_stage;
           }
+        }
+        // When no pipeline status is specified, put the lead in the earliest status (first in pipeline)
+        if (!pipelineStatusId && earliestStatus) {
+          pipelineStatusId = earliestStatus.id;
+          status = (earliestStatus.lifecycle_stage as DealStatus) ?? 'new';
         }
 
         let parsedCloseDate: string | null = null;
