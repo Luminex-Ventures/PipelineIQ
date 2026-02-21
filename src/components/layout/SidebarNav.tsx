@@ -6,6 +6,8 @@ import {
   Sparkles,
   Settings,
   BarChart3,
+  Globe,
+  Home,
   ChevronLeft,
   ChevronRight,
   LucideIcon,
@@ -26,6 +28,11 @@ const mainNavItems: NavItem[] = [
   { icon: Trello, label: 'Pipeline', path: '/pipeline' },
   { icon: CheckSquare, label: 'Tasks', path: '/tasks' },
   { icon: BarChart3, label: 'Analytics', path: '/analytics' },
+];
+
+const marketNavItems: NavItem[] = [
+  { icon: Globe, label: 'Market Intel', path: '/market-intelligence' },
+  { icon: Home, label: 'Property Valuation', path: '/property-valuation' },
 ];
 
 const aiNavItems: NavItem[] = [
@@ -172,6 +179,21 @@ export function SidebarNav({ isCollapsed, onToggle }: SidebarNavProps) {
               </div>
             )}
             {renderNavItems(mainNavItems)}
+          </div>
+
+          {/* Divider */}
+          <div className={isCollapsed ? 'mx-2' : 'mx-3'}>
+            <div className="h-px bg-white/10" />
+          </div>
+
+          {/* Market section */}
+          <div className="space-y-1">
+            {!isCollapsed && (
+              <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                MARKET
+              </div>
+            )}
+            {renderNavItems(marketNavItems)}
           </div>
 
           {/* Divider */}

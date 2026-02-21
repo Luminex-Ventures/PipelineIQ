@@ -14,6 +14,8 @@ const Luma = lazy(() => import('./pages/Luma'));
 const WorkspaceSettings = lazy(() => import('./pages/WorkspaceSettings'));
 const PersonalSettings = lazy(() => import('./pages/PersonalSettings'));
 const ContractScribeComingSoon = lazy(() => import('./pages/ContractScribeComingSoon'));
+const MarketIntelligence = lazy(() => import('./pages/MarketIntelligence'));
+const PropertyValuationPage = lazy(() => import('./pages/PropertyValuation'));
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'));
 
 /* ─── Skeleton that mirrors the AppShell layout ─── */
@@ -209,6 +211,23 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/market-intelligence"
+            element={
+              <ProtectedRoute>
+                <MarketIntelligence />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/property-valuation"
+            element={
+              <ProtectedRoute>
+                <PropertyValuationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/home-value-estimator" element={<Navigate to="/property-valuation" replace />} />
           <Route path="/lead-sources" element={<Navigate to="/workspace-settings" replace />} />
           <Route path="/pipeline-settings" element={<Navigate to="/workspace-settings" replace />} />
           <Route
