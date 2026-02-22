@@ -1,6 +1,17 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Mail, Lock, Eye, EyeOff, BarChart3, DollarSign, Sparkles, TrendingUp } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart3,
+  DollarSign,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  Sparkles,
+  TrendingUp,
+} from 'lucide-react';
 
 interface LoginProps {
   onToggle: () => void;
@@ -10,7 +21,6 @@ export default function Login({ onToggle }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -19,184 +29,165 @@ export default function Login({ onToggle }: LoginProps) {
     setLoading(true);
     setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (error) {
-      setError(error.message);
+    if (authError) {
+      setError(authError.message);
     }
 
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#e8eaed] flex items-center justify-center p-4 lg:p-8">
-      {/* Main card container */}
-      <div className="w-full max-w-5xl bg-white rounded-3xl shadow-2xl shadow-black/30 overflow-hidden flex flex-col lg:flex-row">
-        
-        {/* Left Panel - Login Form */}
-        <div className="w-full lg:w-1/2 p-8 lg:p-12 xl:p-16">
-          {/* Logo */}
-          <div className="mb-10 flex justify-center">
-            <img src="/LumaIQ.png" alt="Luma-IQ" className="h-10" />
+    <div className="relative flex min-h-screen items-center justify-center bg-[#fafbfe] p-4 antialiased selection:bg-[#D4883A]/20 lg:p-8">
+      {/* ambient background */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="animate-float absolute -top-32 left-1/2 h-[700px] w-[700px] -translate-x-1/2 rounded-full bg-[#1e3a5f]/[0.07] blur-[140px]" />
+        <div className="animate-float-slow absolute top-[40%] -right-40 h-[500px] w-[500px] rounded-full bg-[#D4883A]/[0.06] blur-[140px]" />
+      </div>
+
+      <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-white/60 bg-white/80 shadow-[0_2px_4px_rgba(15,23,42,0.04),0_24px_68px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:flex">
+        {/* ── left: form ── */}
+        <div className="w-full p-8 lg:w-1/2 lg:p-12 xl:p-16">
+          {/* logo → home */}
+          <div className="mb-10">
+            <Link to="/" className="inline-flex items-center gap-2">
+              <img src="/LumaIQ.png" alt="Luma-IQ" className="h-9" />
+            </Link>
           </div>
 
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-2">
-              Log in to your account
-            </h1>
-            <p className="text-gray-500">
-              Welcome back. Enter your credentials to continue.
-            </p>
-          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 lg:text-3xl">
+            Welcome back
+          </h1>
+          <p className="mt-2 text-[15px] text-slate-500">
+            Enter your credentials to continue.
+          </p>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             {error && (
-              <div className="bg-red-50 border border-red-200/60 text-red-700 px-4 py-3 rounded-xl text-sm">
+              <div className="rounded-xl border border-red-200/60 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
                 {error}
               </div>
             )}
 
-            {/* Email Field */}
+            {/* email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-2" style={{ color: '#1e3a5f' }}>
+              <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Email
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5" style={{ color: 'rgba(30, 58, 95, 0.4)' }} />
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                  <Mail className="h-[18px] w-[18px] text-slate-300" />
                 </div>
                 <input
-                  id="email"
+                  id="login-email"
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl transition-all bg-gray-50/50 hover:border-gray-300 focus:outline-none focus:ring-2 focus:border-transparent"
-                  style={{ color: '#1e3a5f' }}
-                  onFocus={(e) => e.target.style.boxShadow = '0 0 0 3px rgba(212, 136, 58, 0.2)'}
-                  onBlur={(e) => e.target.style.boxShadow = 'none'}
-                  placeholder="Enter your email"
+                  placeholder="you@example.com"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-[15px] text-slate-900 placeholder:text-slate-400 transition focus:border-[#D4883A] focus:outline-none focus:ring-2 focus:ring-[#D4883A]/20"
                 />
               </div>
             </div>
 
-            {/* Password Field */}
+            {/* password */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-2" style={{ color: '#1e3a5f' }}>
+              <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5" style={{ color: 'rgba(30, 58, 95, 0.4)' }} />
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                  <Lock className="h-[18px] w-[18px] text-slate-300" />
                 </div>
                 <input
-                  id="password"
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-12 py-3 border border-gray-200 rounded-xl transition-all bg-gray-50/50 hover:border-gray-300 focus:outline-none focus:ring-2 focus:border-transparent"
-                  style={{ color: '#1e3a5f' }}
-                  onFocus={(e) => e.target.style.boxShadow = '0 0 0 3px rgba(212, 136, 58, 0.2)'}
-                  onBlur={(e) => e.target.style.boxShadow = 'none'}
                   placeholder="Enter your password"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-12 text-[15px] text-slate-900 placeholder:text-slate-400 transition focus:border-[#D4883A] focus:outline-none focus:ring-2 focus:ring-[#D4883A]/20"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center transition-colors"
-                  style={{ color: 'rgba(30, 58, 95, 0.4)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(30, 58, 95, 0.4)'}
+                  className="absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400 transition-colors hover:text-[#D4883A]"
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                 </button>
               </div>
             </div>
 
-            {/* Remember me & Forgot password */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
-                />
-                <span className="ml-2 text-sm text-gray-600">Remember me</span>
-              </label>
-              <a 
-                href="#" 
-                className="text-sm font-medium transition-colors"
-                style={{ color: '#1e3a5f' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
+            {/* forgot */}
+            <div className="flex items-center justify-end">
+              <a
+                href="#"
+                className="text-sm font-medium text-[#1e3a5f] transition-colors hover:text-[#D4883A]"
               >
                 Forgot password?
               </a>
             </div>
 
-            {/* Submit Button */}
+            {/* submit */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 px-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 hover:shadow-lg flex items-center justify-center gap-2"
-              style={{ backgroundColor: '#1e3a5f' }}
-              onMouseEnter={(e) => !loading && (e.currentTarget.style.backgroundColor = '#D4883A')}
-              onMouseLeave={(e) => !loading && (e.currentTarget.style.backgroundColor = '#1e3a5f')}
+              className="flex w-full items-center justify-center gap-2.5 rounded-full bg-[#1e3a5f] py-3.5 text-sm font-semibold text-white shadow-md shadow-[#1e3a5f]/15 transition-all hover:brightness-110 disabled:opacity-50"
             >
               {loading ? 'Logging in...' : (
-                <>
-                  Log in
-                  <span className="text-lg">→</span>
-                </>
+                <>Log in <ArrowRight className="h-4 w-4" /></>
               )}
             </button>
           </form>
 
-          {/* Create account link */}
-          <div className="mt-8 text-center">
-            <span style={{ color: 'rgba(30, 58, 95, 0.6)' }}>Don't have an account? </span>
+          {/* toggle to signup */}
+          <p className="mt-8 text-center text-sm text-slate-500">
+            Don&apos;t have an account?{' '}
             <button
               onClick={onToggle}
-              className="font-semibold transition-colors"
-              style={{ color: '#1e3a5f' }}
-              onMouseEnter={(e) => e.currentTarget.style.color = '#D4883A'}
-              onMouseLeave={(e) => e.currentTarget.style.color = '#1e3a5f'}
+              className="font-semibold text-[#1e3a5f] transition-colors hover:text-[#D4883A]"
             >
-              Create an account
+              Create one
             </button>
-          </div>
+          </p>
         </div>
 
-        {/* Right Panel - Branding */}
-        <div 
-          className="hidden lg:flex lg:w-1/2 flex-col justify-between p-10 xl:p-14 relative overflow-hidden"
-          style={{ backgroundColor: '#0f1c2e' }}
-        >
-          {/* Ambient glow */}
-          <div className="pointer-events-none absolute -top-20 -right-20 h-60 w-60 rounded-full bg-[#D4883A]/15 blur-[100px]" />
-          <div className="pointer-events-none absolute bottom-0 left-0 h-48 w-48 rounded-full bg-[#2d5a8a]/20 blur-[80px]" />
+        {/* ── right: branded panel ── */}
+        <div className="relative hidden overflow-hidden bg-gradient-to-br from-[#0f1f33] via-[#152d4a] to-[#1e3a5f] lg:flex lg:w-1/2 lg:flex-col lg:justify-between lg:p-10 xl:p-14">
+          {/* dot grid */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px)',
+              backgroundSize: '24px 24px',
+            }}
+          />
+          {/* ambient glow */}
+          <div aria-hidden className="animate-float pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-[#D4883A]/15 blur-[100px]" />
+          <div aria-hidden className="animate-float-slow pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-indigo-500/10 blur-[80px]" />
 
-          {/* Top: tagline */}
-          <div>
-            <h2 className="text-2xl xl:text-3xl font-bold text-white leading-tight">
+          {/* tagline */}
+          <div className="relative z-10">
+            <h2 className="text-2xl font-extrabold leading-tight text-white xl:text-3xl">
               Your deals.{' '}
-              <span className="text-[#D4883A]">In focus.</span>
+              <span className="bg-gradient-to-r from-[#D4883A] to-[#e8a45a] bg-clip-text text-transparent">
+                In focus.
+              </span>
             </h2>
-            <p className="mt-3 text-white/50 text-sm xl:text-base max-w-xs leading-relaxed">
-              Pipeline, commissions, and insights — in one view.
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/40 xl:text-[15px]">
+              Pipeline, commissions, and AI-powered insights — in one view.
             </p>
           </div>
 
-          {/* Middle: Mini dashboard cards */}
-          <div className="mt-8 space-y-3 relative z-10">
-            <div className="rounded-xl border border-white/[0.08] bg-[#162a42] p-4">
+          {/* mini dashboard */}
+          <div className="relative z-10 mt-8 space-y-3">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-sm">
               <div className="flex items-center gap-3">
                 <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#D4883A]/15 text-[#D4883A]">
                   <BarChart3 className="h-4 w-4" />
@@ -212,42 +203,42 @@ export default function Login({ onToggle }: LoginProps) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-white/[0.08] bg-[#162a42] p-4">
-                <div className="flex items-center gap-2 mb-2">
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-sm">
+                <div className="mb-2 flex items-center gap-2">
                   <DollarSign className="h-3.5 w-3.5 text-emerald-400" />
-                  <span className="text-xs font-medium text-gray-400">YTD GCI</span>
+                  <span className="text-xs font-medium text-white/40">YTD GCI</span>
                 </div>
                 <div className="text-lg font-bold text-white">$142K</div>
               </div>
-              <div className="rounded-xl border border-white/[0.08] bg-[#162a42] p-4">
-                <div className="flex items-center gap-2 mb-2">
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-sm">
+                <div className="mb-2 flex items-center gap-2">
                   <TrendingUp className="h-3.5 w-3.5 text-[#D4883A]" />
-                  <span className="text-xs font-medium text-gray-400">Close rate</span>
+                  <span className="text-xs font-medium text-white/40">Close rate</span>
                 </div>
                 <div className="text-lg font-bold text-white">28%</div>
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/[0.08] bg-[#162a42] p-4">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-sm">
               <div className="flex items-start gap-3">
                 <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#D4883A]/15 text-[#D4883A]">
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-white">Luma AI Insight</div>
-                  <div className="mt-0.5 text-xs leading-relaxed text-gray-500">
-                    3 deals stalled 14+ days. Follow up to recover $240K in pipeline value.
+                  <div className="mt-0.5 text-xs leading-relaxed text-white/35">
+                    3 deals stalled 14+ days. Follow up to recover $240K pipeline value.
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Bottom: accent bar */}
-          <div className="mt-8 flex items-center gap-3">
-            <div className="h-1 w-10 rounded-full bg-[#D4883A]" />
-            <div className="h-1 w-3 rounded-full bg-white/20" />
-            <div className="h-1 w-3 rounded-full bg-white/20" />
+          {/* accent dots */}
+          <div className="relative z-10 mt-8 flex items-center gap-2">
+            <div className="h-1.5 w-10 rounded-full bg-[#D4883A]" />
+            <div className="h-1.5 w-3 rounded-full bg-white/15" />
+            <div className="h-1.5 w-3 rounded-full bg-white/15" />
           </div>
         </div>
       </div>
