@@ -14,6 +14,7 @@ This directory contains **internal** instructions for setting up and maintaining
 ## For developers
 
 - **[DEVELOPER_SETUP.md](./DEVELOPER_SETUP.md)** – Master checklist: where to get APIs, which secrets to set, infrastructure (Supabase, Edge Functions), and codebase locations. Use this to prepare the system so integrations work for users.
+- **[FUNDING_AND_LEAD_SOURCES.md](./FUNDING_AND_LEAD_SOURCES.md)** – How marketing funding (wallet, allocations) connects to lead sources via channels; data model, code locations, and how to wire or extend per–lead-source funding.
 
 ## Doc conventions
 

@@ -260,3 +260,100 @@ export interface MarketingAutomationRule {
   created_at: string;
   updated_at: string;
 }
+
+// ─── Phase 3: Provider framework & budgets ─────────────────────────────────────
+export type VisibilityScope = 'organization' | 'team' | 'private';
+export type ProviderAccountStatus = 'connected' | 'disconnected' | 'error' | 'expired';
+export type BudgetPacingRule = 'even' | 'front_load' | 'aggressive';
+export type BudgetFundingMethod = 'manual' | 'billing';
+export type AllocationStrategyMode =
+  | 'balanced'
+  | 'max_roi'
+  | 'max_volume'
+  | 'quick_wins'
+  | 'experiment_heavy';
+export type AllocationDecisionStatus = 'pending' | 'applied' | 'overridden' | 'rejected';
+
+export interface MarketingProviderAccount {
+  id: string;
+  organization_id: string;
+  created_by: string | null;
+  visibility_scope: VisibilityScope;
+  team_id: string | null;
+  provider: string;
+  external_account_id: string;
+  external_account_name: string | null;
+  credential_ref: string | null;
+  status: ProviderAccountStatus;
+  last_sync_at: string | null;
+  last_sync_error: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketingBudget {
+  id: string;
+  organization_id: string;
+  created_by: string | null;
+  visibility_scope: VisibilityScope;
+  team_id: string | null;
+  name: string;
+  monthly_budget_cents: number;
+  weekly_cap_cents: number | null;
+  per_channel_caps: Record<string, number>;
+  pacing_rule: BudgetPacingRule;
+  start_date: string | null;
+  end_date: string | null;
+  funding_method: BudgetFundingMethod;
+  is_paused: boolean;
+  strategy_mode: AllocationStrategyMode | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AllocationDecision {
+  id: string;
+  organization_id: string;
+  budget_id: string | null;
+  period_start: string;
+  period_end: string;
+  decisions: Record<string, unknown>;
+  explanation: string | null;
+  confidence: number | null;
+  status: AllocationDecisionStatus;
+  created_by: string | null;
+  applied_at: string | null;
+  overridden_by: string | null;
+  created_at: string;
+}
+
+export interface MarketingCampaignTemplate {
+  id: string;
+  organization_id: string;
+  created_by: string | null;
+  visibility_scope: VisibilityScope;
+  name: string;
+  channel_id: string;
+  target_geography: Record<string, unknown>;
+  audience_keywords_placeholder: Record<string, unknown>;
+  budget_min_cents: number | null;
+  budget_max_cents: number | null;
+  creative_placeholder: string | null;
+  landing_page_url: string | null;
+  tracking_fields: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttributionOverride {
+  id: string;
+  deal_id: string;
+  override_lead_source_id: string | null;
+  override_campaign_id: string | null;
+  reason: string | null;
+  created_by: string;
+  created_at: string;
+}

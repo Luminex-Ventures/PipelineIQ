@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppShell } from './components/layout/AppShell';
@@ -23,6 +23,15 @@ const ConversationsInbox = lazy(() => import('./features/conversations/InboxPage
 const ConversationsCampaigns = lazy(() => import('./features/conversations/CampaignsPage').then((m) => ({ default: m.CampaignsPage })));
 const Marketing = lazy(() => import('./pages/Marketing'));
 const MarketingLayout = lazy(() => import('./pages/MarketingLayout'));
+const Pricing = lazy(() => import('./pages/Pricing'));
+const SignupSaaS = lazy(() => import('./pages/Signup'));
+const Setup = lazy(() => import('./pages/Setup'));
+const ContactSales = lazy(() => import('./pages/ContactSales'));
+const LegalTerms = lazy(() => import('./pages/LegalTerms'));
+const LegalPrivacy = lazy(() => import('./pages/LegalPrivacy'));
+const Billing = lazy(() => import('./pages/Billing'));
+const Onboarding = lazy(() => import('./pages/Onboarding'));
+const Landing = lazy(() => import('./pages/Landing'));
 
 /* ─── Skeleton that mirrors the AppShell layout ─── */
 function AppShellSkeleton() {
@@ -140,12 +149,46 @@ function AuthPages() {
   );
 }
 
+function SignupRoute() {
+  const location = useLocation();
+  return (
+    <Suspense fallback={<AuthSkeleton />}>
+      <SignupSaaS key={location.pathname + location.search} />
+    </Suspense>
+  );
+}
+
+function HomeRoute() {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return <AppShellSkeleton />;
+  }
+  if (user) {
+    return (
+      <ProtectedRoute>
+        <Dashboard />
+      </ProtectedRoute>
+    );
+  }
+  return (
+    <Suspense fallback={<AuthSkeleton />}>
+      <Landing />
+    </Suspense>
+  );
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <Toaster position="top-center" />
       <BrowserRouter>
         <Routes>
+          <Route path="/pricing" element={<Suspense fallback={<AuthSkeleton />}><Pricing /></Suspense>} />
+          <Route path="/signup" element={<SignupRoute />} />
+          <Route path="/setup" element={<Suspense fallback={<AuthSkeleton />}><Setup /></Suspense>} />
+          <Route path="/contact-sales" element={<Suspense fallback={<AuthSkeleton />}><ContactSales /></Suspense>} />
+          <Route path="/legal/terms" element={<Suspense fallback={<AuthSkeleton />}><LegalTerms /></Suspense>} />
+          <Route path="/legal/privacy" element={<Suspense fallback={<AuthSkeleton />}><LegalPrivacy /></Suspense>} />
           <Route
             path="/login"
             element={
@@ -154,14 +197,7 @@ export default function App() {
               </AuthRoute>
             }
           />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<HomeRoute />} />
           <Route
             path="/invite/:token"
             element={
@@ -207,6 +243,22 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <WorkspaceSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <Onboarding />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/billing"
+            element={
+              <ProtectedRoute>
+                <Billing />
               </ProtectedRoute>
             }
           />

@@ -153,6 +153,77 @@ export async function setAllocation(
   return data as MarketingAllocation;
 }
 
+export interface ChannelAllocationRecommendation {
+  channel_id: string;
+  recommended_monthly_budget_cents: number;
+  reason: string;
+}
+
+/**
+ * Luma recommendation for monthly budget per channel using the agent's data:
+ * performance (spend, leads, ROI), current allocations, and wallet balance.
+ * User can accept or override each suggestion.
+ */
+export async function getChannelAllocationRecommendations(
+  userId: string
+): Promise<ChannelAllocationRecommendation[]> {
+  const wallet = await getOrCreateWallet(userId);
+  const performance = await getPerformance(userId);
+  const allocations = await getAllocations(wallet.id);
+  const allocationByChannel = allocations.reduce(
+    (acc, a) => {
+      acc[a.channel_id] = a.monthly_budget_cents;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+
+  const balanceCents = wallet.balance_cents as number;
+  const byChannel = performance.by_channel;
+
+  const raw: ChannelAllocationRecommendation[] = byChannel.map((ch) => {
+    const spend = ch.spend_cents;
+    const roi = ch.roi_percent;
+    const currentAlloc = allocationByChannel[ch.channel_id] ?? 0;
+    let recommendedCents: number;
+    let reason: string;
+
+    if (spend > 0) {
+      if (roi != null && roi > 0) {
+        recommendedCents = Math.round(spend * 1.15);
+        reason = 'Strong ROI; Luma suggests increasing budget.';
+      } else if (roi != null && roi < 0) {
+        recommendedCents = Math.round(spend * 0.9);
+        reason = 'Based on recent spend; consider reallocating to higher-ROI channels.';
+      } else {
+        recommendedCents = Math.round(spend * 1.05);
+        reason = 'Based on your recent spend.';
+      }
+    } else {
+      recommendedCents = currentAlloc > 0 ? currentAlloc : 0;
+      reason = currentAlloc > 0
+        ? 'No recent spend; Luma suggests keeping current allocation.'
+        : 'Set a budget when you\'re ready to run campaigns.';
+    }
+
+    return {
+      channel_id: ch.channel_id,
+      recommended_monthly_budget_cents: Math.max(0, recommendedCents),
+      reason,
+    };
+  });
+
+  const totalRecommended = raw.reduce((s, r) => s + r.recommended_monthly_budget_cents, 0);
+  if (totalRecommended <= 0 || totalRecommended <= balanceCents) {
+    return raw;
+  }
+  const scale = balanceCents / totalRecommended;
+  return raw.map((r) => ({
+    ...r,
+    recommended_monthly_budget_cents: Math.round(r.recommended_monthly_budget_cents * scale),
+  }));
+}
+
 export async function getSpend(
   walletId: string,
   options?: { periodStart?: string; periodEnd?: string }
